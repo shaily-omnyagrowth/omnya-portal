@@ -728,6 +728,7 @@ function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
       {id:"revenue",icon:"📈",label:"Revenue Analytics"},
       {id:"payments",icon:"💸",label:"Payment Management"},
       {id:"team",icon:"👥",label:"Team Performance"},
+      {id:"pending-users",icon:"🔔",label:"Approve Users"},
       {id:"review-queue",icon:"✅",label:"Review Queue",badge:pendingCount},
       {id:"campaigns",icon:"📢",label:"All Campaigns"},
       {id:"content-library",icon:"🎬",label:"Content Library"},
@@ -1884,6 +1885,82 @@ create policy "Allow all" on account_managers for all using (true) with check (t
 // MAIN APP
 // ============================================================
 
+// ============================================================
+// PENDING USERS - OWNER ROLE APPROVAL
+// ============================================================
+function PendingUsers({ onRefresh }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(null);
+
+  const loadPending = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("user_profiles").select("*").eq("role", "pending");
+    setUsers(data || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadPending(); }, []);
+
+  const assignRole = async (userId, email, role) => {
+    setSaving(userId);
+    await supabase.from("user_profiles").update({ role }).eq("id", userId);
+    if (role === "am") {
+      await supabase.from("account_managers").upsert({ user_id: userId, email, name: email.split("@")[0] });
+    }
+    if (role === "creator") {
+      await supabase.from("creators").upsert({ user_id: userId, email, name: email.split("@")[0], status: "Active" });
+    }
+    setSaving(null);
+    loadPending();
+    onRefresh();
+  };
+
+  const denyUser = async (userId) => {
+    setSaving(userId);
+    await supabase.from("user_profiles").update({ role: "denied" }).eq("id", userId);
+    setSaving(null);
+    loadPending();
+  };
+
+  if (loading) return <Spinner />;
+
+  return (
+    <div className="content">
+      <div className="card mb-16">
+        <div style={{fontSize:13,color:"var(--ink3)",marginBottom:8}}>
+          New users who signed up and are waiting for role assignment. Assign them as Creator or Account Manager to give them access.
+        </div>
+      </div>
+      {users.length === 0 ? (
+        <div className="empty"><div className="empty-icon">✅</div><h3>No pending users</h3><p>Everyone has been assigned a role</p></div>
+      ) : (
+        users.map(u => (
+          <div key={u.id} className="card mb-12">
+            <div className="flex-between">
+              <div>
+                <div style={{fontWeight:600,marginBottom:4}}>{u.email}</div>
+                <div style={{fontSize:12,color:"var(--ink3)"}}>Signed up · waiting for role</div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn btn-sm" style={{background:"var(--green)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "creator")}>
+                  {saving===u.id?"...":"✓ Creator"}
+                </button>
+                <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "am")}>
+                  {saving===u.id?"...":"✓ AM"}
+                </button>
+                <button className="btn btn-sm" style={{background:"var(--red)",color:"#fff"}} disabled={saving===u.id} onClick={()=>denyUser(u.id)}>
+                  {saving===u.id?"...":"✗ Deny"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1943,7 +2020,12 @@ export default function App() {
   const handleLogin = async(u) => {
     const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",u.id).single();
     if (profile) { setUser({...u,...profile}); setNeedsSetup(false); }
-    else { setUser(u); setNeedsSetup(true); }
+    else {
+      // New user - create pending profile automatically
+      await supabase.from("user_profiles").upsert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: "pending" });
+      setUser({...u, role:"pending"});
+      setNeedsSetup(false);
+    }
   };
 
   const handleLogout = async()=>{ await supabase.auth.signOut(); setUser(null); setPage("dashboard"); };
@@ -1958,7 +2040,7 @@ export default function App() {
     "review-queue":"Review Queue","my-creators":"My Creators",campaigns:"Campaigns",
     clients:"My Clients","content-library":"Content Library",analytics:"Analytics",
     "clients-full":"Client Management",revenue:"Revenue Analytics",
-    payments:"Payment Management",team:"Team Performance",
+    payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users",
   };
 
   const renderPage = ()=>{
@@ -1989,6 +2071,7 @@ export default function App() {
       if(page==="revenue") return <RevenueAnalytics db={db}/>;
       if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB}/>;
       if(page==="team") return <TeamPerformance db={db}/>;
+      if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
       if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
       if(page==="campaigns") return <CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={true}/>;
       if(page==="content-library") return <ContentLibrary db={db} onRefresh={loadDB}/>;
@@ -1999,6 +2082,10 @@ export default function App() {
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>;
   if(!user) return <><style>{styles}</style><Login onLogin={handleLogin}/></>;
   if(needsSetup) return <><style>{styles}</style><SetupScreen user={user} onComplete={handleSetupComplete}/></>;
+  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! Shaily will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact Shaily for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! Shaily will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact Shaily for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
 
   return (
     <>
