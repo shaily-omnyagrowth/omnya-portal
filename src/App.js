@@ -676,7 +676,7 @@ function Login({ onLogin }) {
           <label>Password</label>
           <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
         </div>
-        {err && <div style={{fontSize:13,marginBottom:12,color:err.includes("Check your")?GREEN:"var(--red)"}}>{err}</div>}
+        {err && <div style={{fontSize:13,marginBottom:12,color:err.includes("Check your")?"var(--green)":"var(--red)"}}>{err}</div>}
         <button className="btn btn-primary btn-full" onClick={handle} disabled={loading}>
           {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
         </button>
