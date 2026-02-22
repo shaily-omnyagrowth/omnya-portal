@@ -729,6 +729,7 @@ function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
       {id:"payments",icon:"💸",label:"Payment Management"},
       {id:"team",icon:"👥",label:"Team Performance"},
       {id:"pending-users",icon:"🔔",label:"Approve Users"},
+      {id:"pending-users",icon:"🔔",label:"Approve Users"},
       {id:"review-queue",icon:"✅",label:"Review Queue",badge:pendingCount},
       {id:"campaigns",icon:"📢",label:"All Campaigns"},
       {id:"content-library",icon:"🎬",label:"Content Library"},
@@ -2040,7 +2041,7 @@ export default function App() {
     "review-queue":"Review Queue","my-creators":"My Creators",campaigns:"Campaigns",
     clients:"My Clients","content-library":"Content Library",analytics:"Analytics",
     "clients-full":"Client Management",revenue:"Revenue Analytics",
-    payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users",
+    payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users","pending-users":"Approve Users",
   };
 
   const renderPage = ()=>{
@@ -2071,6 +2072,7 @@ export default function App() {
       if(page==="revenue") return <RevenueAnalytics db={db}/>;
       if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB}/>;
       if(page==="team") return <TeamPerformance db={db}/>;
+      if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
       if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
       if(page==="campaigns") return <CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={true}/>;
