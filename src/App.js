@@ -729,7 +729,6 @@ function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
       {id:"payments",icon:"💸",label:"Payment Management"},
       {id:"team",icon:"👥",label:"Team Performance"},
       {id:"pending-users",icon:"🔔",label:"Approve Users"},
-      {id:"pending-users",icon:"🔔",label:"Approve Users"},
       {id:"review-queue",icon:"✅",label:"Review Queue",badge:pendingCount},
       {id:"campaigns",icon:"📢",label:"All Campaigns"},
       {id:"content-library",icon:"🎬",label:"Content Library"},
