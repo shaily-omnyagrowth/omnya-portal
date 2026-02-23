@@ -1338,7 +1338,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
                 const pct=Math.round((approved/(c.videos_needed||1))*100);
                 return (
                   <tr key={c.id}>
-                    <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
+                    <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(Array.isArray(c.assigned_creators)?c.assigned_creators:[]).length} creators</div></td>
                     <td className="text-muted">{client?.name||"—"}</td>
                     <td><span className="badge badge-blue">{c.format}</span></td>
                     <td>
