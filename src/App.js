@@ -724,11 +724,12 @@ function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
     ],
     owner: [
       {id:"dashboard",icon:"🏠",label:"Dashboard"},
+      {id:"pending-users",icon:"🔔",label:"Approve Users"},
       {id:"clients-full",icon:"🏢",label:"Client Management"},
+      {id:"creators-manage",icon:"🎬",label:"Manage Creators"},
       {id:"revenue",icon:"📈",label:"Revenue Analytics"},
       {id:"payments",icon:"💸",label:"Payment Management"},
       {id:"team",icon:"👥",label:"Team Performance"},
-      {id:"pending-users",icon:"🔔",label:"Approve Users"},
       {id:"review-queue",icon:"✅",label:"Review Queue",badge:pendingCount},
       {id:"campaigns",icon:"📢",label:"All Campaigns"},
       {id:"content-library",icon:"🎬",label:"Content Library"},
@@ -1892,11 +1893,15 @@ function PendingUsers({ onRefresh }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(null);
+  const [names, setNames] = useState({});
 
   const loadPending = async () => {
     setLoading(true);
     const { data } = await supabase.from("user_profiles").select("*").eq("role", "pending");
     setUsers(data || []);
+    const n = {};
+    (data||[]).forEach(u => { n[u.id] = u.full_name || u.email.split("@")[0]; });
+    setNames(n);
     setLoading(false);
   };
 
@@ -1904,12 +1909,13 @@ function PendingUsers({ onRefresh }) {
 
   const assignRole = async (userId, email, role) => {
     setSaving(userId);
-    await supabase.from("user_profiles").update({ role }).eq("id", userId);
+    const displayName = names[userId] || email.split("@")[0];
+    await supabase.from("user_profiles").update({ role, full_name: displayName }).eq("id", userId);
     if (role === "am") {
-      await supabase.from("account_managers").upsert({ user_id: userId, email, name: email.split("@")[0] });
+      await supabase.from("account_managers").upsert({ user_id: userId, email, name: displayName }, { onConflict: "user_id" });
     }
     if (role === "creator") {
-      await supabase.from("creators").upsert({ user_id: userId, email, name: email.split("@")[0], status: "Active" });
+      await supabase.from("creators").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "user_id" });
     }
     setSaving(null);
     loadPending();
@@ -1927,9 +1933,9 @@ function PendingUsers({ onRefresh }) {
 
   return (
     <div className="content">
-      <div className="card mb-16">
-        <div style={{fontSize:13,color:"var(--ink3)",marginBottom:8}}>
-          New users who signed up and are waiting for role assignment. Assign them as Creator or Account Manager to give them access.
+      <div className="card mb-16" style={{background:"var(--bg2)"}}>
+        <div style={{fontSize:13,color:"var(--ink3)"}}>
+          New signups waiting for role assignment. Enter their name, then click Creator or AM to give them access. They'll be able to log in immediately.
         </div>
       </div>
       {users.length === 0 ? (
@@ -1937,12 +1943,18 @@ function PendingUsers({ onRefresh }) {
       ) : (
         users.map(u => (
           <div key={u.id} className="card mb-12">
-            <div className="flex-between">
-              <div>
+            <div className="flex-between" style={{flexWrap:"wrap",gap:12}}>
+              <div style={{flex:1,minWidth:200}}>
                 <div style={{fontWeight:600,marginBottom:4}}>{u.email}</div>
-                <div style={{fontSize:12,color:"var(--ink3)"}}>Signed up · waiting for role</div>
+                <input
+                  className="form-input"
+                  style={{marginTop:6,fontSize:13}}
+                  placeholder="Enter their name..."
+                  value={names[u.id]||""}
+                  onChange={e=>setNames({...names,[u.id]:e.target.value})}
+                />
               </div>
-              <div style={{display:"flex",gap:8}}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button className="btn btn-sm" style={{background:"var(--green)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "creator")}>
                   {saving===u.id?"...":"✓ Creator"}
                 </button>
@@ -1956,6 +1968,146 @@ function PendingUsers({ onRefresh }) {
             </div>
           </div>
         ))
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// CREATORS MANAGE - OWNER VIEW TO MANAGE ALL CREATORS & AMs
+// ============================================================
+function CreatorsManage({ db, onRefresh }) {
+  const [tab, setTab] = useState("creators");
+  const [editCreator, setEditCreator] = useState(null);
+  const [editAM, setEditAM] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const saveCreator = async () => {
+    setSaving(true);
+    await supabase.from("creators").update({
+      name: editCreator.name,
+      tiktok_handle: editCreator.tiktok_handle,
+      instagram_handle: editCreator.instagram_handle,
+      weekly_rate: Number(editCreator.weekly_rate||0),
+      videos_per_week: Number(editCreator.videos_per_week||0),
+      payment_method: editCreator.payment_method,
+      payment_handle: editCreator.payment_handle,
+      status: editCreator.status,
+      am_id: editCreator.am_id||null,
+    }).eq("id", editCreator.id);
+    await onRefresh();
+    setEditCreator(null);
+    setSaving(false);
+  };
+
+  const saveAM = async () => {
+    setSaving(true);
+    await supabase.from("account_managers").update({
+      name: editAM.name,
+      email: editAM.email,
+    }).eq("id", editAM.id);
+    await onRefresh();
+    setEditAM(null);
+    setSaving(false);
+  };
+
+  return (
+    <div className="content">
+      <div className="flex-center gap-8 mb-16">
+        {["creators","ams"].map(t=>(
+          <button key={t} className={`btn btn-sm ${tab===t?"btn-primary":"btn-ghost"}`} onClick={()=>setTab(t)}>
+            {t==="creators"?`Creators (${db.creators.length})`:`Account Managers (${db.accountManagers.length})`}
+          </button>
+        ))}
+      </div>
+
+      {tab==="creators"&&(
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Email</th><th>Handles</th><th>Rate</th><th>AM</th><th>Status</th><th>Edit</th></tr></thead>
+              <tbody>
+                {db.creators.map(c=>{
+                  const am = db.accountManagers.find(a=>a.id===c.am_id);
+                  return (
+                    <tr key={c.id}>
+                      <td className="fw-600">{c.name||"—"}</td>
+                      <td style={{fontSize:12,color:"var(--ink3)"}}>{c.email}</td>
+                      <td style={{fontSize:12}}>{c.tiktok_handle?"@"+c.tiktok_handle:""}{c.instagram_handle?" / @"+c.instagram_handle:""}</td>
+                      <td className="text-green">{c.weekly_rate?`$${c.weekly_rate}/wk`:"—"}</td>
+                      <td style={{fontSize:12}}>{am?.name||<span style={{color:"var(--orange)"}}>Unassigned</span>}</td>
+                      <td>{statusBadge(c.status||"Active")}</td>
+                      <td><button className="btn btn-sm btn-ghost" onClick={()=>setEditCreator({...c})}>Edit</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {db.creators.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">🎬</div><h3>No creators yet</h3></div>}
+        </div>
+      )}
+
+      {tab==="ams"&&(
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Email</th><th>Creators</th><th>Edit</th></tr></thead>
+              <tbody>
+                {db.accountManagers.map(am=>{
+                  const count = db.creators.filter(c=>c.am_id===am.id).length;
+                  return (
+                    <tr key={am.id}>
+                      <td className="fw-600">{am.name||"—"}</td>
+                      <td style={{fontSize:12,color:"var(--ink3)"}}>{am.email}</td>
+                      <td>{count} creators</td>
+                      <td><button className="btn btn-sm btn-ghost" onClick={()=>setEditAM({...am})}>Edit</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {db.accountManagers.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">👥</div><h3>No AMs yet</h3></div>}
+        </div>
+      )}
+
+      {editCreator&&(
+        <div className="modal-overlay" onClick={()=>setEditCreator(null)}>
+          <div className="modal" style={{maxWidth:500}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit Creator</div>
+            <div className="modal-sub">{editCreator.email}</div>
+            <div className="form-group"><label className="form-label">Display Name</label><input className="form-input" value={editCreator.name||""} onChange={e=>setEditCreator({...editCreator,name:e.target.value})}/></div>
+            <div className="grid-2">
+              <div className="form-group"><label className="form-label">TikTok Handle</label><input className="form-input" placeholder="@handle" value={editCreator.tiktok_handle||""} onChange={e=>setEditCreator({...editCreator,tiktok_handle:e.target.value.replace("@","")})}/></div>
+              <div className="form-group"><label className="form-label">Instagram Handle</label><input className="form-input" placeholder="@handle" value={editCreator.instagram_handle||""} onChange={e=>setEditCreator({...editCreator,instagram_handle:e.target.value.replace("@","")})}/></div>
+              <div className="form-group"><label className="form-label">Weekly Rate ($)</label><input className="form-input" type="number" value={editCreator.weekly_rate||""} onChange={e=>setEditCreator({...editCreator,weekly_rate:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Videos/Week</label><input className="form-input" type="number" value={editCreator.videos_per_week||""} onChange={e=>setEditCreator({...editCreator,videos_per_week:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Payment Method</label><select className="select" value={editCreator.payment_method||""} onChange={e=>setEditCreator({...editCreator,payment_method:e.target.value})}><option value="">Select...</option>{["PayPal","Venmo","Zelle","Bank Transfer","Cash App","Crypto"].map(m=><option key={m}>{m}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Payment Handle/Email</label><input className="form-input" placeholder="e.g. @venmo or email" value={editCreator.payment_handle||""} onChange={e=>setEditCreator({...editCreator,payment_handle:e.target.value})}/></div>
+            </div>
+            <div className="form-group"><label className="form-label">Assign to Account Manager</label><select className="select" value={editCreator.am_id||""} onChange={e=>setEditCreator({...editCreator,am_id:e.target.value})}><option value="">No AM assigned</option>{db.accountManagers.map(am=><option key={am.id} value={am.id}>{am.name}</option>)}</select></div>
+            <div className="form-group"><label className="form-label">Status</label><select className="select" value={editCreator.status||"Active"} onChange={e=>setEditCreator({...editCreator,status:e.target.value})}>{["Active","Paused","Offboarded"].map(s=><option key={s}>{s}</option>)}</select></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditCreator(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveCreator} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editAM&&(
+        <div className="modal-overlay" onClick={()=>setEditAM(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit Account Manager</div>
+            <div className="form-group"><label className="form-label">Name</label><input className="form-input" value={editAM.name||""} onChange={e=>setEditAM({...editAM,name:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editAM.email||""} onChange={e=>setEditAM({...editAM,email:e.target.value})}/></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditAM(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveAM} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1980,10 +2132,7 @@ export default function App() {
       if (session) {
         const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",session.user.id).single();
         if (profile) setUser({...session.user,...profile});
-        else {
-        await supabase.from("user_profiles").upsert({ id: session.user.id, email: session.user.email, full_name: session.user.email.split("@")[0], role: "pending" });
-        setUser({...session.user, role:"pending"});
-      }
+        else { setUser(session.user); setNeedsSetup(true); }
       }
       setLoading(false);
     });
@@ -2043,7 +2192,7 @@ export default function App() {
     "review-queue":"Review Queue","my-creators":"My Creators",campaigns:"Campaigns",
     clients:"My Clients","content-library":"Content Library",analytics:"Analytics",
     "clients-full":"Client Management",revenue:"Revenue Analytics",
-    payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users","pending-users":"Approve Users",
+    payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users","creators-manage":"Manage Creators",
   };
 
   const renderPage = ()=>{
@@ -2075,7 +2224,7 @@ export default function App() {
       if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB}/>;
       if(page==="team") return <TeamPerformance db={db}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
-      if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
+      if(page==="creators-manage") return <CreatorsManage db={db} onRefresh={loadDB}/>;
       if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
       if(page==="campaigns") return <CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={true}/>;
       if(page==="content-library") return <ContentLibrary db={db} onRefresh={loadDB}/>;
