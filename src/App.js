@@ -640,13 +640,14 @@ function Login({ onLogin }) {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("login"); // login | signup
+  const [requestedRole, setRequestedRole] = useState("creator");
 
   const handle = async () => {
     if (!email || !password) { setErr("Please enter email and password"); return; }
     setLoading(true); setErr("");
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { requested_role: requestedRole } } });
         if (error) { setErr(error.message); setLoading(false); return; }
         setErr("Check your email to confirm your account, then sign in.");
         setMode("login"); setLoading(false); return;
@@ -676,6 +677,15 @@ function Login({ onLogin }) {
           <label>Password</label>
           <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
         </div>
+        {mode === "signup" && (
+          <div className="field">
+            <label>I am a...</label>
+            <select value={requestedRole} onChange={e=>setRequestedRole(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--ink)",fontSize:14,cursor:"pointer"}}>
+              <option value="creator">Creator</option>
+              <option value="am">Account Manager</option>
+            </select>
+          </div>
+        )}
         {err && <div style={{fontSize:13,marginBottom:12,color:err.includes("Check your")?"var(--green)":"var(--red)"}}>{err}</div>}
         <button className="btn btn-primary btn-full" onClick={handle} disabled={loading}>
           {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
@@ -1301,58 +1311,23 @@ function MyCreators({ user, db }) {
 
 function CampaignsPage({ user, db, onRefresh, isOwner }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
-  const campaigns = isOwner ? db.campaigns : db.campaigns.filter(c=>{
-    const client = db.clients.find(cl=>cl.id===c.client_id);
+  const campaigns = isOwner?db.campaigns:db.campaigns.filter(c=>{
+    const client=db.clients.find(cl=>cl.id===c.client_id);
     return client?.am_id===am?.id;
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [editCampaign, setEditCampaign] = useState(null);
-  const [viewCampaign, setViewCampaign] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const [form, setForm] = useState({name:"",client_id:"",description:"",formats:["TikTok"],videos_per_week:5,pay_per_video:10,start_date:"",end_date:"",delivery_day:"Friday",status:"Open",application_type:"Open Application"});
+  const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
 
   const create = async () => {
     if (!form.name||!form.client_id) { setErr("Name and client are required"); return; }
     setSaving(true); setErr("");
-    try {
-      const { error } = await supabase.from("campaigns").insert({
-        name: form.name,
-        client_id: form.client_id,
-        description: form.description,
-        format: form.formats.join(", "),
-        videos_needed: Number(form.videos_per_week),
-        pay_per_video: Number(form.pay_per_video),
-        start_date: form.start_date||null,
-        deadline: form.end_date||null,
-        delivery_day: form.delivery_day,
-        status: form.status,
-        application_type: form.application_type,
-        assigned_creators: []
-      });
-      if (error) { setErr(error.message); setSaving(false); return; }
-      setShowCreate(false);
-      setForm({name:"",client_id:"",description:"",formats:["TikTok"],videos_per_week:5,pay_per_video:10,start_date:"",end_date:"",delivery_day:"Friday",status:"Open",application_type:"Open Application"});
-      await onRefresh();
-    } catch(e) { setErr(e.message); }
-    setSaving(false);
-  };
-
-  const saveCampaign = async () => {
-    setSaving(true);
-    await supabase.from("campaigns").update({
-      name: editCampaign.name,
-      client_id: editCampaign.client_id,
-      description: editCampaign.description,
-      format: editCampaign.format,
-      videos_needed: Number(editCampaign.videos_needed||0),
-      pay_per_video: Number(editCampaign.pay_per_video||0),
-      start_date: editCampaign.start_date||null,
-      deadline: editCampaign.deadline||null,
-      delivery_day: editCampaign.delivery_day||null,
-      status: editCampaign.status,
-    }).eq("id", editCampaign.id);
-    await onRefresh(); setEditCampaign(null); setSaving(false);
+    const { error } = await supabase.from("campaigns").insert({...form,videos_needed:Number(form.videos_needed),pay_per_video:Number(form.pay_per_video),assigned_creators:[]});
+    if (error) { setErr(error.message); setSaving(false); return; }
+    await onRefresh();
+    setShowCreate(false); setSaving(false);
+    setForm({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
   };
 
   return (
@@ -1365,16 +1340,15 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Campaign</th><th>Client</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Campaign</th><th>Client</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
             <tbody>
               {campaigns.map(c=>{
-                const client = db.clients.find(cl=>cl.id===c.client_id);
-                const approved = db.submissions.filter(s=>s.campaign_id===c.id&&s.final_status==="Approved").length;
-                const pct = Math.round((approved/Math.max(c.videos_needed||1,1))*100);
-                const creators = Array.isArray(c.assigned_creators)?c.assigned_creators:[];
+                const client=db.clients.find(cl=>cl.id===c.client_id);
+                const approved=db.submissions.filter(s=>s.campaign_id===c.id&&s.final_status==="Approved").length;
+                const pct=Math.round((approved/(c.videos_needed||1))*100);
                 return (
                   <tr key={c.id}>
-                    <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{creators.length} creators</div></td>
+                    <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
                     <td className="text-muted">{client?.name||"—"}</td>
                     <td><span className="badge badge-blue">{c.format}</span></td>
                     <td>
@@ -1383,7 +1357,6 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
                     </td>
                     <td className="text-muted">{fmtDate(c.deadline)}</td>
                     <td>{statusBadge(c.status)}</td>
-                    <td><div style={{display:"flex",gap:6}}><button className="btn btn-sm btn-ghost" onClick={()=>setViewCampaign(c)}>View</button><button className="btn btn-sm btn-ghost" onClick={()=>setEditCampaign({...c})}>Edit</button></div></td>
                   </tr>
                 );
               })}
@@ -1391,60 +1364,19 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </table>
         </div>
       </div>
-      {viewCampaign&&(
-        <div className="modal-overlay" onClick={()=>setViewCampaign(null)}>
-          <div className="modal" style={{maxWidth:520}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">{viewCampaign.name}</div>
-            <div className="modal-sub">{db.clients.find(c=>c.id===viewCampaign.client_id)?.name}</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,margin:"16px 0"}}>
-              {[["Format",viewCampaign.format],["Status",viewCampaign.status],["Start",fmtDate(viewCampaign.start_date)],["End",fmtDate(viewCampaign.deadline)],["Delivery Day",viewCampaign.delivery_day||"—"],["Pay/Video","$"+( viewCampaign.pay_per_video||0)],["Videos/Week",viewCampaign.videos_needed||"—"],["Creators",(Array.isArray(viewCampaign.assigned_creators)?viewCampaign.assigned_creators:[]).length]].map(([label,val])=>(
-                <div key={label} style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12}}>
-                  <div style={{fontSize:11,color:"var(--ink3)",marginBottom:4}}>{label}</div>
-                  <div style={{fontWeight:600,fontSize:14}}>{val}</div>
-                </div>
-              ))}
-            </div>
-            {viewCampaign.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,fontSize:13,color:"var(--ink2)"}}><div style={{fontSize:11,color:"var(--ink3)",marginBottom:6}}>GUIDELINES</div>{viewCampaign.description}</div>}
-            <div className="modal-actions"><button className="btn btn-primary" onClick={()=>setViewCampaign(null)}>Close</button></div>
-          </div>
-        </div>
-      )}
-      {editCampaign&&(
-        <div className="modal-overlay" onClick={()=>setEditCampaign(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Edit Campaign</div>
-            <div className="form-group"><label className="form-label">Campaign Name</label><input className="form-input" value={editCampaign.name||""} onChange={e=>setEditCampaign({...editCampaign,name:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Client</label><select className="select" value={editCampaign.client_id||""} onChange={e=>setEditCampaign({...editCampaign,client_id:e.target.value})}><option value="">Select client...</option>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-            <div className="form-group"><label className="form-label">Description</label><textarea className="textarea" value={editCampaign.description||""} onChange={e=>setEditCampaign({...editCampaign,description:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Status</label><select className="select" value={editCampaign.status||"Open"} onChange={e=>setEditCampaign({...editCampaign,status:e.target.value})}>{["Open","In Progress","Completed","Paused","Cancelled"].map(s=><option key={s}>{s}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Delivery Day</label><select className="select" value={editCampaign.delivery_day||"Friday"} onChange={e=>setEditCampaign({...editCampaign,delivery_day:e.target.value})}>{["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(d=><option key={d}>{d}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Videos/Week</label><input className="form-input" type="number" value={editCampaign.videos_needed||""} onChange={e=>setEditCampaign({...editCampaign,videos_needed:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={editCampaign.pay_per_video||""} onChange={e=>setEditCampaign({...editCampaign,pay_per_video:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Start Date</label><input className="form-input" type="date" value={editCampaign.start_date||""} onChange={e=>setEditCampaign({...editCampaign,start_date:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">End Date</label><input className="form-input" type="date" value={editCampaign.deadline||""} onChange={e=>setEditCampaign({...editCampaign,deadline:e.target.value})}/></div>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditCampaign(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveCampaign} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
-            </div>
-          </div>
-        </div>
-      )}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
             <div className="modal-title">New Campaign</div>
+            <div className="modal-sub">Create a content campaign for a client</div>
             <div className="form-group"><label className="form-label">Campaign Name</label><input className="form-input" placeholder="e.g. Spring Launch 2026" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
             <div className="form-group"><label className="form-label">Client</label><select className="select" value={form.client_id} onChange={e=>setForm({...form,client_id:e.target.value})}><option value="">Select client...</option>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div className="form-group"><label className="form-label">Description / Guidelines</label><textarea className="textarea" placeholder="Content guidelines, talking points, CTAs..." value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></div>
             <div className="grid-2">
-              <div className="form-group"><label className="form-label">Formats (select all that apply)</label><div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}}>{["TikTok","IG Reel","FB Reel","YouTube Short"].map(f=><label key={f} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={(form.formats||[]).includes(f)} onChange={e=>{const cur=form.formats||[];setForm({...form,formats:e.target.checked?[...cur,f]:cur.filter(x=>x!==f)});}}/>{f}</label>)}</div></div>
-              <div className="form-group"><label className="form-label">Start Date</label><input className="form-input" type="date" value={form.start_date||""} onChange={e=>setForm({...form,start_date:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Videos Per Week</label><input className="form-input" type="number" value={form.videos_per_week} onChange={e=>setForm({...form,videos_per_week:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Format</label><select className="select" value={form.format} onChange={e=>setForm({...form,format:e.target.value})}>{["TikTok","IG Reel","FB Reel","YouTube Short"].map(f=><option key={f}>{f}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Deadline</label><input className="form-input" type="date" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Videos Needed</label><input className="form-input" type="number" value={form.videos_needed} onChange={e=>setForm({...form,videos_needed:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={form.pay_per_video} onChange={e=>setForm({...form,pay_per_video:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Weekly Delivery Day</label><select className="select" value={form.delivery_day} onChange={e=>setForm({...form,delivery_day:e.target.value})}>{["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(d=><option key={d}>{d}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">End Date</label><input className="form-input" type="date" value={form.end_date||""} onChange={e=>setForm({...form,end_date:e.target.value})}/></div>
             </div>
             {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
             <div className="modal-actions">
@@ -1471,14 +1403,43 @@ function ClientsPage({ isOwner, db, onRefresh }) {
     setSaving(true);
     const { error } = await supabase.from("clients").insert({...form,videos_per_month:Number(form.videos_per_month),budget:Number(form.budget)});
     if (error) { setErr(error.message); setSaving(false); return; }
-    await onRefresh(); setShowCreate(false); setSaving(false); setForm(emptyForm);
+    await onRefresh(); setShowCreate(false); setSaving(false);
+    setForm(emptyForm);
   };
 
   const save = async () => {
     setSaving(true);
-    await supabase.from("clients").update({...editClient,videos_per_month:Number(editClient.videos_per_month),budget:Number(editClient.budget)}).eq("id", editClient.id);
+    const { error } = await supabase.from("clients").update({...editClient,videos_per_month:Number(editClient.videos_per_month),budget:Number(editClient.budget)}).eq("id", editClient.id);
+    if (error) { setErr(error.message); setSaving(false); return; }
     await onRefresh(); setEditClient(null); setSaving(false);
   };
+
+  const ClientForm = ({ data, setData, onSave, onCancel, title }) => (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <div className="modal-title">{title}</div>
+        <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" placeholder="e.g. Eden Health" value={data.name||""} onChange={e=>setData({...data,name:e.target.value})}/></div>
+        <div className="grid-2">
+          <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={data.deal_type||"Monthly Retainer"} onChange={e=>setData({...data,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">Status</label><select className="select" value={data.status||"Active"} onChange={e=>setData({...data,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={data.videos_per_month||""} onChange={e=>setData({...data,videos_per_month:e.target.value})}/></div>
+          <div className="form-group"><label className="form-label">Monthly Budget ($)</label><input className="form-input" type="number" value={data.budget||""} onChange={e=>setData({...data,budget:e.target.value})}/></div>
+        </div>
+        <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" placeholder="Decision maker" value={data.contact_name||""} onChange={e=>setData({...data,contact_name:e.target.value})}/></div>
+        <div className="grid-2">
+          <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" type="email" value={data.contact_email||""} onChange={e=>setData({...data,contact_email:e.target.value})}/></div>
+          <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={data.contact_phone||""} onChange={e=>setData({...data,contact_phone:e.target.value})}/></div>
+        </div>
+        <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" placeholder="Contract terms, special notes..." value={data.contract_terms||""} onChange={e=>setData({...data,contract_terms:e.target.value})}/></div>
+        {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-primary" onClick={onSave} disabled={saving}>{saving?"Saving...":"Save"}</button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="content">
@@ -1518,56 +1479,8 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
       </div>
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
-      {editClient&&(
-        <div className="modal-overlay" onClick={()=>setEditClient(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Edit Client</div>
-            <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" value={editClient.name||""} onChange={e=>setEditClient({...editClient,name:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={editClient.deal_type||""} onChange={e=>setEditClient({...editClient,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Status</label><select className="select" value={editClient.status||""} onChange={e=>setEditClient({...editClient,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={editClient.videos_per_month||""} onChange={e=>setEditClient({...editClient,videos_per_month:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Budget ($)</label><input className="form-input" type="number" value={editClient.budget||""} onChange={e=>setEditClient({...editClient,budget:e.target.value})}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" value={editClient.contact_name||""} onChange={e=>setEditClient({...editClient,contact_name:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" value={editClient.contact_email||""} onChange={e=>setEditClient({...editClient,contact_email:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={editClient.contact_phone||""} onChange={e=>setEditClient({...editClient,contact_phone:e.target.value})}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Drive Link</label><input className="form-input" value={editClient.drive_link||""} onChange={e=>setEditClient({...editClient,drive_link:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" value={editClient.contract_terms||""} onChange={e=>setEditClient({...editClient,contract_terms:e.target.value})}/></div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditClient(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {showCreate&&(
-        <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Add Client</div>
-            <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" placeholder="e.g. Eden Health" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={form.deal_type} onChange={e=>setForm({...form,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Status</label><select className="select" value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={form.videos_per_month} onChange={e=>setForm({...form,videos_per_month:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Monthly Budget ($)</label><input className="form-input" type="number" value={form.budget} onChange={e=>setForm({...form,budget:e.target.value})}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" placeholder="Decision maker" value={form.contact_name} onChange={e=>setForm({...form,contact_name:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" type="email" value={form.contact_email} onChange={e=>setForm({...form,contact_email:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={form.contact_phone} onChange={e=>setForm({...form,contact_phone:e.target.value})}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={form.drive_link} onChange={e=>setForm({...form,drive_link:e.target.value})}/></div>
-            {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setShowCreate(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={create} disabled={saving}>{saving?"Saving...":"Add Client"}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client"/>}
+      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client"/>}
     </div>
   );
 }
@@ -2056,7 +1969,7 @@ function PendingUsers({ onRefresh }) {
           <div key={u.id} className="card mb-12">
             <div className="flex-between" style={{flexWrap:"wrap",gap:12}}>
               <div style={{flex:1,minWidth:200}}>
-                <div style={{fontWeight:600,marginBottom:4}}>{u.email}</div>
+                <div style={{fontWeight:600,marginBottom:4}}>{u.email}{u.requested_role&&<span style={{marginLeft:8,fontSize:11,padding:"2px 8px",borderRadius:20,background:u.requested_role==="am"?"var(--blue)":"var(--green)",color:"#fff",fontWeight:500}}>{u.requested_role==="am"?"Account Manager":"Creator"}</span>}</div>
                 <input
                   className="form-input"
                   style={{marginTop:6,fontSize:13}}
@@ -2285,7 +2198,8 @@ export default function App() {
     if (profile) { setUser({...u,...profile}); setNeedsSetup(false); }
     else {
       // New user - create pending profile automatically
-      await supabase.from("user_profiles").upsert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: "pending" });
+      const requestedRole = u.user_metadata?.requested_role || "pending";
+      await supabase.from("user_profiles").upsert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: "pending", requested_role: requestedRole });
       setUser({...u, role:"pending"});
       setNeedsSetup(false);
     }
