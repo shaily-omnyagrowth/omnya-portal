@@ -1440,7 +1440,8 @@ function ClientsPage({ isOwner, db, onRefresh }) {
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner&&<><th>Budget</th><th>Contact</th><th>Email</th></>}
-                <th>Drive</th>{isOwner&&<th>Edit</th>}
+                <th>Drive</th>
+                {isOwner&&<th>Edit</th>}
               </tr>
             </thead>
             <tbody>
@@ -1456,7 +1457,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>}
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
-                  {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{ setErr(""); setEditClient(Object.assign({}, c)); }}>Edit</button></td>}
+                  {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
                 </tr>
               ))}
             </tbody>
@@ -1464,11 +1465,35 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
       </div>
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
+      {editClient&&(
+        <div className="modal-overlay" onClick={()=>setEditClient(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit Client</div>
+            <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" value={editClient.name||""} onChange={e=>setEditClient({...editClient,name:e.target.value})}/></div>
+            <div className="grid-2">
+              <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={editClient.deal_type||""} onChange={e=>setEditClient({...editClient,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Status</label><select className="select" value={editClient.status||""} onChange={e=>setEditClient({...editClient,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={editClient.videos_per_month||""} onChange={e=>setEditClient({...editClient,videos_per_month:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Budget ($)</label><input className="form-input" type="number" value={editClient.budget||""} onChange={e=>setEditClient({...editClient,budget:e.target.value})}/></div>
+            </div>
+            <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" value={editClient.contact_name||""} onChange={e=>setEditClient({...editClient,contact_name:e.target.value})}/></div>
+            <div className="grid-2">
+              <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" value={editClient.contact_email||""} onChange={e=>setEditClient({...editClient,contact_email:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={editClient.contact_phone||""} onChange={e=>setEditClient({...editClient,contact_phone:e.target.value})}/></div>
+            </div>
+            <div className="form-group"><label className="form-label">Drive Link</label><input className="form-input" value={editClient.drive_link||""} onChange={e=>setEditClient({...editClient,drive_link:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" value={editClient.contract_terms||""} onChange={e=>setEditClient({...editClient,contract_terms:e.target.value})}/></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditClient(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
             <div className="modal-title">Add Client</div>
-            <div className="modal-sub">Add a new client to the portal</div>
             <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" placeholder="e.g. Eden Health" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
             <div className="grid-2">
               <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={form.deal_type} onChange={e=>setForm({...form,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
