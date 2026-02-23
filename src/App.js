@@ -1456,7 +1456,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>}
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
-                  {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
+                  {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{ setErr(""); setEditClient(Object.assign({}, c)); }}>Edit</button></td>}
                 </tr>
               ))}
             </tbody>
