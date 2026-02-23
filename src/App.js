@@ -1354,6 +1354,31 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </table>
         </div>
       </div>
+      {editClient&&(
+        <div className="modal-overlay" onClick={()=>setEditClient(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit Client</div>
+            <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" value={editClient.name||""} onChange={e=>setEditClient({...editClient,name:e.target.value})}/></div>
+            <div className="grid-2">
+              <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={editClient.deal_type||""} onChange={e=>setEditClient({...editClient,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Status</label><select className="select" value={editClient.status||""} onChange={e=>setEditClient({...editClient,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={editClient.videos_per_month||""} onChange={e=>setEditClient({...editClient,videos_per_month:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Monthly Budget ($)</label><input className="form-input" type="number" value={editClient.budget||""} onChange={e=>setEditClient({...editClient,budget:e.target.value})}/></div>
+            </div>
+            <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" value={editClient.contact_name||""} onChange={e=>setEditClient({...editClient,contact_name:e.target.value})}/></div>
+            <div className="grid-2">
+              <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" value={editClient.contact_email||""} onChange={e=>setEditClient({...editClient,contact_email:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={editClient.contact_phone||""} onChange={e=>setEditClient({...editClient,contact_phone:e.target.value})}/></div>
+            </div>
+            <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" value={editClient.drive_link||""} onChange={e=>setEditClient({...editClient,drive_link:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" value={editClient.contract_terms||""} onChange={e=>setEditClient({...editClient,contract_terms:e.target.value})}/></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditClient(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -1382,17 +1407,24 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
 
 function ClientsPage({ isOwner, db, onRefresh }) {
   const [showCreate, setShowCreate] = useState(false);
+  const [editClient, setEditClient] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const [form, setForm] = useState({name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_terms:"",drive_link:""});
+  const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_terms:"",drive_link:""};
+  const [form, setForm] = useState(emptyForm);
 
   const create = async () => {
     if (!form.name) { setErr("Client name is required"); return; }
     setSaving(true);
     const { error } = await supabase.from("clients").insert({...form,videos_per_month:Number(form.videos_per_month),budget:Number(form.budget)});
     if (error) { setErr(error.message); setSaving(false); return; }
-    await onRefresh(); setShowCreate(false); setSaving(false);
-    setForm({name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_terms:"",drive_link:""});
+    await onRefresh(); setShowCreate(false); setSaving(false); setForm(emptyForm);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    await supabase.from("clients").update({...editClient,videos_per_month:Number(editClient.videos_per_month),budget:Number(editClient.budget)}).eq("id", editClient.id);
+    await onRefresh(); setEditClient(null); setSaving(false);
   };
 
   return (
@@ -1408,7 +1440,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner&&<><th>Budget</th><th>Contact</th><th>Email</th></>}
-                <th>Drive</th>
+                <th>Drive</th>{isOwner&&<th>Edit</th>}
               </tr>
             </thead>
             <tbody>
@@ -1424,6 +1456,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>}
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
+                  {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
                 </tr>
               ))}
             </tbody>
