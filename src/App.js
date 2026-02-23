@@ -1316,6 +1316,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
     return client?.am_id===am?.id;
   });
   const [showCreate, setShowCreate] = useState(false);
+  const [viewCampaign, setViewCampaign] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
@@ -1364,6 +1365,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </table>
         </div>
       </div>
+      {viewCampaign&&<CampaignDetail campaign={viewCampaign} db={db} onRefresh={async()=>{await onRefresh();setViewCampaign(db.campaigns.find(c=>c.id===viewCampaign.id)||null);}} onClose={()=>setViewCampaign(null)}/>}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -1386,6 +1388,80 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CampaignDetail({ campaign, db, onRefresh, onClose }) {
+  const [saving, setSaving] = useState(false);
+  const client = db.clients.find(c=>c.id===campaign.client_id);
+  const assignedCreators = db.creators.filter(c=>(campaign.assigned_creators||[]).includes(c.id));
+  const availableCreators = db.creators.filter(c=>!(campaign.assigned_creators||[]).includes(c.id)&&c.status==="Active");
+  const approved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved").length;
+
+  const assignCreator = async (creatorId) => {
+    setSaving(true);
+    const updated = [...(campaign.assigned_creators||[]), creatorId];
+    await supabase.from("campaigns").update({assigned_creators:updated, status:"In Progress"}).eq("id", campaign.id);
+    await onRefresh();
+    setSaving(false);
+  };
+
+  const removeCreator = async (creatorId) => {
+    setSaving(true);
+    const updated = (campaign.assigned_creators||[]).filter(id=>id!==creatorId);
+    await supabase.from("campaigns").update({assigned_creators:updated}).eq("id", campaign.id);
+    await onRefresh();
+    setSaving(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{maxWidth:620,maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div className="flex-between mb-16">
+          <div>
+            <div className="modal-title" style={{marginBottom:2}}>{campaign.name}</div>
+            <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name||"—"} · Due {fmtDate(campaign.deadline)}</div>
+          </div>
+          <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr",marginBottom:20}}>
+          <div className="stat-card"><div className="stat-label">Assigned</div><div className="stat-value">{assignedCreators.length}</div></div>
+          <div className="stat-card"><div className="stat-label">Progress</div><div className="stat-value">{approved}/{campaign.videos_needed}</div></div>
+          <div className="stat-card"><div className="stat-label">Pay/Video</div><div className="stat-value">{fmtMoney(campaign.pay_per_video)}</div></div>
+        </div>
+
+        {campaign.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:20,fontSize:13,color:"var(--ink2)"}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:6}}>Guidelines</div>{campaign.description}</div>}
+
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Assigned Creators ({assignedCreators.length})</div>
+          {assignedCreators.length===0&&<div style={{fontSize:13,color:"var(--ink3)",fontStyle:"italic"}}>No creators assigned yet</div>}
+          {assignedCreators.map(c=>(
+            <div key={c.id} className="flex-between" style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                <div style={{fontSize:11,color:"var(--ink3)"}}>{c.platform||"—"} · {c.niche||"—"}</div>
+              </div>
+              <button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} onClick={()=>removeCreator(c.id)} disabled={saving}>Remove</button>
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Add Creators ({availableCreators.length} available)</div>
+          {availableCreators.length===0&&<div style={{fontSize:13,color:"var(--ink3)",fontStyle:"italic"}}>All active creators are already assigned</div>}
+          {availableCreators.map(c=>(
+            <div key={c.id} className="flex-between" style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
+                <div style={{fontSize:11,color:"var(--ink3)"}}>{c.platform||"—"} · {c.niche||"—"}</div>
+              </div>
+              <button className="btn btn-sm btn-primary" onClick={()=>assignCreator(c.id)} disabled={saving}>+ Assign</button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1682,8 +1758,11 @@ function OwnerDashboard({ db }) {
   );
 }
 
-function PaymentManagement({ db, onRefresh }) {
-  const pending = db.payments.filter(p=>p.status==="Pending");
+function PaymentManagement({ db, onRefresh, user, isOwner }) {
+  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
+  const myCreatorIds = am ? db.creators.filter(c=>c.am_id===am.id).map(c=>c.id) : null;
+  const allPayments = isOwner ? db.payments : db.payments.filter(p=>myCreatorIds?.includes(p.creator_id));
+  const pending = allPayments.filter(p=>p.status==="Pending");
   const totalOwed = pending.reduce((a,p)=>a+Number(p.amount_owed||0),0);
   const [saving, setSaving] = useState(false);
 
@@ -1701,19 +1780,20 @@ function PaymentManagement({ db, onRefresh }) {
 
   return (
     <div className="content">
-      <div className="mb-16"><span className="owner-badge">👑 Owner Only</span></div>
+      {isOwner&&<div className="mb-16"><span className="owner-badge">👑 Owner View — All payments</span></div>}
+      {!isOwner&&<div className="mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>Payments for your creators</div></div>}
       <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
         <div className="stat-card stat-highlight"><div className="stat-label">Pending Payments</div><div className="stat-value">{pending.length}</div></div>
         <div className="stat-card"><div className="stat-label">Total Owed</div><div className="stat-value">{fmtMoney(totalOwed)}</div></div>
         <div className="stat-card"><div className="stat-label">Paid This Month</div><div className="stat-value">{fmtMoney(db.payments.filter(p=>p.status==="Paid").reduce((a,p)=>a+Number(p.amount_owed||0),0))}</div></div>
       </div>
-      {pending.length>0&&<div className="flex-between mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>{pending.length} payments pending</div><button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button></div>}
+      {pending.length>0&&<div className="flex-between mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>{pending.length} payments pending</div>{isOwner&&<button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button>}</div>}
       <div className="card">
         <div className="table-wrap">
           <table>
             <thead><tr><th>Creator</th><th>Week Ending</th><th>Videos</th><th>Amount</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {db.payments.map(p=>{
+              {allPayments.map(p=>{
                 const creator=db.creators.find(c=>c.id===p.creator_id);
                 return (
                   <tr key={p.id}>
@@ -1723,14 +1803,14 @@ function PaymentManagement({ db, onRefresh }) {
                     <td className="text-green fw-600">{fmtMoney(p.amount_owed)}</td>
                     <td><span className="badge badge-gray">{p.payment_method||"—"}</span></td>
                     <td>{statusBadge(p.status)}</td>
-                    <td>{p.status==="Pending"&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Mark Paid</button>}</td>
+                    <td>{p.status==="Pending"&&isOwner&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Mark Paid</button>}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        {db.payments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>No payments yet</h3></div>}
+        {allPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>No payments yet</h3></div>}
       </div>
     </div>
   );
@@ -2310,7 +2390,7 @@ export default function App() {
       if(page==="dashboard") return <OwnerDashboard db={db}/>;
       if(page==="clients-full") return <ClientsPage isOwner={true} db={db} onRefresh={loadDB}/>;
       if(page==="revenue") return <RevenueAnalytics db={db}/>;
-      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB}/>;
+      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/>;
       if(page==="team") return <TeamPerformance db={db}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
       if(page==="creators-manage") return <CreatorsManage db={db} onRefresh={loadDB}/>;
