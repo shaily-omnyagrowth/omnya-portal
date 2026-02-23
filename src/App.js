@@ -1321,6 +1321,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   const [err, setErr] = useState("");
   const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
 
+  console.log("AM found:", am, "AM id:", am?.id, "Clients:", db.clients.map(c=>({name:c.name,am_id:c.am_id})));
   const create = async () => {
     if (!form.name||!form.client_id) { setErr("Name and client are required"); return; }
     setSaving(true); setErr("");
