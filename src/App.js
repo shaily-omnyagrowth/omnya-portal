@@ -1393,6 +1393,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
 function ClientsPage({ isOwner, db, onRefresh }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editClient, setEditClient] = useState(null);
+  const [viewClient, setViewClient] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_terms:"",drive_link:""};
@@ -1414,7 +1415,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
     await onRefresh(); setEditClient(null); setSaving(false);
   };
 
-  const ClientForm = ({ data, setData, onSave, onCancel, title }) => (
+  const ClientForm = ({ data, setData, onSave, onCancel, title, db }) => (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <div className="modal-title">{title}</div>
@@ -1432,6 +1433,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
         <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
         <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" placeholder="Contract terms, special notes..." value={data.contract_terms||""} onChange={e=>setData({...data,contract_terms:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Assign Account Manager</label><select className="select" value={data.am_id||""} onChange={e=>setData({...data,am_id:e.target.value||null})}><option value="">— Unassigned —</option>{db.accountManagers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
@@ -1454,14 +1456,14 @@ function ClientsPage({ isOwner, db, onRefresh }) {
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner&&<><th>Budget</th><th>Contact</th><th>Email</th></>}
-                <th>Drive</th>
+                <th>AM</th><th>Drive</th>
                 {isOwner&&<th>Edit</th>}
               </tr>
             </thead>
             <tbody>
               {db.clients.map(c=>(
                 <tr key={c.id}>
-                  <td className="fw-600">{c.name}</td>
+                  <td className="fw-600" style={{cursor:"pointer",color:"var(--blue)"}} onClick={()=>setViewClient(c)}>{c.name}</td>
                   <td>{statusBadge(c.deal_type)}</td>
                   <td>{c.videos_per_month}</td>
                   <td>{statusBadge(c.status)}</td>
@@ -1470,6 +1472,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
                     <td>{c.contact_name||"—"}</td>
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>}
+                  <td style={{fontSize:12}}>{db.accountManagers.find(a=>a.id===c.am_id)?.name||"—"}</td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
                   {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
                 </tr>
@@ -1479,8 +1482,69 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
       </div>
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
-      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client"/>}
-      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client"/>}
+      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
+      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
+      {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)}/>}
+    </div>
+  );
+}
+
+function ClientProfile({ client, db, onRefresh, onClose }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    description: client.description||"",
+    goals: client.goals||"",
+    target_audience: client.target_audience||"",
+    content_guidelines: client.content_guidelines||"",
+    notes: client.notes||""
+  });
+
+  const save = async () => {
+    setSaving(true);
+    await supabase.from("clients").update(form).eq("id", client.id);
+    await onRefresh();
+    setSaving(false);
+    setEditing(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{maxWidth:600,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div className="flex-between mb-16">
+          <div>
+            <div className="modal-title" style={{marginBottom:2}}>{client.name}</div>
+            <div style={{fontSize:12,color:"var(--ink3)"}}>{client.deal_type} · {client.status}</div>
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
+            <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
+          </div>
+        </div>
+
+        {editing ? (
+          <div>
+            <div className="form-group"><label className="form-label">What does this client do?</label><textarea className="textarea" rows={3} placeholder="Describe the client's business, product, or service..." value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Goals</label><textarea className="textarea" rows={3} placeholder="What are they trying to achieve with UGC? Brand awareness, conversions, followers..." value={form.goals} onChange={e=>setForm({...form,goals:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Target Audience</label><textarea className="textarea" rows={2} placeholder="Who are they targeting? Age, interests, demographics..." value={form.target_audience} onChange={e=>setForm({...form,target_audience:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Content Guidelines</label><textarea className="textarea" rows={3} placeholder="Dos and don'ts, tone of voice, style preferences..." value={form.content_guidelines} onChange={e=>setForm({...form,content_guidelines:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Notes</label><textarea className="textarea" rows={2} placeholder="Any other important info..." value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditing(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save"}</button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {[["What they do", form.description],["Goals", form.goals],["Target Audience", form.target_audience],["Content Guidelines", form.content_guidelines],["Notes", form.notes]].map(([label, val])=>(
+              <div key={label} style={{marginBottom:16}}>
+                <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:4}}>{label}</div>
+                <div style={{fontSize:14,color:val?"var(--ink)":"var(--ink3)",fontStyle:val?"normal":"italic"}}>{val||"Not filled in yet"}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
