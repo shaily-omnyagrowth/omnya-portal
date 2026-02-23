@@ -1306,6 +1306,8 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
     return client?.am_id===am?.id;
   });
   const [showCreate, setShowCreate] = useState(false);
+  const [editCampaign, setEditCampaign] = useState(null);
+  const [viewCampaign, setViewCampaign] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({name:"",client_id:"",description:"",formats:["TikTok"],videos_per_week:5,pay_per_video:10,start_date:"",end_date:"",delivery_day:"Friday",status:"Open",application_type:"Open Application"});
@@ -1336,6 +1338,23 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
     setSaving(false);
   };
 
+  const saveCampaign = async () => {
+    setSaving(true);
+    await supabase.from("campaigns").update({
+      name: editCampaign.name,
+      client_id: editCampaign.client_id,
+      description: editCampaign.description,
+      format: editCampaign.format,
+      videos_needed: Number(editCampaign.videos_needed||0),
+      pay_per_video: Number(editCampaign.pay_per_video||0),
+      start_date: editCampaign.start_date||null,
+      deadline: editCampaign.deadline||null,
+      delivery_day: editCampaign.delivery_day||null,
+      status: editCampaign.status,
+    }).eq("id", editCampaign.id);
+    await onRefresh(); setEditCampaign(null); setSaving(false);
+  };
+
   return (
     <div className="content">
       <div className="flex-between mb-16">
@@ -1346,7 +1365,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Campaign</th><th>Client</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
+            <thead><tr><th>Campaign</th><th>Client</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {campaigns.map(c=>{
                 const client = db.clients.find(cl=>cl.id===c.client_id);
@@ -1364,6 +1383,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
                     </td>
                     <td className="text-muted">{fmtDate(c.deadline)}</td>
                     <td>{statusBadge(c.status)}</td>
+                    <td><div style={{display:"flex",gap:6}}><button className="btn btn-sm btn-ghost" onClick={()=>setViewCampaign(c)}>View</button><button className="btn btn-sm btn-ghost" onClick={()=>setEditCampaign({...c})}>Edit</button></div></td>
                   </tr>
                 );
               })}
@@ -1371,6 +1391,46 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </table>
         </div>
       </div>
+      {viewCampaign&&(
+        <div className="modal-overlay" onClick={()=>setViewCampaign(null)}>
+          <div className="modal" style={{maxWidth:520}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">{viewCampaign.name}</div>
+            <div className="modal-sub">{db.clients.find(c=>c.id===viewCampaign.client_id)?.name}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,margin:"16px 0"}}>
+              {[["Format",viewCampaign.format],["Status",viewCampaign.status],["Start",fmtDate(viewCampaign.start_date)],["End",fmtDate(viewCampaign.deadline)],["Delivery Day",viewCampaign.delivery_day||"—"],["Pay/Video","$"+( viewCampaign.pay_per_video||0)],["Videos/Week",viewCampaign.videos_needed||"—"],["Creators",(Array.isArray(viewCampaign.assigned_creators)?viewCampaign.assigned_creators:[]).length]].map(([label,val])=>(
+                <div key={label} style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12}}>
+                  <div style={{fontSize:11,color:"var(--ink3)",marginBottom:4}}>{label}</div>
+                  <div style={{fontWeight:600,fontSize:14}}>{val}</div>
+                </div>
+              ))}
+            </div>
+            {viewCampaign.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,fontSize:13,color:"var(--ink2)"}}><div style={{fontSize:11,color:"var(--ink3)",marginBottom:6}}>GUIDELINES</div>{viewCampaign.description}</div>}
+            <div className="modal-actions"><button className="btn btn-primary" onClick={()=>setViewCampaign(null)}>Close</button></div>
+          </div>
+        </div>
+      )}
+      {editCampaign&&(
+        <div className="modal-overlay" onClick={()=>setEditCampaign(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit Campaign</div>
+            <div className="form-group"><label className="form-label">Campaign Name</label><input className="form-input" value={editCampaign.name||""} onChange={e=>setEditCampaign({...editCampaign,name:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Client</label><select className="select" value={editCampaign.client_id||""} onChange={e=>setEditCampaign({...editCampaign,client_id:e.target.value})}><option value="">Select client...</option>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+            <div className="form-group"><label className="form-label">Description</label><textarea className="textarea" value={editCampaign.description||""} onChange={e=>setEditCampaign({...editCampaign,description:e.target.value})}/></div>
+            <div className="grid-2">
+              <div className="form-group"><label className="form-label">Status</label><select className="select" value={editCampaign.status||"Open"} onChange={e=>setEditCampaign({...editCampaign,status:e.target.value})}>{["Open","In Progress","Completed","Paused","Cancelled"].map(s=><option key={s}>{s}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Delivery Day</label><select className="select" value={editCampaign.delivery_day||"Friday"} onChange={e=>setEditCampaign({...editCampaign,delivery_day:e.target.value})}>{["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(d=><option key={d}>{d}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Videos/Week</label><input className="form-input" type="number" value={editCampaign.videos_needed||""} onChange={e=>setEditCampaign({...editCampaign,videos_needed:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={editCampaign.pay_per_video||""} onChange={e=>setEditCampaign({...editCampaign,pay_per_video:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Start Date</label><input className="form-input" type="date" value={editCampaign.start_date||""} onChange={e=>setEditCampaign({...editCampaign,start_date:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">End Date</label><input className="form-input" type="date" value={editCampaign.deadline||""} onChange={e=>setEditCampaign({...editCampaign,deadline:e.target.value})}/></div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditCampaign(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveCampaign} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
