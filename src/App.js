@@ -1308,7 +1308,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
+  const [form, setForm] = useState({name:"",client_id:"",description:"",formats:["TikTok"],videos_needed:10,pay_per_video:10,start_date:"",deadline:"",status:"Open",application_type:"Open Application"});
 
   const create = async () => {
     if (!form.name||!form.client_id) { setErr("Name and client are required"); return; }
@@ -1318,9 +1318,10 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
         name: form.name,
         client_id: form.client_id,
         description: form.description,
-        format: form.format,
+        format: form.formats.join(", "),
         videos_needed: Number(form.videos_needed),
         pay_per_video: Number(form.pay_per_video),
+        start_date: form.start_date||null,
         deadline: form.deadline||null,
         status: form.status,
         application_type: form.application_type,
@@ -1328,7 +1329,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
       });
       if (error) { setErr(error.message); setSaving(false); return; }
       setShowCreate(false);
-      setForm({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
+      setForm({name:"",client_id:"",description:"",formats:["TikTok"],videos_needed:10,pay_per_video:10,start_date:"",deadline:"",status:"Open",application_type:"Open Application"});
       await onRefresh();
     } catch(e) { setErr(e.message); }
     setSaving(false);
@@ -1377,7 +1378,8 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
             <div className="form-group"><label className="form-label">Client</label><select className="select" value={form.client_id} onChange={e=>setForm({...form,client_id:e.target.value})}><option value="">Select client...</option>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div className="form-group"><label className="form-label">Description / Guidelines</label><textarea className="textarea" placeholder="Content guidelines, talking points, CTAs..." value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></div>
             <div className="grid-2">
-              <div className="form-group"><label className="form-label">Format</label><select className="select" value={form.format} onChange={e=>setForm({...form,format:e.target.value})}>{["TikTok","IG Reel","FB Reel","YouTube Short"].map(f=><option key={f}>{f}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Formats (select all that apply)</label><div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}}>{["TikTok","IG Reel","FB Reel","YouTube Short"].map(f=><label key={f} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={(form.formats||[]).includes(f)} onChange={e=>{const cur=form.formats||[];setForm({...form,formats:e.target.checked?[...cur,f]:cur.filter(x=>x!==f)});}}/>{f}</label>)}</div></div>
+              <div className="form-group"><label className="form-label">Start Date</label><input className="form-input" type="date" value={form.start_date||""} onChange={e=>setForm({...form,start_date:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Deadline</label><input className="form-input" type="date" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Videos Needed</label><input className="form-input" type="number" value={form.videos_needed} onChange={e=>setForm({...form,videos_needed:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={form.pay_per_video} onChange={e=>setForm({...form,pay_per_video:e.target.value})}/></div>
