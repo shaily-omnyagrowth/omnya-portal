@@ -1980,7 +1980,10 @@ export default function App() {
       if (session) {
         const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",session.user.id).single();
         if (profile) setUser({...session.user,...profile});
-        else { setUser(session.user); setNeedsSetup(true); }
+        else {
+        await supabase.from("user_profiles").upsert({ id: session.user.id, email: session.user.email, full_name: session.user.email.split("@")[0], role: "pending" });
+        setUser({...session.user, role:"pending"});
+      }
       }
       setLoading(false);
     });
