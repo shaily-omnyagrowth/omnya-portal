@@ -1414,7 +1414,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
     await onRefresh(); setEditClient(null); setSaving(false);
   };
 
-  const ClientForm = ({ data, setData, onSave, onCancel, title }) => (
+  const ClientForm = ({ data, setData, onSave, onCancel, title, db }) => (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <div className="modal-title">{title}</div>
@@ -1432,6 +1432,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
         <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
         <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" placeholder="Contract terms, special notes..." value={data.contract_terms||""} onChange={e=>setData({...data,contract_terms:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Assign Account Manager</label><select className="select" value={data.am_id||""} onChange={e=>setData({...data,am_id:e.target.value||null})}><option value="">— Unassigned —</option>{db.accountManagers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
@@ -1454,7 +1455,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner&&<><th>Budget</th><th>Contact</th><th>Email</th></>}
-                <th>Drive</th>
+                <th>AM</th><th>Drive</th>
                 {isOwner&&<th>Edit</th>}
               </tr>
             </thead>
@@ -1470,6 +1471,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
                     <td>{c.contact_name||"—"}</td>
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>}
+                  <td style={{fontSize:12}}>{db.accountManagers.find(a=>a.id===c.am_id)?.name||"—"}</td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
                   {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
                 </tr>
@@ -1479,8 +1481,8 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
       </div>
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
-      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client"/>}
-      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client"/>}
+      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
+      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
     </div>
   );
 }
