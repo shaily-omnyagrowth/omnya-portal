@@ -1372,7 +1372,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
             <div className="modal-title">New Campaign</div>
             <div className="modal-sub">Create a content campaign for a client</div>
             <div className="form-group"><label className="form-label">Campaign Name</label><input className="form-input" placeholder="e.g. Spring Launch 2026" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Client</label><select className="select" value={form.client_id} onChange={e=>setForm({...form,client_id:e.target.value})}><option value="">Select client...</option>{db.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+            <div className="form-group"><label className="form-label">Client</label><select className="select" value={form.client_id} onChange={e=>setForm({...form,client_id:e.target.value})}><option value="">Select client...</option>{(isOwner?db.clients:db.clients.filter(c=>c.am_id===am?.id)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
             <div className="form-group"><label className="form-label">Description / Guidelines</label><textarea className="textarea" placeholder="Content guidelines, talking points, CTAs..." value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></div>
             <div className="grid-2">
               <div className="form-group"><label className="form-label">Format</label><select className="select" value={form.format} onChange={e=>setForm({...form,format:e.target.value})}>{["TikTok","IG Reel","FB Reel","YouTube Short"].map(f=><option key={f}>{f}</option>)}</select></div>
