@@ -1308,7 +1308,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const [form, setForm] = useState({name:"",client_id:"",description:"",formats:["TikTok"],videos_needed:10,pay_per_video:10,start_date:"",deadline:"",status:"Open",application_type:"Open Application"});
+  const [form, setForm] = useState({name:"",client_id:"",description:"",formats:["TikTok"],videos_per_week:5,pay_per_video:10,start_date:"",end_date:"",delivery_day:"Friday",status:"Open",application_type:"Open Application"});
 
   const create = async () => {
     if (!form.name||!form.client_id) { setErr("Name and client are required"); return; }
@@ -1319,17 +1319,18 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
         client_id: form.client_id,
         description: form.description,
         format: form.formats.join(", "),
-        videos_needed: Number(form.videos_needed),
+        videos_needed: Number(form.videos_per_week),
         pay_per_video: Number(form.pay_per_video),
         start_date: form.start_date||null,
-        deadline: form.deadline||null,
+        deadline: form.end_date||null,
+        delivery_day: form.delivery_day,
         status: form.status,
         application_type: form.application_type,
         assigned_creators: []
       });
       if (error) { setErr(error.message); setSaving(false); return; }
       setShowCreate(false);
-      setForm({name:"",client_id:"",description:"",formats:["TikTok"],videos_needed:10,pay_per_video:10,start_date:"",deadline:"",status:"Open",application_type:"Open Application"});
+      setForm({name:"",client_id:"",description:"",formats:["TikTok"],videos_per_week:5,pay_per_video:10,start_date:"",end_date:"",delivery_day:"Friday",status:"Open",application_type:"Open Application"});
       await onRefresh();
     } catch(e) { setErr(e.message); }
     setSaving(false);
@@ -1380,9 +1381,10 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
             <div className="grid-2">
               <div className="form-group"><label className="form-label">Formats (select all that apply)</label><div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}}>{["TikTok","IG Reel","FB Reel","YouTube Short"].map(f=><label key={f} style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}><input type="checkbox" checked={(form.formats||[]).includes(f)} onChange={e=>{const cur=form.formats||[];setForm({...form,formats:e.target.checked?[...cur,f]:cur.filter(x=>x!==f)});}}/>{f}</label>)}</div></div>
               <div className="form-group"><label className="form-label">Start Date</label><input className="form-input" type="date" value={form.start_date||""} onChange={e=>setForm({...form,start_date:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Deadline</label><input className="form-input" type="date" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Videos Needed</label><input className="form-input" type="number" value={form.videos_needed} onChange={e=>setForm({...form,videos_needed:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Videos Per Week</label><input className="form-input" type="number" value={form.videos_per_week} onChange={e=>setForm({...form,videos_per_week:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={form.pay_per_video} onChange={e=>setForm({...form,pay_per_video:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Weekly Delivery Day</label><select className="select" value={form.delivery_day} onChange={e=>setForm({...form,delivery_day:e.target.value})}>{["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(d=><option key={d}>{d}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">End Date</label><input className="form-input" type="date" value={form.end_date||""} onChange={e=>setForm({...form,end_date:e.target.value})}/></div>
             </div>
             {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
             <div className="modal-actions">
