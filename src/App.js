@@ -1363,31 +1363,6 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
               <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={editClient.deal_type||""} onChange={e=>setEditClient({...editClient,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
               <div className="form-group"><label className="form-label">Status</label><select className="select" value={editClient.status||""} onChange={e=>setEditClient({...editClient,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
               <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={editClient.videos_per_month||""} onChange={e=>setEditClient({...editClient,videos_per_month:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Monthly Budget ($)</label><input className="form-input" type="number" value={editClient.budget||""} onChange={e=>setEditClient({...editClient,budget:e.target.value})}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" value={editClient.contact_name||""} onChange={e=>setEditClient({...editClient,contact_name:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" value={editClient.contact_email||""} onChange={e=>setEditClient({...editClient,contact_email:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={editClient.contact_phone||""} onChange={e=>setEditClient({...editClient,contact_phone:e.target.value})}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" value={editClient.drive_link||""} onChange={e=>setEditClient({...editClient,drive_link:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" value={editClient.contract_terms||""} onChange={e=>setEditClient({...editClient,contract_terms:e.target.value})}/></div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditClient(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {editClient&&(
-        <div className="modal-overlay" onClick={()=>setEditClient(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Edit Client</div>
-            <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" value={editClient.name||""} onChange={e=>setEditClient({...editClient,name:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={editClient.deal_type||""} onChange={e=>setEditClient({...editClient,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Status</label><select className="select" value={editClient.status||""} onChange={e=>setEditClient({...editClient,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={editClient.videos_per_month||""} onChange={e=>setEditClient({...editClient,videos_per_month:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Budget ($)</label><input className="form-input" type="number" value={editClient.budget||""} onChange={e=>setEditClient({...editClient,budget:e.target.value})}/></div>
             </div>
             <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" value={editClient.contact_name||""} onChange={e=>setEditClient({...editClient,contact_name:e.target.value})}/></div>
