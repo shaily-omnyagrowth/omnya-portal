@@ -1316,7 +1316,6 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
     return client?.am_id===am?.id;
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [viewCampaign, setViewCampaign] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
@@ -1365,7 +1364,6 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </table>
         </div>
       </div>
-      {viewCampaign&&<CampaignDetail campaign={viewCampaign} db={db} onRefresh={async()=>{await onRefresh();setViewCampaign(db.campaigns.find(c=>c.id===viewCampaign.id)||null);}} onClose={()=>setViewCampaign(null)}/>}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -1392,84 +1390,9 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   );
 }
 
-function CampaignDetail({ campaign, db, onRefresh, onClose }) {
-  const [saving, setSaving] = useState(false);
-  const client = db.clients.find(c=>c.id===campaign.client_id);
-  const assignedCreators = db.creators.filter(c=>(campaign.assigned_creators||[]).includes(c.id));
-  const availableCreators = db.creators.filter(c=>!(campaign.assigned_creators||[]).includes(c.id)&&c.status==="Active");
-  const approved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved").length;
-
-  const assignCreator = async (creatorId) => {
-    setSaving(true);
-    const updated = [...(campaign.assigned_creators||[]), creatorId];
-    await supabase.from("campaigns").update({assigned_creators:updated, status:"In Progress"}).eq("id", campaign.id);
-    await onRefresh();
-    setSaving(false);
-  };
-
-  const removeCreator = async (creatorId) => {
-    setSaving(true);
-    const updated = (campaign.assigned_creators||[]).filter(id=>id!==creatorId);
-    await supabase.from("campaigns").update({assigned_creators:updated}).eq("id", campaign.id);
-    await onRefresh();
-    setSaving(false);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{maxWidth:620,maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-        <div className="flex-between mb-16">
-          <div>
-            <div className="modal-title" style={{marginBottom:2}}>{campaign.name}</div>
-            <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name||"—"} · Due {fmtDate(campaign.deadline)}</div>
-          </div>
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
-        </div>
-
-        <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr",marginBottom:20}}>
-          <div className="stat-card"><div className="stat-label">Assigned</div><div className="stat-value">{assignedCreators.length}</div></div>
-          <div className="stat-card"><div className="stat-label">Progress</div><div className="stat-value">{approved}/{campaign.videos_needed}</div></div>
-          <div className="stat-card"><div className="stat-label">Pay/Video</div><div className="stat-value">{fmtMoney(campaign.pay_per_video)}</div></div>
-        </div>
-
-        {campaign.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:20,fontSize:13,color:"var(--ink2)"}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:6}}>Guidelines</div>{campaign.description}</div>}
-
-        <div style={{marginBottom:20}}>
-          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Assigned Creators ({assignedCreators.length})</div>
-          {assignedCreators.length===0&&<div style={{fontSize:13,color:"var(--ink3)",fontStyle:"italic"}}>No creators assigned yet</div>}
-          {assignedCreators.map(c=>(
-            <div key={c.id} className="flex-between" style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
-              <div>
-                <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
-                <div style={{fontSize:11,color:"var(--ink3)"}}>{c.platform||"—"} · {c.niche||"—"}</div>
-              </div>
-              <button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} onClick={()=>removeCreator(c.id)} disabled={saving}>Remove</button>
-            </div>
-          ))}
-        </div>
-
-        <div>
-          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Add Creators ({availableCreators.length} available)</div>
-          {availableCreators.length===0&&<div style={{fontSize:13,color:"var(--ink3)",fontStyle:"italic"}}>All active creators are already assigned</div>}
-          {availableCreators.map(c=>(
-            <div key={c.id} className="flex-between" style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
-              <div>
-                <div style={{fontWeight:600,fontSize:13}}>{c.name}</div>
-                <div style={{fontSize:11,color:"var(--ink3)"}}>{c.platform||"—"} · {c.niche||"—"}</div>
-              </div>
-              <button className="btn btn-sm btn-primary" onClick={()=>assignCreator(c.id)} disabled={saving}>+ Assign</button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ClientsPage({ isOwner, db, onRefresh }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editClient, setEditClient] = useState(null);
-  const [viewClient, setViewClient] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_terms:"",drive_link:""};
@@ -1491,7 +1414,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
     await onRefresh(); setEditClient(null); setSaving(false);
   };
 
-  const ClientForm = ({ data, setData, onSave, onCancel, title, db }) => (
+  const ClientForm = ({ data, setData, onSave, onCancel, title }) => (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <div className="modal-title">{title}</div>
@@ -1509,7 +1432,6 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
         <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
         <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" placeholder="Contract terms, special notes..." value={data.contract_terms||""} onChange={e=>setData({...data,contract_terms:e.target.value})}/></div>
-        <div className="form-group"><label className="form-label">Assign Account Manager</label><select className="select" value={data.am_id||""} onChange={e=>setData({...data,am_id:e.target.value||null})}><option value="">— Unassigned —</option>{db.accountManagers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
@@ -1532,14 +1454,14 @@ function ClientsPage({ isOwner, db, onRefresh }) {
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner&&<><th>Budget</th><th>Contact</th><th>Email</th></>}
-                <th>AM</th><th>Drive</th>
+                <th>Drive</th>
                 {isOwner&&<th>Edit</th>}
               </tr>
             </thead>
             <tbody>
               {db.clients.map(c=>(
                 <tr key={c.id}>
-                  <td className="fw-600" style={{cursor:"pointer",color:"var(--blue)"}} onClick={()=>setViewClient(c)}>{c.name}</td>
+                  <td className="fw-600">{c.name}</td>
                   <td>{statusBadge(c.deal_type)}</td>
                   <td>{c.videos_per_month}</td>
                   <td>{statusBadge(c.status)}</td>
@@ -1548,7 +1470,6 @@ function ClientsPage({ isOwner, db, onRefresh }) {
                     <td>{c.contact_name||"—"}</td>
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>}
-                  <td style={{fontSize:12}}>{db.accountManagers.find(a=>a.id===c.am_id)?.name||"—"}</td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
                   {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
                 </tr>
@@ -1558,69 +1479,8 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
       </div>
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
-      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
-      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
-      {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)}/>}
-    </div>
-  );
-}
-
-function ClientProfile({ client, db, onRefresh, onClose }) {
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    description: client.description||"",
-    goals: client.goals||"",
-    target_audience: client.target_audience||"",
-    content_guidelines: client.content_guidelines||"",
-    notes: client.notes||""
-  });
-
-  const save = async () => {
-    setSaving(true);
-    await supabase.from("clients").update(form).eq("id", client.id);
-    await onRefresh();
-    setSaving(false);
-    setEditing(false);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{maxWidth:600,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-        <div className="flex-between mb-16">
-          <div>
-            <div className="modal-title" style={{marginBottom:2}}>{client.name}</div>
-            <div style={{fontSize:12,color:"var(--ink3)"}}>{client.deal_type} · {client.status}</div>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
-            <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
-          </div>
-        </div>
-
-        {editing ? (
-          <div>
-            <div className="form-group"><label className="form-label">What does this client do?</label><textarea className="textarea" rows={3} placeholder="Describe the client's business, product, or service..." value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Goals</label><textarea className="textarea" rows={3} placeholder="What are they trying to achieve with UGC? Brand awareness, conversions, followers..." value={form.goals} onChange={e=>setForm({...form,goals:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Target Audience</label><textarea className="textarea" rows={2} placeholder="Who are they targeting? Age, interests, demographics..." value={form.target_audience} onChange={e=>setForm({...form,target_audience:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Content Guidelines</label><textarea className="textarea" rows={3} placeholder="Dos and don'ts, tone of voice, style preferences..." value={form.content_guidelines} onChange={e=>setForm({...form,content_guidelines:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Notes</label><textarea className="textarea" rows={2} placeholder="Any other important info..." value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditing(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save"}</button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {[["What they do", form.description],["Goals", form.goals],["Target Audience", form.target_audience],["Content Guidelines", form.content_guidelines],["Notes", form.notes]].map(([label, val])=>(
-              <div key={label} style={{marginBottom:16}}>
-                <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:4}}>{label}</div>
-                <div style={{fontSize:14,color:val?"var(--ink)":"var(--ink3)",fontStyle:val?"normal":"italic"}}>{val||"Not filled in yet"}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client"/>}
+      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client"/>}
     </div>
   );
 }
@@ -1758,11 +1618,8 @@ function OwnerDashboard({ db }) {
   );
 }
 
-function PaymentManagement({ db, onRefresh, user, isOwner }) {
-  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
-  const myCreatorIds = am ? db.creators.filter(c=>c.am_id===am.id).map(c=>c.id) : null;
-  const allPayments = isOwner ? db.payments : db.payments.filter(p=>myCreatorIds?.includes(p.creator_id));
-  const pending = allPayments.filter(p=>p.status==="Pending");
+function PaymentManagement({ db, onRefresh }) {
+  const pending = db.payments.filter(p=>p.status==="Pending");
   const totalOwed = pending.reduce((a,p)=>a+Number(p.amount_owed||0),0);
   const [saving, setSaving] = useState(false);
 
@@ -1780,20 +1637,19 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
 
   return (
     <div className="content">
-      {isOwner&&<div className="mb-16"><span className="owner-badge">👑 Owner View — All payments</span></div>}
-      {!isOwner&&<div className="mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>Payments for your creators</div></div>}
+      <div className="mb-16"><span className="owner-badge">👑 Owner Only</span></div>
       <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
         <div className="stat-card stat-highlight"><div className="stat-label">Pending Payments</div><div className="stat-value">{pending.length}</div></div>
         <div className="stat-card"><div className="stat-label">Total Owed</div><div className="stat-value">{fmtMoney(totalOwed)}</div></div>
         <div className="stat-card"><div className="stat-label">Paid This Month</div><div className="stat-value">{fmtMoney(db.payments.filter(p=>p.status==="Paid").reduce((a,p)=>a+Number(p.amount_owed||0),0))}</div></div>
       </div>
-      {pending.length>0&&<div className="flex-between mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>{pending.length} payments pending</div>{isOwner&&<button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button>}</div>}
+      {pending.length>0&&<div className="flex-between mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>{pending.length} payments pending</div><button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button></div>}
       <div className="card">
         <div className="table-wrap">
           <table>
             <thead><tr><th>Creator</th><th>Week Ending</th><th>Videos</th><th>Amount</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {allPayments.map(p=>{
+              {db.payments.map(p=>{
                 const creator=db.creators.find(c=>c.id===p.creator_id);
                 return (
                   <tr key={p.id}>
@@ -1803,14 +1659,14 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
                     <td className="text-green fw-600">{fmtMoney(p.amount_owed)}</td>
                     <td><span className="badge badge-gray">{p.payment_method||"—"}</span></td>
                     <td>{statusBadge(p.status)}</td>
-                    <td>{p.status==="Pending"&&isOwner&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Mark Paid</button>}</td>
+                    <td>{p.status==="Pending"&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Mark Paid</button>}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        {allPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>No payments yet</h3></div>}
+        {db.payments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>No payments yet</h3></div>}
       </div>
     </div>
   );
@@ -2390,7 +2246,7 @@ export default function App() {
       if(page==="dashboard") return <OwnerDashboard db={db}/>;
       if(page==="clients-full") return <ClientsPage isOwner={true} db={db} onRefresh={loadDB}/>;
       if(page==="revenue") return <RevenueAnalytics db={db}/>;
-      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/>;
+      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB}/>;
       if(page==="team") return <TeamPerformance db={db}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
       if(page==="creators-manage") return <CreatorsManage db={db} onRefresh={loadDB}/>;
