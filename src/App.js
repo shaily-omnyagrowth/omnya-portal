@@ -1348,8 +1348,8 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
                 const approved=db.submissions.filter(s=>s.campaign_id===c.id&&s.final_status==="Approved").length;
                 const pct=Math.round((approved/(c.videos_needed||1))*100);
                 return (
-                  <tr key={c.id}>
-                    <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
+                  <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setViewCampaign(c)}>
+                    <td><div className="fw-600" style={{color:"var(--blue)"}}>{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
                     <td className="text-muted">{client?.name||"—"}</td>
                     <td><span className="badge badge-blue">{c.format}</span></td>
                     <td>
