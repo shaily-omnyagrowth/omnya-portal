@@ -1341,7 +1341,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Campaign</th><th>Client</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
+            <thead><tr><th>Campaign</th><th>Client</th><th>AM</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
             <tbody>
               {campaigns.map(c=>{
                 const client=db.clients.find(cl=>cl.id===c.client_id);
@@ -1351,6 +1351,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
                   <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setViewCampaign(c)}>
                     <td><div className="fw-600" style={{color:"var(--blue)"}}>{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
                     <td className="text-muted">{client?.name||"—"}</td>
+                    <td style={{fontSize:12,color:"var(--ink3)"}}>{db.accountManagers.find(a=>a.id===client?.am_id)?.name||"—"}</td>
                     <td><span className="badge badge-blue">{c.format}</span></td>
                     <td>
                       <div style={{fontSize:11,color:"var(--ink3)",marginBottom:4}}>{approved}/{c.videos_needed} videos</div>
@@ -1446,6 +1447,7 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
           <div>
             <div className="modal-title" style={{marginBottom:2}}>{campaign.name}</div>
             <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name||"—"} · {campaign.format} · Due {fmtDate(campaign.deadline)}</div>
+            {client&&db.accountManagers.find(a=>a.id===client.am_id)&&<div style={{fontSize:12,color:"var(--ink3)",marginTop:2}}>AM: {db.accountManagers.find(a=>a.id===client.am_id)?.name}</div>}
           </div>
           <div style={{display:"flex",gap:8}}>
             {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
