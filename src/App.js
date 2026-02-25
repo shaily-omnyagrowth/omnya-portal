@@ -1028,7 +1028,8 @@ function SubmitContent({ user, db, onRefresh }) {
       final_status: form.type==="Final"?"Pending":null,
       posted_link: form.posted_link||null, platform: form.platform,
       payment_status: "Unpaid",
-      notes: form.comment||null
+      notes: form.comment||null,
+      due_date: form.due_date||null
     };
 
     const { error } = await supabase.from("submissions").insert(newSub);
@@ -1124,6 +1125,11 @@ function SubmitContent({ user, db, onRefresh }) {
           </div>
         )}
 
+        <div className="form-group">
+          <label className="form-label">Due Date <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
+          <input className="form-input" type="date" value={form.due_date||""} onChange={e=>setForm({...form,due_date:e.target.value})}/>
+          <div className="form-hint">When is this content due? Used to track your on-time rate.</div>
+        </div>
         <div className="form-group">
           <label className="form-label">Comment <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
           <textarea className="textarea" rows={2} placeholder="Any notes for your AM about this submission..." value={form.comment} onChange={e=>setForm({...form,comment:e.target.value})}/>
@@ -1524,6 +1530,8 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [uploadingBrief, setUploadingBrief] = useState(false);
+  const [isSalesSourced, setIsSalesSourced] = useState(campaign.is_sales_sourced||false);
   const [editForm, setEditForm] = useState({
     name: campaign.name||"",
     description: campaign.description||"",
@@ -1531,12 +1539,53 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
     videos_needed: campaign.videos_needed||10,
     pay_per_video: campaign.pay_per_video||10,
     deadline: campaign.deadline||"",
-    status: campaign.status||"Open"
+    status: campaign.status||"Open",
+    is_sales_sourced: campaign.is_sales_sourced||false
   });
   const client = db.clients.find(c=>c.id===campaign.client_id);
+  const clientAM = db.accountManagers.find(a=>a.id===client?.am_id);
   const assignedCreators = db.creators.filter(c=>(campaign.assigned_creators||[]).includes(c.id));
   const availableCreators = db.creators.filter(c=>!(campaign.assigned_creators||[]).includes(c.id)&&c.status==="Active");
   const approved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved").length;
+
+  // Profitability calculations
+  const revenue = Number(client?.budget||0);
+  const salesCommissionRate = isSalesSourced ? 0.30 : 0;
+  const amRate = (clientAM?.name||"").toLowerCase().includes("lilli") ? 0.20 : 0.10;
+  const salesCost = revenue * salesCommissionRate;
+  const amCost = revenue * amRate;
+  const creatorCost = approved * Number(campaign.pay_per_video||0);
+  const totalCost = salesCost + amCost + creatorCost;
+  const grossProfit = revenue - totalCost;
+  const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
+  const costPerVideo = approved > 0 ? Math.round(totalCost/approved) : 0;
+  const marginColor = margin>=50?"var(--green)":margin>=25?"var(--gold)":"var(--red)";
+  const cpvColor = costPerVideo===0?"var(--ink3)":costPerVideo<=50?"var(--green)":costPerVideo<=60?"var(--gold)":"var(--red)";
+  const cpvFlag = costPerVideo===0?"":costPerVideo<=50?"🟢":costPerVideo<=60?"⚠️":"🚨";
+
+  // At Risk flags
+  const pendingSubs = db.submissions.filter(s=>s.campaign_id===campaign.id&&(s.concept_status==="Pending"||s.final_status==="Pending"));
+  const staleSubs = pendingSubs.filter(s=>{
+    const days = (Date.now()-new Date(s.created_at).getTime())/(1000*60*60*24);
+    return days>3;
+  });
+
+  const toggleSalesSourced = async () => {
+    const newVal = !isSalesSourced;
+    setIsSalesSourced(newVal);
+    await supabase.from("campaigns").update({is_sales_sourced:newVal}).eq("id",campaign.id);
+  };
+
+  const uploadBrief = async (file) => {
+    if (!file) return;
+    setUploadingBrief(true);
+    const path = `briefs/${campaign.id}/${file.name}`;
+    await supabase.storage.from("submissions").upload(path, file, {upsert:true});
+    const { data } = supabase.storage.from("submissions").getPublicUrl(path);
+    await supabase.from("campaigns").update({brief_url:data.publicUrl}).eq("id",campaign.id);
+    await onRefresh();
+    setUploadingBrief(false);
+  };
 
   const assignCreator = async (creatorId) => {
     setSaving(true);
@@ -1613,11 +1662,54 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
           </div>
         ) : (
           <div>
-            {/* Stats */}
-            <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr",marginBottom:20}}>
-              <div className="stat-card"><div className="stat-label">Assigned</div><div className="stat-value">{assignedCreators.length}</div></div>
-              <div className="stat-card"><div className="stat-label">Progress</div><div className="stat-value">{approved}/{campaign.videos_needed}</div></div>
-              <div className="stat-card"><div className="stat-label">Pay/Video</div><div className="stat-value">{fmtMoney(campaign.pay_per_video)}</div></div>
+            {/* At Risk Flags */}
+            {(staleSubs.length>0||margin<60||costPerVideo>60)&&(
+              <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:6}}>
+                {staleSubs.length>0&&<div style={{background:"#fff0f0",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:"8px 12px",fontSize:12,color:"var(--red)"}}>🚨 {staleSubs.length} submission{staleSubs.length!==1?"s":""} pending review for 3+ days</div>}
+                {margin<60&&revenue>0&&<div style={{background:"#fffbe6",border:"1px solid #ffe066",borderRadius:"var(--radius-sm)",padding:"8px 12px",fontSize:12,color:"#b08800"}}>⚠️ Margin is {margin}% — below 60% target</div>}
+                {costPerVideo>60&&<div style={{background:"#fff0f0",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:"8px 12px",fontSize:12,color:"var(--red)"}}>🚨 Cost per video ${costPerVideo} exceeds $60 threshold</div>}
+              </div>
+            )}
+
+            {/* Sales Sourced Toggle */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,padding:"10px 14px",background:"var(--bg2)",borderRadius:"var(--radius-sm)"}}>
+              <input type="checkbox" id="salesToggle" checked={isSalesSourced} onChange={toggleSalesSourced} style={{width:16,height:16,cursor:"pointer"}}/>
+              <label htmlFor="salesToggle" style={{fontSize:13,cursor:"pointer",userSelect:"none"}}>
+                ☑ Sales sourced <span style={{color:"var(--ink3)",fontWeight:400}}>(+30% sales commission)</span>
+              </label>
+            </div>
+
+            {/* Profitability Stats */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
+              <div className="stat-card"><div className="stat-label">Revenue</div><div className="stat-value" style={{fontSize:16,color:"var(--green)"}}>{fmtMoney(revenue)}</div></div>
+              <div className="stat-card"><div className="stat-label">Creator Cost</div><div className="stat-value" style={{fontSize:16,color:"var(--red)"}}>{fmtMoney(creatorCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{approved} approved × {fmtMoney(campaign.pay_per_video)}</div></div>
+              <div className="stat-card"><div className="stat-label">AM Cost</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(amCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{amRate*100}% of budget</div></div>
+              {isSalesSourced&&<div className="stat-card"><div className="stat-label">Sales Comm.</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(salesCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>30% of budget</div></div>}
+              <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value" style={{fontSize:16,color:grossProfit>=0?"var(--green)":"var(--red)"}}>{fmtMoney(grossProfit)}</div></div>
+              <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value" style={{fontSize:16,color:marginColor}}>{margin}%</div><div style={{width:"100%",background:"var(--bg2)",borderRadius:4,height:4,marginTop:4}}><div style={{width:`${Math.min(Math.max(margin,0),100)}%`,background:marginColor,height:4,borderRadius:4}}/></div></div>
+              <div className="stat-card"><div className="stat-label">Cost/Video</div><div className="stat-value" style={{fontSize:16,color:cpvColor}}>{cpvFlag} {costPerVideo>0?fmtMoney(costPerVideo):"—"}</div></div>
+              <div className="stat-card"><div className="stat-label">Progress</div><div className="stat-value" style={{fontSize:16}}>{approved}/{campaign.videos_needed}</div></div>
+            </div>
+
+            {/* Brief Doc */}
+            <div style={{marginBottom:16,padding:"10px 14px",background:"var(--bg2)",borderRadius:"var(--radius-sm)"}}>
+              <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>📄 Creator Brief</div>
+              {campaign.brief_url ? (
+                <div className="flex-between">
+                  <a href={campaign.brief_url} target="_blank" rel="noreferrer" className="btn btn-sm btn-primary">📥 View Brief</a>
+                  <label style={{cursor:"pointer",fontSize:12,color:"var(--ink3)"}}>
+                    Replace
+                    <input type="file" accept=".pdf,.doc,.docx" style={{display:"none"}} onChange={e=>uploadBrief(e.target.files[0])}/>
+                  </label>
+                </div>
+              ) : (
+                <label style={{cursor:"pointer"}}>
+                  <div style={{border:"2px dashed var(--border2)",borderRadius:"var(--radius-sm)",padding:"12px",textAlign:"center",fontSize:12,color:"var(--ink3)"}}>
+                    {uploadingBrief?"Uploading...":"+ Upload brief doc (PDF, Word)"}
+                  </div>
+                  <input type="file" accept=".pdf,.doc,.docx" style={{display:"none"}} onChange={e=>uploadBrief(e.target.files[0])}/>
+                </label>
+              )}
             </div>
 
             {/* Description */}
@@ -1678,6 +1770,7 @@ function CreatorActiveJobs({ user, db, onNavigate }) {
             {statusBadge(job?.status)}
           </div>
           {job?.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:12,fontSize:13}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:6}}>Guidelines</div><p style={{color:"var(--ink2)",margin:0}}>{job.description}</p></div>}
+          {job?.brief_url&&<div style={{marginBottom:12}}><a href={job.brief_url} target="_blank" rel="noreferrer" className="btn btn-sm btn-primary">📄 View Creator Brief</a></div>}
           <div className="flex-between">
             <div style={{fontSize:12,color:"var(--ink3)"}}>{mySubs.length} submission{mySubs.length!==1?"s":""}</div>
             <button className="btn btn-primary btn-sm" onClick={()=>onNavigate("submit")}>Submit Content</button>
@@ -2207,6 +2300,185 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
   );
 }
 
+function RevenueTrendChart({ db, clientData }) {
+  // Generate last 6 months labels
+  const months = [];
+  for (let i=5; i>=0; i--) {
+    const d = new Date();
+    d.setMonth(d.getMonth()-i);
+    months.push({ label: d.toLocaleString("default",{month:"short"}), year: d.getFullYear(), month: d.getMonth() });
+  }
+
+  // For now, use current snapshot for current month and project backward
+  // As real data accumulates via submissions, this will fill in
+  const totalRevenue = clientData.reduce((a,c)=>a+c.revenue,0);
+  const totalCost = clientData.reduce((a,c)=>a+c.creatorCost+c.amCost,0);
+  const totalProfit = totalRevenue - totalCost;
+  const currentMargin = totalRevenue>0?Math.round((totalProfit/totalRevenue)*100):0;
+
+  // Build trend from submissions by month
+  const getMonthData = (year, month) => {
+    const monthSubs = db.submissions.filter(s=>{
+      if (!s.created_at) return false;
+      const d = new Date(s.created_at);
+      return d.getFullYear()===year && d.getMonth()===month && s.final_status==="Approved";
+    });
+    const creatorCost = monthSubs.reduce((total,s)=>{
+      const camp = db.campaigns.find(c=>c.id===s.campaign_id);
+      return total + Number(camp?.pay_per_video||0);
+    },0);
+    // Revenue = current active client budgets (snapshot)
+    const isCurrentMonth = year===new Date().getFullYear()&&month===new Date().getMonth();
+    const revenue = isCurrentMonth ? totalRevenue : 0; // Will populate as history builds
+    const margin = revenue>0?Math.round(((revenue-creatorCost)/revenue)*100):0;
+    return { creatorCost, revenue, margin, approved: monthSubs.length };
+  };
+
+  const data = months.map(m=>({...m, ...getMonthData(m.year, m.month)}));
+  const currentMonthData = data[data.length-1];
+  const maxRevenue = Math.max(...data.map(d=>d.revenue), 1);
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:16,marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}><div style={{width:12,height:3,background:"var(--green)",borderRadius:2}}/> Revenue</div>
+        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}><div style={{width:12,height:3,background:"var(--red)",borderRadius:2,borderStyle:"dashed"}}/> Costs</div>
+        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"var(--ink3)"}}>* Revenue history populates as months accumulate</div>
+      </div>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120,paddingBottom:24,position:"relative"}}>
+        {data.map((m,i)=>{
+          const revH = m.revenue>0?Math.round((m.revenue/maxRevenue)*100):0;
+          const costH = m.revenue>0?Math.round(((m.creatorCost)/maxRevenue)*100):0;
+          const isCurrent = i===data.length-1;
+          return (
+            <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+              <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",height:96}}>
+                <div style={{flex:1,background:isCurrent?"var(--green)":"rgba(26,122,74,0.3)",borderRadius:"3px 3px 0 0",height:`${revH}%`,minHeight:revH>0?4:0,transition:"height 0.3s"}}/>
+                <div style={{flex:1,background:isCurrent?"var(--red)":"rgba(220,53,69,0.3)",borderRadius:"3px 3px 0 0",height:`${costH}%`,minHeight:costH>0?4:0,transition:"height 0.3s"}}/>
+              </div>
+              <div style={{fontSize:10,color:isCurrent?"var(--ink)":"var(--ink3)",fontWeight:isCurrent?600:400}}>{m.label}</div>
+              {isCurrent&&<div style={{fontSize:10,color:"var(--green)",fontWeight:600}}>{fmtMoney(m.revenue)}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:"flex",gap:16,paddingTop:8,borderTop:"1px solid var(--border)"}}>
+        <div style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>This month: </span><span style={{fontWeight:600,color:"var(--green)"}}>{fmtMoney(currentMonthData.revenue)}</span></div>
+        <div style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Margin: </span><span style={{fontWeight:600,color:currentMargin>=50?"var(--green)":currentMargin>=25?"var(--gold)":"var(--red)"}}>{currentMargin}%</span></div>
+        <div style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Approved videos: </span><span style={{fontWeight:600}}>{currentMonthData.approved}</span></div>
+      </div>
+    </div>
+  );
+}
+
+function CreatorPerformance({ db, isOwner, user }) {
+  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
+  
+  const creators = db.creators.filter(c => isOwner ? true : c.am_id===am?.id);
+
+  const getScore = (creator) => {
+    const subs = db.submissions.filter(s=>s.creator_id===creator.id);
+    if (subs.length===0) return { approvalRate:0, revisionRate:0, onTimeRate:0, totalRevenue:0, score:0, tier:"—", subs:0 };
+    
+    const approved = subs.filter(s=>s.final_status==="Approved").length;
+    const revisions = subs.filter(s=>s.concept_status==="Revisions Needed").length;
+    const onTime = subs.filter(s=>{
+      if (!s.due_date) return true; // no due date = not tracked
+      return new Date(s.created_at)<=new Date(s.due_date);
+    }).length;
+    const trackedDates = subs.filter(s=>s.due_date).length;
+    
+    const approvalRate = subs.length>0?Math.round((approved/subs.length)*100):0;
+    const revisionRate = subs.length>0?Math.round((revisions/subs.length)*100):0;
+    const onTimeRate = trackedDates>0?Math.round((onTime/trackedDates)*100):null;
+    
+    // Revenue = approved videos × pay_per_video from their campaigns
+    const totalRevenue = subs.reduce((total,s)=>{
+      if (s.final_status!=="Approved") return total;
+      const camp = db.campaigns.find(c=>c.id===s.campaign_id);
+      return total + Number(camp?.pay_per_video||0);
+    }, 0);
+
+    // Score: 40% approval rate + 30% low revisions + 30% on time
+    const approvalScore = approvalRate * 0.4;
+    const revisionScore = (100-revisionRate) * 0.3;
+    const onTimeScore = onTimeRate!==null ? onTimeRate*0.3 : 25; // default 25 if no data
+    const score = Math.round(approvalScore + revisionScore + onTimeScore);
+    
+    const tier = score>=80?"A":score>=60?"B":score>=40?"C":"D";
+    return { approvalRate, revisionRate, onTimeRate, totalRevenue, score, tier, subs:subs.length };
+  };
+
+  const tierColor = (t) => t==="A"?"var(--green)":t==="B"?"var(--blue)":t==="C"?"var(--gold)":"var(--red)";
+  const tierBg = (t) => t==="A"?"rgba(26,122,74,0.1)":t==="B"?"rgba(37,99,235,0.1)":t==="C"?"rgba(255,165,0,0.1)":"rgba(220,53,69,0.1)";
+
+  const scored = creators.map(c=>({creator:c, ...getScore(c)})).sort((a,b)=>b.score-a.score);
+
+  return (
+    <div className="content">
+      <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:13,color:"var(--ink3)"}}>Creator performance scores based on approval rate, revisions, and on-time delivery</div>
+      </div>
+
+      {/* Tier Legend */}
+      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+        {[["A","80-100 · Top performer"],["B","60-79 · Solid"],["C","40-59 · Needs improvement"],["D","<40 · At risk"]].map(([tier,desc])=>(
+          <div key={tier} style={{background:tierBg(tier),border:`1px solid ${tierColor(tier)}`,borderRadius:20,padding:"4px 12px",fontSize:12}}>
+            <span style={{fontWeight:700,color:tierColor(tier)}}>Tier {tier}</span> <span style={{color:"var(--ink3)"}}>{desc}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Creator</th>
+                <th>Tier</th>
+                <th>Score</th>
+                <th>Submissions</th>
+                <th>Approval Rate</th>
+                <th>Revision Rate</th>
+                <th>On-Time Rate</th>
+                <th>Revenue Generated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scored.map(({creator,tier,score,approvalRate,revisionRate,onTimeRate,totalRevenue,subs})=>(
+                <tr key={creator.id}>
+                  <td>
+                    <div className="fw-600">{creator.name}</div>
+                    <div style={{fontSize:11,color:"var(--ink3)"}}>{creator.platform||"—"} · {creator.niche||"—"}</div>
+                  </td>
+                  <td>
+                    <span style={{background:tierBg(tier),color:tierColor(tier),fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:13}}>
+                      {tier==="—"?"—":`Tier ${tier}`}
+                    </span>
+                  </td>
+                  <td>
+                    <div style={{fontWeight:700,color:score>=80?"var(--green)":score>=60?"var(--blue)":score>=40?"var(--gold)":"var(--red)"}}>{subs===0?"—":`${score}/100`}</div>
+                  </td>
+                  <td style={{fontSize:13}}>{subs}</td>
+                  <td>
+                    <div style={{fontSize:13,fontWeight:600,color:approvalRate>=70?"var(--green)":approvalRate>=40?"var(--gold)":"var(--red)"}}>{subs===0?"—":`${approvalRate}%`}</div>
+                  </td>
+                  <td>
+                    <div style={{fontSize:13,color:revisionRate<=20?"var(--green)":revisionRate<=40?"var(--gold)":"var(--red)"}}>{subs===0?"—":`${revisionRate}%`}</div>
+                  </td>
+                  <td style={{fontSize:13,color:"var(--ink3)"}}>{onTimeRate===null?"No data":`${onTimeRate}%`}</td>
+                  <td className="text-green fw-600">{fmtMoney(totalRevenue)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {scored.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">⭐</div><h3>No creators yet</h3></div>}
+      </div>
+    </div>
+  );
+}
+
 function RevenueAnalytics({ db, user, isOwner }) {
   const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
 
@@ -2314,6 +2586,12 @@ function RevenueAnalytics({ db, user, isOwner }) {
           </table>
         </div>
         {clientData.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">📈</div><h3>No clients yet</h3></div>}
+      </div>
+
+      {/* Revenue Trend Chart */}
+      <div className="card" style={{marginTop:16}}>
+        <div className="card-title">📈 Revenue Trend (Last 6 Months)</div>
+        <RevenueTrendChart db={db} clientData={clientData}/>
       </div>
 
       {/* Key Insights */}
@@ -2874,11 +3152,15 @@ export default function App() {
       if(page==="clients") return <ClientsPage isOwner={false} db={db} onRefresh={loadDB}/>;
       if(page==="content-library") return <ContentLibrary db={db} onRefresh={loadDB}/>;
       if(page==="analytics") return <Analytics db={db}/>;
+      if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={false}/>;
+      if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={false} user={user}/>;
+      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/>;
     }
     if(role==="owner"){
       if(page==="dashboard") return <OwnerDashboard db={db}/>;
       if(page==="clients-full") return <ClientsPage isOwner={true} db={db} onRefresh={loadDB}/>;
       if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/>;
+      if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={true} user={user}/>;
       if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/>;
       if(page==="team") return <TeamPerformance db={db}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
