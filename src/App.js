@@ -1297,18 +1297,23 @@ function AMDashboard({ user, db }) {
 }
 
 function ReviewQueue({ db, onRefresh }) {
-  const [tab, setTab] = useState("Concepts");
+  const [tab, setTab] = useState("concepts");
   const [modal, setModal] = useState(null);
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false);
 
   const concepts = db.submissions.filter(s=>s.concept_status==="Pending");
   const finals = db.submissions.filter(s=>s.final_status==="Pending");
-  const items = tab==="Concepts"?concepts:finals;
+  const revisions = db.submissions.filter(s=>s.concept_status==="Revisions Needed");
+
+  const getDaysWaiting = (dateStr) => {
+    if (!dateStr) return 0;
+    return Math.floor((Date.now()-new Date(dateStr).getTime())/(1000*60*60*24));
+  };
 
   const action = async (subId, field, value) => {
     setSaving(true);
-    const updates = { [field]: value, feedback };
+    const updates = { [field]: value, feedback, reviewed_at: new Date().toISOString() };
     if (value === "Approved" && field === "final_status") {
       updates.approved_date = new Date().toISOString().split("T")[0];
     }
@@ -1317,59 +1322,132 @@ function ReviewQueue({ db, onRefresh }) {
     setModal(null); setFeedback(""); setSaving(false);
   };
 
+  const tabs = [
+    { id:"concepts", label:"📽️ Concepts Waiting", count:concepts.length, color:"var(--blue)" },
+    { id:"finals",   label:"🎬 Finals Waiting",   count:finals.length,   color:"var(--green)" },
+    { id:"revisions",label:"↺ Revisions Out",     count:revisions.length,color:"var(--orange)" },
+  ];
+
+  const items = tab==="concepts"?concepts:tab==="finals"?finals:revisions;
+
+  const renderCard = (s) => {
+    const creator = db.creators.find(c=>c.id===s.creator_id);
+    const campaign = db.campaigns.find(c=>c.id===s.campaign_id);
+    const client = db.clients.find(c=>c.id===campaign?.client_id);
+    const days = getDaysWaiting(s.created_at);
+    const isUrgent = days >= 3;
+    const videoLink = tab==="finals" ? s.posted_link : s.concept_link;
+
+    return (
+      <div key={s.id} className="review-card" style={{borderLeft: isUrgent?"3px solid var(--red)":"3px solid var(--border)"}}>
+        <div className="review-header">
+          <div className={`creator-avatar ${getAvatarColor(creator?.name||"")}`}>{getInitials(creator?.name||"?")}</div>
+          <div className="review-meta" style={{flex:1}}>
+            <div className="review-name">{creator?.name||"Unknown"}</div>
+            <div className="review-campaign">{campaign?.name} · {client?.name}</div>
+            {s.notes&&<div style={{fontSize:11,color:"var(--ink3)",marginTop:2,fontStyle:"italic"}}>💬 "{s.notes}"</div>}
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:11,color:isUrgent?"var(--red)":"var(--ink3)",fontWeight:isUrgent?600:400}}>
+              {isUrgent?"🚨 ":""}{days}d waiting
+            </div>
+            <div style={{fontSize:11,color:"var(--ink3)"}}>{fmtDate(s.created_at)}</div>
+          </div>
+        </div>
+
+        {/* Video preview link */}
+        {videoLink&&(
+          <div style={{margin:"10px 0",padding:"10px 12px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:12,color:"var(--ink3)"}}>
+              {tab==="concepts"?"📽️ Concept":"🎬 Final"} · {campaign?.format}
+            </span>
+            <a href={videoLink} target="_blank" rel="noreferrer" className="btn btn-sm btn-primary">View Video →</a>
+          </div>
+        )}
+
+        {/* Feedback if revisions were requested */}
+        {tab==="revisions"&&s.feedback&&(
+          <div style={{margin:"8px 0",padding:"10px 12px",background:"rgba(255,165,0,0.08)",borderRadius:"var(--radius-sm)",fontSize:12,color:"var(--ink2)"}}>
+            <div style={{fontSize:10,color:"var(--orange)",fontWeight:600,marginBottom:4}}>REVISION NOTES</div>
+            {s.feedback}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="review-actions">
+          {tab==="concepts"&&<>
+            <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"concept_status","Approved")}>✓ Approve Concept</button>
+            <button className="btn btn-orange btn-sm" onClick={()=>{setModal({s,action:"revisions"});setFeedback("");}}>↺ Request Revisions</button>
+            <button className="btn btn-red btn-sm" onClick={()=>{setModal({s,action:"deny"});setFeedback("");}}>✕ Deny</button>
+          </>}
+          {tab==="finals"&&<>
+            <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"final_status","Approved")}>✓ Approve Final</button>
+            <button className="btn btn-orange btn-sm" onClick={()=>{setModal({s,action:"revisions-final"});setFeedback("");}}>↺ Request Changes</button>
+            <button className="btn btn-red btn-sm" onClick={()=>{setModal({s,action:"deny-final"});setFeedback("");}}>✕ Deny</button>
+          </>}
+          {tab==="revisions"&&<>
+            <div style={{fontSize:12,color:"var(--ink3)",fontStyle:"italic"}}>Waiting for creator to resubmit...</div>
+          </>}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="content">
-      <div className="tabs">
-        <div className={`tab ${tab==="Concepts"?"active":""}`} onClick={()=>setTab("Concepts")}>Concepts <span className="nav-badge" style={{display:"inline",marginLeft:6,fontSize:10,position:"static"}}>{concepts.length}</span></div>
-        <div className={`tab ${tab==="Finals"?"active":""}`} onClick={()=>setTab("Finals")}>Finals <span className="nav-badge" style={{display:"inline",marginLeft:6,fontSize:10,position:"static"}}>{finals.length}</span></div>
+      {/* Flow tabs with counts */}
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+        {tabs.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{
+            display:"flex",alignItems:"center",gap:8,padding:"10px 16px",
+            background:tab===t.id?"var(--ink)":"var(--bg2)",
+            color:tab===t.id?"#fff":"var(--ink)",
+            border:`1px solid ${tab===t.id?"var(--ink)":"var(--border)"}`,
+            borderRadius:"var(--radius-sm)",cursor:"pointer",fontSize:13,fontWeight:500
+          }}>
+            {t.label}
+            <span style={{
+              background:t.count>0?(tab===t.id?"rgba(255,255,255,0.2)":t.color):"var(--border)",
+              color:t.count>0?(tab===t.id?"#fff":"#fff"):"var(--ink3)",
+              borderRadius:20,padding:"1px 8px",fontSize:11,fontWeight:700,minWidth:20,textAlign:"center"
+            }}>{t.count}</span>
+          </button>
+        ))}
       </div>
-      {items.length===0&&<div className="empty"><div className="empty-icon">✅</div><h3>All clear!</h3><p>No pending {tab.toLowerCase()} to review</p></div>}
-      {items.map(s=>{
-        const creator=db.creators.find(c=>c.id===s.creator_id);
-        const campaign=db.campaigns.find(c=>c.id===s.campaign_id);
-        const client=db.clients.find(c=>c.id===campaign?.client_id);
-        return (
-          <div key={s.id} className="review-card">
-            <div className="review-header">
-              <div className={`creator-avatar ${getAvatarColor(creator?.name||"")}`}>{getInitials(creator?.name||"?")}</div>
-              <div className="review-meta">
-                <div className="review-name">{creator?.name||"Unknown"}</div>
-                <div className="review-campaign">{campaign?.name} · {client?.name}</div>
-              </div>
-              <div style={{fontSize:11,color:"var(--ink3)"}}>{fmtDate(s.created_at)}</div>
-            </div>
-            <div style={{marginBottom:12}}>
-              <a href={tab==="Concepts"?s.concept_link:s.posted_link} target="_blank" rel="noreferrer" className="link">🔗 View {tab==="Concepts"?"Concept":"Final"} Video →</a>
-            </div>
-            <div className="review-actions">
-              {tab==="Concepts"?<>
-                <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"concept_status","Approved")}>✓ Approve</button>
-                <button className="btn btn-orange btn-sm" onClick={()=>{setModal({s,action:"revisions"});setFeedback("");}}>↺ Revisions</button>
-                <button className="btn btn-red btn-sm" onClick={()=>{setModal({s,action:"deny"});setFeedback("");}}>✕ Deny</button>
-              </>:<>
-                <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"final_status","Approved")}>✓ Approve Final</button>
-                <button className="btn btn-red btn-sm" onClick={()=>{setModal({s,action:"deny-final"});setFeedback("");}}>✕ Deny</button>
-              </>}
-            </div>
-          </div>
-        );
-      })}
+
+      {/* Flow description */}
+      <div style={{fontSize:12,color:"var(--ink3)",marginBottom:16,padding:"8px 12px",background:"var(--bg2)",borderRadius:"var(--radius-sm)"}}>
+        {tab==="concepts"&&"📽️ Review concept videos before creators film the final version. Approve to move them to filming."}
+        {tab==="finals"&&"🎬 Review final videos ready to post. Approve to mark as complete and trigger payment."}
+        {tab==="revisions"&&"↺ These creators have been asked to revise their concept. Waiting for resubmission."}
+      </div>
+
+      {items.length===0&&<div className="empty"><div className="empty-icon">✅</div><h3>All clear!</h3><p>No {tab==="concepts"?"concepts waiting":tab==="finals"?"finals waiting":"revisions pending"}</p></div>}
+      {items.map(s=>renderCard(s))}
+
       {modal&&(
         <div className="modal-overlay" onClick={()=>setModal(null)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">{modal.action==="revisions"?"Request Revisions":"Deny Submission"}</div>
-            <div className="modal-sub">Provide feedback for the creator</div>
+            <div className="modal-title">
+              {modal.action==="revisions"||modal.action==="revisions-final"?"↺ Request Revisions":"✕ Deny Submission"}
+            </div>
+            <div className="modal-sub">This feedback will be visible to the creator</div>
             <div className="form-group">
-              <label className="form-label">Feedback</label>
-              <textarea className="textarea" placeholder="Explain what needs to change..." value={feedback} onChange={e=>setFeedback(e.target.value)}/>
+              <label className="form-label">Feedback <span style={{color:"var(--red)"}}>*</span></label>
+              <textarea className="textarea" rows={4} placeholder="Be specific — what needs to change and why..." value={feedback} onChange={e=>setFeedback(e.target.value)}/>
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancel</button>
-              <button className={`btn ${modal.action==="revisions"?"btn-orange":"btn-red"}`} disabled={saving} onClick={()=>{
-                if(modal.action==="revisions") action(modal.s.id,"concept_status","Revisions Needed");
-                else if(modal.action==="deny") action(modal.s.id,"concept_status","Denied");
-                else action(modal.s.id,"final_status","Denied");
-              }}>{saving?"Saving...":modal.action==="revisions"?"Send Revision Request":"Confirm Denial"}</button>
+              <button
+                className={`btn ${modal.action==="revisions"||modal.action==="revisions-final"?"btn-orange":"btn-red"}`}
+                disabled={saving||!feedback.trim()}
+                onClick={()=>{
+                  if(modal.action==="revisions") action(modal.s.id,"concept_status","Revisions Needed");
+                  else if(modal.action==="revisions-final") action(modal.s.id,"final_status","Revisions Needed");
+                  else if(modal.action==="deny") action(modal.s.id,"concept_status","Denied");
+                  else action(modal.s.id,"final_status","Denied");
+                }}
+              >{saving?"Saving...":modal.action==="revisions"||modal.action==="revisions-final"?"Send Revision Request":"Confirm Denial"}</button>
             </div>
           </div>
         </div>
