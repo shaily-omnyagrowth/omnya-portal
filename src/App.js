@@ -2616,10 +2616,7 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
             <div className="modal-sub">Manually add a payment record</div>
             <div className="form-group">
               <label className="form-label">Creator</label>
-              <select className="select" value={createForm.creator_id} onChange={e=>{
-                const creator = db.creators.find(c=>c.id===e.target.value);
-                setCreateForm({...createForm, creator_id:e.target.value});
-              }}>
+              <select className="select" value={createForm.creator_id} onChange={e=>setCreateForm({...createForm, creator_id:e.target.value})}>
                 <option value="">Select creator...</option>
                 {db.creators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
