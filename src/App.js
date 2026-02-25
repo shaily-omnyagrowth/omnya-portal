@@ -1570,6 +1570,20 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
     return days>3;
   });
 
+  // Velocity calculations
+  const now = new Date();
+  const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate()-now.getDay()); startOfWeek.setHours(0,0,0,0);
+  const startOfLastWeek = new Date(startOfWeek); startOfLastWeek.setDate(startOfWeek.getDate()-7);
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const allApproved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved");
+  const thisWeekApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfWeek).length;
+  const lastWeekApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfLastWeek&&new Date(s.created_at)<startOfWeek).length;
+  const thisMonthApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfMonth).length;
+  const velocityChange = lastWeekApproved===0 ? (thisWeekApproved>0?100:0) : Math.round(((thisWeekApproved-lastWeekApproved)/lastWeekApproved)*100);
+  const velocityColor = velocityChange>0?"var(--green)":velocityChange===0?"var(--ink3)":"var(--red)";
+  const velocityIcon = velocityChange>0?"↑":velocityChange===0?"→":"↓";
+
   const toggleSalesSourced = async () => {
     const newVal = !isSalesSourced;
     setIsSalesSourced(newVal);
@@ -1689,6 +1703,38 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
               <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value" style={{fontSize:16,color:marginColor}}>{margin}%</div><div style={{width:"100%",background:"var(--bg2)",borderRadius:4,height:4,marginTop:4}}><div style={{width:`${Math.min(Math.max(margin,0),100)}%`,background:marginColor,height:4,borderRadius:4}}/></div></div>
               <div className="stat-card"><div className="stat-label">Cost/Video</div><div className="stat-value" style={{fontSize:16,color:cpvColor}}>{cpvFlag} {costPerVideo>0?fmtMoney(costPerVideo):"—"}</div></div>
               <div className="stat-card"><div className="stat-label">Progress</div><div className="stat-value" style={{fontSize:16}}>{approved}/{campaign.videos_needed}</div></div>
+            </div>
+
+            {/* Velocity Dashboard */}
+            <div style={{marginBottom:20}}>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>⚡ Velocity</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+                <div className="stat-card">
+                  <div className="stat-label">This Week</div>
+                  <div className="stat-value" style={{fontSize:20}}>{thisWeekApproved}</div>
+                  <div style={{fontSize:11,color:"var(--ink3)"}}>approved videos</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Last Week</div>
+                  <div className="stat-value" style={{fontSize:20}}>{lastWeekApproved}</div>
+                  <div style={{fontSize:11,color:"var(--ink3)"}}>approved videos</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Week Change</div>
+                  <div className="stat-value" style={{fontSize:20,color:velocityColor}}>{velocityIcon} {Math.abs(velocityChange)}%</div>
+                  <div style={{fontSize:11,color:"var(--ink3)"}}>vs last week</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">This Month</div>
+                  <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                    <div className="stat-value" style={{fontSize:20}}>{thisMonthApproved}</div>
+                    <div style={{fontSize:12,color:"var(--ink3)"}}>/ {campaign.videos_needed}</div>
+                  </div>
+                  <div style={{width:"100%",background:"var(--bg2)",borderRadius:4,height:4,marginTop:4}}>
+                    <div style={{width:`${Math.min(Math.round((thisMonthApproved/(campaign.videos_needed||1))*100),100)}%`,background:"var(--green)",height:4,borderRadius:4}}/>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Brief Doc */}
@@ -1948,6 +1994,36 @@ function CampaignForum({ campaign, user, db, canPin }) {
       </div>
     </div>
   );
+}
+
+function getRetentionScore(client, db) {
+  const clientCampaigns = db.campaigns.filter(c=>c.client_id===client.id);
+  const allApproved = db.submissions.filter(s=>{
+    return clientCampaigns.some(c=>c.id===s.campaign_id) && s.final_status==="Approved";
+  });
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth()-1, 1);
+
+  const thisMonth = allApproved.filter(s=>new Date(s.created_at)>=startOfMonth).length;
+  const lastMonth = allApproved.filter(s=>new Date(s.created_at)>=startOfLastMonth&&new Date(s.created_at)<startOfMonth).length;
+
+  const revenue = Number(client.budget||0);
+  const creatorCost = allApproved.reduce((t,s)=>{
+    const camp = db.campaigns.find(c=>c.id===s.campaign_id);
+    return t+Number(camp?.pay_per_video||0);
+  },0);
+  const margin = revenue>0?Math.round(((revenue-creatorCost)/revenue)*100):0;
+
+  const outputTrend = lastMonth===0?(thisMonth>0?"up":"flat"):thisMonth>lastMonth?"up":thisMonth===lastMonth?"flat":"down";
+  const hasActiveCampaigns = clientCampaigns.some(c=>c.status==="In Progress"||c.status==="Open");
+
+  // Score logic
+  if (margin>=40 && outputTrend!=="down" && hasActiveCampaigns) return {score:"green", label:"🟢 Healthy", desc:"High output · Good margin", color:"var(--green)", bg:"rgba(26,122,74,0.08)"};
+  if (margin>=25 && outputTrend==="down") return {score:"yellow", label:"🟡 Watch", desc:"Margin OK but output slowing", color:"#b08800", bg:"#fffbe6"};
+  if (margin<25 || (!hasActiveCampaigns && allApproved.length>0)) return {score:"red", label:"🔴 At Risk", desc:"Low output · Thin margin", color:"var(--red)", bg:"rgba(220,53,69,0.08)"};
+  return {score:"yellow", label:"🟡 Watch", desc:"Insufficient data", color:"#b08800", bg:"#fffbe6"};
 }
 
 function ClientsPage({ isOwner, db, onRefresh }) {
@@ -2551,7 +2627,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
                 <th>Margin</th>
                 <th>Videos</th>
                 <th>Cost/Video</th>
-                <th>Health</th>
+                <th>Retention Risk</th>
               </tr>
             </thead>
             <tbody>
@@ -2575,10 +2651,12 @@ function RevenueAnalytics({ db, user, isOwner }) {
                   <td style={{fontSize:13}}>{totalApproved}</td>
                   <td style={{fontSize:13,color:"var(--ink3)"}}>{costPerVideo>0?fmtMoney(costPerVideo):"—"}</td>
                   <td>
-                    {margin>=50&&<span className="badge badge-green">🟢 Healthy</span>}
-                    {margin>=25&&margin<50&&<span className="badge badge-orange">🟡 Watch</span>}
-                    {margin<25&&margin>=0&&<span className="badge" style={{background:"#fff0f0",color:"var(--red)"}}>🔴 Thin</span>}
-                    {margin<0&&<span className="badge" style={{background:"#fff0f0",color:"var(--red)"}}>🔴 Loss</span>}
+                    {(()=>{ const r=getRetentionScore(client,db); return (
+                      <div>
+                        <div style={{fontWeight:600,fontSize:12,color:r.color}}>{r.label}</div>
+                        <div style={{fontSize:10,color:"var(--ink3)",marginTop:2}}>{r.desc}</div>
+                      </div>
+                    ); })()}
                   </td>
                 </tr>
               ))}
@@ -2587,6 +2665,25 @@ function RevenueAnalytics({ db, user, isOwner }) {
         </div>
         {clientData.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">📈</div><h3>No clients yet</h3></div>}
       </div>
+
+      {/* Client Retention Predictor */}
+      {clientData.length>0&&(
+        <div className="card" style={{marginBottom:16}}>
+          <div className="card-title">🔮 Client Retention Predictor</div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            {clientData.map(({client})=>{
+              const r = getRetentionScore(client, db);
+              return (
+                <div key={client.id} style={{background:r.bg,border:`1px solid ${r.color}`,borderRadius:"var(--radius-sm)",padding:"10px 14px",minWidth:160}}>
+                  <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{client.name}</div>
+                  <div style={{fontWeight:700,fontSize:12,color:r.color}}>{r.label}</div>
+                  <div style={{fontSize:11,color:"var(--ink3)",marginTop:2}}>{r.desc}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Revenue Trend Chart */}
       <div className="card" style={{marginTop:16}}>
