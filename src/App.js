@@ -950,26 +950,11 @@ function SubmitContent({ user, db, onRefresh }) {
   const [success, setSuccess] = useState(false);
   const [err, setErr] = useState("");
 
-  const getAccessToken = async () => {
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method:"POST",
-      headers:{"Content-Type":"application/x-www-form-urlencoded"},
-      body: new URLSearchParams({
-        client_id: process.env.REACT_APP_GOOGLE_CLIENT_ID,
-        client_secret: process.env.REACT_APP_GOOGLE_CLIENT_SECRET,
-        refresh_token: process.env.REACT_APP_GOOGLE_REFRESH_TOKEN,
-        grant_type: "refresh_token"
-      })
-    });
-    const data = await res.json();
-    return data.access_token;
-  };
-
   const uploadToDrive = async (fileObj, campaignId) => {
     const campaign = db.campaigns.find(c=>c.id===campaignId);
     const client = db.clients.find(c=>c.id===campaign?.client_id);
     const driveLink = client?.drive_link;
-    
+
     // Extract folder ID from drive link if available
     let folderId = null;
     if (driveLink) {
@@ -977,28 +962,23 @@ function SubmitContent({ user, db, onRefresh }) {
       if (match) folderId = match[1];
     }
 
-    const accessToken = await getAccessToken();
-    
-    // Create file metadata
-    const metadata = {
-      name: `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`,
-      ...(folderId ? {parents:[folderId]} : {})
-    };
+    const fileName = `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`;
+    const renamedFile = new File([fileObj], fileName, {type: fileObj.type});
 
     const formData = new FormData();
-    formData.append("metadata", new Blob([JSON.stringify(metadata)], {type:"application/json"}));
-    formData.append("file", fileObj);
+    formData.append("file", renamedFile);
+    if (folderId) formData.append("folderId", folderId);
 
     setUploadProgress(30);
-    const uploadRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
-      method:"POST",
-      headers:{Authorization: `Bearer ${accessToken}`},
+    const uploadRes = await fetch("/api/upload-to-drive", {
+      method: "POST",
       body: formData
     });
 
     setUploadProgress(80);
     const uploadData = await uploadRes.json();
-    return uploadData.webViewLink || `https://drive.google.com/file/d/${uploadData.id}/view`;
+    if (uploadData.error) throw new Error(uploadData.error);
+    return uploadData.url;
   };
 
   const submit = async () => {
