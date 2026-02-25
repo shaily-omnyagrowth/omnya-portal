@@ -1251,6 +1251,56 @@ function CreatorInsights({ user, db, onRefresh }) {
 // AM PAGES
 // ============================================================
 
+function AMClientSummaryBar({ client, db }) {
+  const campaigns = db.campaigns.filter(c=>c.client_id===client.id);
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const totalApprovedMonth = db.submissions.filter(s=>{
+    return campaigns.some(c=>c.id===s.campaign_id) && s.final_status==="Approved" && new Date(s.created_at)>=startOfMonth;
+  }).length;
+
+  const totalTarget = campaigns.reduce((t,c)=>t+Number(c.videos_needed||0),0);
+  const revenue = Number(client.budget||0);
+  const creatorCost = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.final_status==="Approved")
+    .reduce((t,s)=>{ const camp=db.campaigns.find(c=>c.id===s.campaign_id); return t+Number(camp?.pay_per_video||0); },0);
+  const amCost = revenue * 0.10;
+  const margin = revenue>0?Math.round(((revenue-creatorCost-amCost)/revenue)*100):0;
+  const marginColor = margin>=50?"var(--green)":margin>=25?"#b08800":"var(--red)";
+  const marginBg = margin>=50?"rgba(26,122,74,0.08)":margin>=25?"#fffbe6":"rgba(220,53,69,0.08)";
+  const marginLabel = margin>=50?"🟢 Healthy":margin>=25?"🟡 Watch":"🔴 Thin";
+  const costPerVideo = client.videos_per_month>0?Math.round(revenue/client.videos_per_month):0;
+  const progress = totalTarget>0?Math.min(Math.round((totalApprovedMonth/totalTarget)*100),100):0;
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:20,padding:"14px 16px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:"var(--ink3)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:4}}>Monthly Value</div>
+        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:22,color:"var(--green)"}}>{fmtMoney(revenue)}</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:"var(--ink3)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:4}}>Videos Committed</div>
+        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:22}}>{client.videos_per_month}</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:"var(--ink3)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:4}}>Cost/Video Target</div>
+        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:22}}>{costPerVideo>0?fmtMoney(costPerVideo):"—"}</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:"var(--ink3)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:4}}>Margin Health</div>
+        <div style={{fontSize:13,fontWeight:700,color:marginColor,background:marginBg,borderRadius:20,padding:"3px 10px",display:"inline-block"}}>{marginLabel}</div>
+      </div>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:11,color:"var(--ink3)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:4}}>This Month</div>
+        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:22}}>{totalApprovedMonth}<span style={{fontSize:14,color:"var(--ink3)"}}>/{totalTarget}</span></div>
+        <div style={{width:"100%",background:"var(--border2)",borderRadius:4,height:3,marginTop:4}}>
+          <div style={{width:`${progress}%`,background:progress>=80?"var(--green)":progress>=50?"var(--gold)":"var(--red)",height:3,borderRadius:4}}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AMDashboard({ user, db }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
   const myCreators = am?db.creators.filter(c=>c.am_id===am.id):db.creators;
@@ -1284,12 +1334,37 @@ function AMDashboard({ user, db }) {
         </div>
         <div className="card">
           <div className="card-title">My Clients</div>
-          {myClients.map(cl=>(
-            <div key={cl.id} style={{padding:"10px 0",borderBottom:"1px solid var(--border2)"}}>
-              <div className="flex-between"><div className="fw-600 fs-13">{cl.name}</div>{statusBadge(cl.status)}</div>
-              <div style={{fontSize:12,color:"var(--ink3)",marginTop:4}}>{cl.videos_per_month} videos/month · {cl.deal_type}</div>
-            </div>
-          ))}
+          {myClients.map(cl=>{
+            const campaigns = db.campaigns.filter(c=>c.client_id===cl.id);
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            const approvedMonth = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.final_status==="Approved"&&new Date(s.created_at)>=startOfMonth).length;
+            const target = campaigns.reduce((t,c)=>t+Number(c.videos_needed||0),0);
+            const revenue = Number(cl.budget||0);
+            const creatorCost = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.final_status==="Approved").reduce((t,s)=>{const camp=db.campaigns.find(c=>c.id===s.campaign_id);return t+Number(camp?.pay_per_video||0);},0);
+            const margin = revenue>0?Math.round(((revenue-creatorCost-revenue*0.10)/revenue)*100):0;
+            const marginColor = margin>=50?"var(--green)":margin>=25?"#b08800":"var(--red)";
+            return (
+              <div key={cl.id} style={{padding:"12px 0",borderBottom:"1px solid var(--border2)"}}>
+                <div className="flex-between" style={{marginBottom:8}}>
+                  <div>
+                    <div className="fw-600 fs-13">{cl.name}</div>
+                    <div style={{fontSize:11,color:"var(--ink3)"}}>{cl.videos_per_month} videos/mo · {cl.deal_type}</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"var(--green)"}}>{fmtMoney(revenue)}</div>
+                    <div style={{fontSize:11,fontWeight:600,color:marginColor}}>{margin}% margin</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{flex:1,background:"var(--border2)",borderRadius:4,height:4}}>
+                    <div style={{width:`${target>0?Math.min(Math.round((approvedMonth/target)*100),100):0}%`,background:"var(--green)",height:4,borderRadius:4}}/>
+                  </div>
+                  <div style={{fontSize:11,color:"var(--ink3)",whiteSpace:"nowrap"}}>{approvedMonth}/{target} this month</div>
+                </div>
+              </div>
+            );
+          })}
           {myClients.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">🏢</div><h3>No clients yet</h3></div>}
         </div>
       </div>
@@ -1756,6 +1831,9 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
           </div>
         ) : (
           <div>
+            {/* AM Account Summary Bar — visible to AMs only */}
+            {!isOwner&&client&&<AMClientSummaryBar client={client} db={db}/>}
+
             {/* At Risk Flags */}
             {(staleSubs.length>0||margin<60||costPerVideo>60)&&(
               <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:6}}>
@@ -2108,7 +2186,7 @@ function getRetentionScore(client, db) {
   return {score:"yellow", label:"🟡 Watch", desc:"Insufficient data", color:"#b08800", bg:"#fffbe6"};
 }
 
-function ClientsPage({ isOwner, db, onRefresh }) {
+function ClientsPage({ isOwner, db, onRefresh, user }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editClient, setEditClient] = useState(null);
   const [viewClient, setViewClient] = useState(null);
@@ -2203,12 +2281,12 @@ function ClientsPage({ isOwner, db, onRefresh }) {
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
       {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
       {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
-      {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)}/>}
+      {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)} isOwner={isOwner} user={user}/>}
     </div>
   );
 }
 
-function ClientProfile({ client, db, onRefresh, onClose }) {
+function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -2242,6 +2320,9 @@ function ClientProfile({ client, db, onRefresh, onClose }) {
             <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
           </div>
         </div>
+
+        {/* AM Account Summary Bar */}
+        {!isOwner&&<AMClientSummaryBar client={client} db={db}/>}
 
         {editing ? (
           <div>
@@ -3665,7 +3746,7 @@ export default function App() {
       if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
       if(page==="my-creators") return <MyCreators user={user} db={db}/>;
       if(page==="campaigns") return <CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={false}/>;
-      if(page==="clients") return <ClientsPage isOwner={false} db={db} onRefresh={loadDB}/>;
+      if(page==="clients") return <ClientsPage isOwner={false} db={db} onRefresh={loadDB} user={user}/>;
       if(page==="content-library") return <ContentLibrary db={db} onRefresh={loadDB}/>;
       if(page==="analytics") return <Analytics db={db}/>;
       if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={false}/>;
