@@ -1925,6 +1925,8 @@ function CampaignForum({ campaign, user, db, canPin }) {
     const updated = hasReacted ? users.filter(u=>u!==userId) : [...users, userId];
     const newReactions = {...reactions, [emoji]: updated};
     if (updated.length === 0) delete newReactions[emoji];
+    // Optimistic update
+    setMessages(prev => prev.map(m => m.id===msg.id ? {...m, reactions: newReactions} : m));
     await supabase.from("messages").update({reactions: newReactions}).eq("id", msg.id);
   };
 
