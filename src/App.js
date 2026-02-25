@@ -1650,6 +1650,17 @@ function CampaignForum({ campaign, user, db, canPin }) {
     await supabase.from("messages").delete().eq("id", msgId);
   };
 
+  const toggleReaction = async (msg, emoji) => {
+    const reactions = msg.reactions || {};
+    const users = reactions[emoji] || [];
+    const userId = user?.id || user?.email;
+    const hasReacted = users.includes(userId);
+    const updated = hasReacted ? users.filter(u=>u!==userId) : [...users, userId];
+    const newReactions = {...reactions, [emoji]: updated};
+    if (updated.length === 0) delete newReactions[emoji];
+    await supabase.from("messages").update({reactions: newReactions}).eq("id", msg.id);
+  };
+
   const pinned = messages.filter(m=>m.is_pinned);
   const regular = messages.filter(m=>!m.is_pinned);
 
@@ -1681,9 +1692,22 @@ function CampaignForum({ campaign, user, db, canPin }) {
             <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start"}}>
               <div style={{fontSize:11,color:"var(--ink3)",marginBottom:2,paddingLeft:isMe?0:4,paddingRight:isMe?4:0}}>{m.sender_name} · {new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
               <div style={{display:"flex",alignItems:"center",gap:6,flexDirection:isMe?"row-reverse":"row"}}>
-                <div style={{maxWidth:360,background:isMe?"var(--ink)":"var(--bg2)",color:isMe?"#fff":"var(--ink)",borderRadius:isMe?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"8px 12px",fontSize:13}}>{m.content}</div>
-                {canPin&&<button onClick={()=>togglePin(m)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,opacity:0.4}} title="Pin">📌</button>}
-                {(canPin||m.user_id===user?.id)&&<button onClick={()=>deleteMsg(m.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,opacity:0.3}} title="Delete">✕</button>}
+                <div style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:4}}>
+                  <div style={{maxWidth:360,background:isMe?"var(--ink)":"var(--bg2)",color:isMe?"#fff":"var(--ink)",borderRadius:isMe?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"8px 12px",fontSize:13}}>{m.content}</div>
+                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:isMe?"flex-end":"flex-start"}}>
+                    {["👍","👎"].map(emoji=>{
+                      const users = (m.reactions||{})[emoji]||[];
+                      const hasReacted = users.includes(user?.id||user?.email);
+                      return (
+                        <button key={emoji} onClick={()=>toggleReaction(m,emoji)} style={{background:hasReacted?"var(--bg3, #e8e8e8)":"var(--bg2)",border:"1px solid var(--border)",borderRadius:20,padding:"2px 7px",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:3}}>
+                          {emoji}{users.length>0&&<span style={{fontSize:11,color:"var(--ink3)"}}>{users.length}</span>}
+                        </button>
+                      );
+                    })}
+                    {canPin&&<button onClick={()=>togglePin(m)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,opacity:0.4}} title="Pin">📌</button>}
+                    {(canPin||m.user_id===user?.id)&&<button onClick={()=>deleteMsg(m.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,opacity:0.3}} title="Delete">✕</button>}
+                  </div>
+                </div>
               </div>
             </div>
           );
