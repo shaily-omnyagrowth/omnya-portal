@@ -1792,6 +1792,15 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
             <div className="modal-title" style={{marginBottom:2}}>{campaign.name}</div>
             <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name||"—"} · {campaign.format} · Due {fmtDate(campaign.deadline)}</div>
             {client&&db.accountManagers.find(a=>a.id===client.am_id)&&<div style={{fontSize:12,color:"var(--ink3)",marginTop:2}}>AM: {db.accountManagers.find(a=>a.id===client.am_id)?.name}</div>}
+            {/* AM campaign context bar */}
+            {!isOwner&&client&&(
+              <div style={{display:"flex",gap:16,marginTop:8,padding:"6px 10px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",flexWrap:"wrap"}}>
+                <span style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Client: </span><span style={{fontWeight:600}}>{client.name}</span></span>
+                <span style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Value: </span><span style={{fontWeight:600,color:"var(--green)"}}>{fmtMoney(client.budget)}</span></span>
+                <span style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Target: </span><span style={{fontWeight:600}}>{campaign.videos_needed} videos</span></span>
+                <span style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Approved: </span><span style={{fontWeight:600,color:"var(--green)"}}>{approved}</span></span>
+              </div>
+            )}
           </div>
           <div style={{display:"flex",gap:8}}>
             {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
@@ -2252,7 +2261,7 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
             <thead>
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
-                {isOwner&&<><th>Budget</th><th>Contact</th><th>Email</th></>}
+                {isOwner?<><th>Budget</th><th>Contact</th><th>Email</th></>:<th>Monthly Value</th>}
                 <th>AM</th><th>Drive</th>
                 {isOwner&&<th>Edit</th>}
               </tr>
@@ -2264,11 +2273,11 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
                   <td>{statusBadge(c.deal_type)}</td>
                   <td>{c.videos_per_month}</td>
                   <td>{statusBadge(c.status)}</td>
-                  {isOwner&&<>
+                  {isOwner?<>
                     <td className="text-green fw-600">{fmtMoney(c.budget)}</td>
                     <td>{c.contact_name||"—"}</td>
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
-                  </>}
+                  </>:<td className="fw-600" style={{color:"var(--green)"}}>{fmtMoney(c.budget)}</td>}
                   <td style={{fontSize:12}}>{db.accountManagers.find(a=>a.id===c.am_id)?.name||"—"}</td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
                   {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
@@ -2278,7 +2287,7 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
           </table>
         </div>
       </div>
-      {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
+      {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact details visible to owner only.</div>}
       {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
       {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
       {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)} isOwner={isOwner} user={user}/>}
