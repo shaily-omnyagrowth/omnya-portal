@@ -1531,6 +1531,60 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
 }
 
 
+function CreatorActiveJobs({ user, db, onNavigate }) {
+  const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
+  const myJobs = db.campaigns.filter(c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed");
+  const [selectedJob, setSelectedJob] = useState(null);
+
+  if (selectedJob) {
+    const job = db.campaigns.find(c=>c.id===selectedJob);
+    const client = db.clients.find(c=>c.id===job?.client_id);
+    const mySubs = db.submissions.filter(s=>s.creator_id===creator?.id&&s.campaign_id===job?.id);
+    return (
+      <div className="content">
+        <button className="btn btn-ghost btn-sm" style={{marginBottom:16}} onClick={()=>setSelectedJob(null)}>← Back to Jobs</button>
+        <div className="card mb-16">
+          <div className="flex-between mb-8">
+            <div>
+              <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20,marginBottom:4}}>{job?.name}</div>
+              <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name} · Due {fmtDate(job?.deadline)} · {fmtMoney(job?.pay_per_video)}/video</div>
+            </div>
+            {statusBadge(job?.status)}
+          </div>
+          {job?.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:12,fontSize:13}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:6}}>Guidelines</div><p style={{color:"var(--ink2)",margin:0}}>{job.description}</p></div>}
+          <div className="flex-between">
+            <div style={{fontSize:12,color:"var(--ink3)"}}>{mySubs.length} submission{mySubs.length!==1?"s":""}</div>
+            <button className="btn btn-primary btn-sm" onClick={()=>onNavigate("submit")}>Submit Content</button>
+          </div>
+        </div>
+        {job&&<CampaignForum campaign={job} user={user} db={db} canPin={false}/>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="content">
+      {myJobs.length===0&&<div className="empty"><div className="empty-icon">🎯</div><h3>No active jobs</h3><p>Apply for jobs to get started</p></div>}
+      {myJobs.map(job=>{
+        const client = db.clients.find(c=>c.id===job.client_id);
+        const mySubs = db.submissions.filter(s=>s.creator_id===creator?.id&&s.campaign_id===job.id);
+        return (
+          <div key={job.id} className="card mb-16" style={{cursor:"pointer"}} onClick={()=>setSelectedJob(job.id)}>
+            <div className="flex-between mb-8">
+              <div>
+                <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18,marginBottom:4,color:"var(--blue)"}}>{job.name}</div>
+                <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name} · Due {fmtDate(job.deadline)} · {fmtMoney(job.pay_per_video)}/video</div>
+              </div>
+              {statusBadge(job.status)}
+            </div>
+            <div style={{fontSize:12,color:"var(--ink3)"}}>{mySubs.length} submission{mySubs.length!==1?"s":""} · Click to view details & forum</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CampaignForum({ campaign, user, db, canPin }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -2559,7 +2613,7 @@ export default function App() {
     if(role==="creator"){
       if(page==="dashboard") return <CreatorDashboard user={user} db={db}/>;
       if(page==="jobs") return <JobBoard user={user} db={db} onRefresh={loadDB}/>;
-      if(page==="active-jobs") return <div className="content">{db.campaigns.filter(c=>(c.assigned_creators||[]).includes(db.creators.find(cr=>cr.user_id===user.id||cr.email===user.email)?.id)&&c.status!=="Completed").map(job=>{const creator=db.creators.find(c=>c.user_id===user.id||c.email===user.email);const client=db.clients.find(c=>c.id===job.client_id);const mySubs=db.submissions.filter(s=>s.creator_id===creator?.id&&s.campaign_id===job.id);return(<div key={job.id} className="card mb-16"><div className="flex-between mb-16"><div><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18,marginBottom:4}}>{job.name}</div><div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name} · Due {fmtDate(job.deadline)} · {fmtMoney(job.pay_per_video)}/video</div></div>{statusBadge(job.status)}</div><div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:14,marginBottom:16,fontSize:13}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:8}}>Guidelines</div><p style={{color:"var(--ink2)"}}>{job.description}</p></div><div className="flex-between"><div style={{fontSize:12,color:"var(--ink3)"}}>{mySubs.length} submission{mySubs.length!==1?"s":""}</div><button className="btn btn-primary btn-sm" onClick={()=>setPage("submit")}>Submit Content</button></div></div>);})}{db.campaigns.filter(c=>(c.assigned_creators||[]).includes(db.creators.find(cr=>cr.user_id===user.id||cr.email===user.email)?.id)).length===0&&<div className="empty"><div className="empty-icon">🎯</div><h3>No active jobs</h3><p>Apply for jobs to get started</p></div>}</div>;
+      if(page==="active-jobs") return <CreatorActiveJobs user={user} db={db} onNavigate={setPage}/>;
       if(page==="submit") return <SubmitContent user={user} db={db} onRefresh={loadDB}/>;
       if(page==="submissions") return <MySubmissions user={user} db={db}/>;
       if(page==="insights") return <CreatorInsights user={user} db={db} onRefresh={loadDB}/>;
