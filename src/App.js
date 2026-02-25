@@ -1316,6 +1316,24 @@ function ReviewQueue({ db, onRefresh }) {
     const updates = { [field]: value, feedback, reviewed_at: new Date().toISOString() };
     if (value === "Approved" && field === "final_status") {
       updates.approved_date = new Date().toISOString().split("T")[0];
+      // Auto-generate payment record
+      const sub = db.submissions.find(s=>s.id===subId);
+      const campaign = db.campaigns.find(c=>c.id===sub?.campaign_id);
+      if (sub && campaign) {
+        const existingPayment = db.payments.find(p=>p.submission_id===subId);
+        if (!existingPayment) {
+          await supabase.from("payments").insert({
+            creator_id: sub.creator_id,
+            campaign_id: sub.campaign_id,
+            submission_id: subId,
+            videos_approved: 1,
+            amount_owed: Number(campaign.pay_per_video||0),
+            week_ending: new Date().toISOString().split("T")[0],
+            status: "Pending",
+            payment_method: "Venmo",
+          });
+        }
+      }
     }
     await supabase.from("submissions").update(updates).eq("id", subId);
     await onRefresh();
@@ -2385,9 +2403,25 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
   const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
   const myCreatorIds = am ? db.creators.filter(c=>c.am_id===am.id).map(c=>c.id) : null;
   const allPayments = isOwner ? db.payments : db.payments.filter(p=>myCreatorIds?.includes(p.creator_id));
-  const pending = allPayments.filter(p=>p.status==="Pending");
-  const totalOwed = pending.reduce((a,p)=>a+Number(p.amount_owed||0),0);
+  const [tab, setTab] = useState("pending");
   const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({creator_id:"",campaign_id:"",videos_approved:1,amount_owed:"",payment_method:"Venmo",notes:""});
+  const [creatorFilter, setCreatorFilter] = useState("");
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const pending = allPayments.filter(p=>p.status==="Pending");
+  const paid = allPayments.filter(p=>p.status==="Paid");
+  const paidThisMonth = paid.filter(p=>p.paid_date&&new Date(p.paid_date)>=startOfMonth);
+  const totalOwed = pending.reduce((a,p)=>a+Number(p.amount_owed||0),0);
+  const totalPaidMonth = paidThisMonth.reduce((a,p)=>a+Number(p.amount_owed||0),0);
+  const totalPaidAll = paid.reduce((a,p)=>a+Number(p.amount_owed||0),0);
+
+  const tabItems = tab==="pending"?pending:tab==="paid"?paid:allPayments;
+  const filtered = creatorFilter ? tabItems.filter(p=>p.creator_id===creatorFilter) : tabItems;
 
   const markPaid = async (paymentId) => {
     setSaving(true);
@@ -2395,46 +2429,235 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
     await onRefresh(); setSaving(false);
   };
 
+  const markSelectedPaid = async () => {
+    setSaving(true);
+    for (const id of selected) {
+      await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",id);
+    }
+    await onRefresh(); setSelected([]); setSaving(false);
+  };
+
   const markAllPaid = async () => {
     setSaving(true);
-    await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("status","Pending");
+    for (const p of pending) {
+      await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",p.id);
+    }
     await onRefresh(); setSaving(false);
   };
 
+  const deletePayment = async (id) => {
+    await supabase.from("payments").delete().eq("id",id);
+    await onRefresh();
+  };
+
+  const createPayment = async () => {
+    setSaving(true);
+    await supabase.from("payments").insert({
+      ...createForm,
+      videos_approved: Number(createForm.videos_approved),
+      amount_owed: Number(createForm.amount_owed),
+      week_ending: new Date().toISOString().split("T")[0],
+      status: "Pending"
+    });
+    await onRefresh();
+    setShowCreate(false);
+    setCreateForm({creator_id:"",campaign_id:"",videos_approved:1,amount_owed:"",payment_method:"Venmo",notes:""});
+    setSaving(false);
+  };
+
+  const exportCSV = () => {
+    const rows = [["Creator","Campaign","Videos","Amount","Method","Status","Week Ending","Paid Date","Notes"]];
+    allPayments.forEach(p=>{
+      const creator = db.creators.find(c=>c.id===p.creator_id);
+      const campaign = db.campaigns.find(c=>c.id===p.campaign_id);
+      rows.push([creator?.name||"—", campaign?.name||"—", p.videos_approved, p.amount_owed, p.payment_method||"—", p.status, p.week_ending||"—", p.paid_date||"—", p.notes||""]);
+    });
+    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(",")).join("
+");
+    const blob = new Blob([csv], {type:"text/csv"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download="omnya-payments.csv"; a.click();
+  };
+
+  // Per-creator summary
+  const creatorSummaries = db.creators
+    .filter(c => isOwner ? true : myCreatorIds?.includes(c.id))
+    .map(c=>{
+      const cPayments = allPayments.filter(p=>p.creator_id===c.id);
+      const cPending = cPayments.filter(p=>p.status==="Pending");
+      const cPaid = cPayments.filter(p=>p.status==="Paid");
+      return {
+        creator: c,
+        pendingCount: cPending.length,
+        pendingAmount: cPending.reduce((a,p)=>a+Number(p.amount_owed||0),0),
+        paidTotal: cPaid.reduce((a,p)=>a+Number(p.amount_owed||0),0),
+        totalVideos: cPayments.reduce((a,p)=>a+Number(p.videos_approved||0),0),
+      };
+    }).filter(s=>s.pendingAmount>0||s.paidTotal>0);
+
+  const toggleSelect = (id) => setSelected(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
+
   return (
     <div className="content">
-      {isOwner&&<div className="mb-16"><span className="owner-badge">👑 Owner View — All payments</span></div>}
-      {!isOwner&&<div className="mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>Payments for your creators</div></div>}
-      <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
-        <div className="stat-card stat-highlight"><div className="stat-label">Pending Payments</div><div className="stat-value">{pending.length}</div></div>
-        <div className="stat-card"><div className="stat-label">Total Owed</div><div className="stat-value">{fmtMoney(totalOwed)}</div></div>
-        <div className="stat-card"><div className="stat-label">Paid This Month</div><div className="stat-value">{fmtMoney(db.payments.filter(p=>p.status==="Paid").reduce((a,p)=>a+Number(p.amount_owed||0),0))}</div></div>
+      {/* Stats */}
+      <div className="stats-grid" style={{gridTemplateColumns:"repeat(4,1fr)",marginBottom:20}}>
+        <div className="stat-card stat-highlight">
+          <div className="stat-label">Pending Payout</div>
+          <div className="stat-value">{fmtMoney(totalOwed)}</div>
+          <div style={{fontSize:11,color:"var(--ink3)"}}>{pending.length} payments</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Paid This Month</div>
+          <div className="stat-value" style={{color:"var(--green)"}}>{fmtMoney(totalPaidMonth)}</div>
+          <div style={{fontSize:11,color:"var(--ink3)"}}>{paidThisMonth.length} payments</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">All Time Paid</div>
+          <div className="stat-value">{fmtMoney(totalPaidAll)}</div>
+          <div style={{fontSize:11,color:"var(--ink3)"}}>{paid.length} payments</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Total Creators</div>
+          <div className="stat-value">{creatorSummaries.length}</div>
+          <div style={{fontSize:11,color:"var(--ink3)"}}>with payment history</div>
+        </div>
       </div>
-      {pending.length>0&&<div className="flex-between mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>{pending.length} payments pending</div>{isOwner&&<button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button>}</div>}
+
+      {/* Creator summaries */}
+      {creatorSummaries.length>0&&(
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
+          {creatorSummaries.map(({creator,pendingAmount,paidTotal,pendingCount})=>(
+            <div key={creator.id} onClick={()=>setCreatorFilter(creatorFilter===creator.id?"":creator.id)}
+              style={{background:creatorFilter===creator.id?"var(--ink)":"var(--bg2)",color:creatorFilter===creator.id?"#fff":"var(--ink)",border:`1px solid ${creatorFilter===creator.id?"var(--ink)":"var(--border)"}`,borderRadius:"var(--radius-sm)",padding:"8px 14px",cursor:"pointer",minWidth:140}}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{creator.name}</div>
+              {pendingAmount>0&&<div style={{fontSize:11,color:creatorFilter===creator.id?"rgba(255,255,255,0.8)":"var(--red)"}}>Owes: {fmtMoney(pendingAmount)}</div>}
+              <div style={{fontSize:11,color:creatorFilter===creator.id?"rgba(255,255,255,0.6)":"var(--ink3)"}}>Paid total: {fmtMoney(paidTotal)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Actions bar */}
+      <div className="flex-between mb-16">
+        <div className="tabs" style={{marginBottom:0}}>
+          {[["pending","⏳ Pending",pending.length],["paid","✅ Paid",paid.length],["all","All",allPayments.length]].map(([id,label,count])=>(
+            <div key={id} className={`tab ${tab===id?"active":""}`} onClick={()=>{setTab(id);setSelected([]);}}>
+              {label} <span className="nav-badge" style={{display:"inline",marginLeft:6,fontSize:10,position:"static"}}>{count}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          {selected.length>0&&<button className="btn btn-green btn-sm" onClick={markSelectedPaid} disabled={saving}>✓ Pay {selected.length} Selected</button>}
+          {tab==="pending"&&pending.length>0&&isOwner&&<button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button>}
+          <button className="btn btn-sm btn-ghost" onClick={exportCSV}>⬇ Export CSV</button>
+          {isOwner&&<button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ Add Payment</button>}
+        </div>
+      </div>
+
+      {/* Payments table */}
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Creator</th><th>Week Ending</th><th>Videos</th><th>Amount</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
+            <thead>
+              <tr>
+                {isOwner&&tab==="pending"&&<th style={{width:32}}></th>}
+                <th>Creator</th>
+                <th>Campaign</th>
+                <th>Videos</th>
+                <th>Amount</th>
+                <th>Method</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
             <tbody>
-              {allPayments.map(p=>{
-                const creator=db.creators.find(c=>c.id===p.creator_id);
+              {filtered.map(p=>{
+                const creator = db.creators.find(c=>c.id===p.creator_id);
+                const campaign = db.campaigns.find(c=>c.id===p.campaign_id);
+                const isSelected = selected.includes(p.id);
                 return (
-                  <tr key={p.id}>
-                    <td className="fw-600">{creator?.name||"—"}</td>
-                    <td className="text-muted">{fmtDate(p.week_ending)}</td>
-                    <td>{p.videos_approved}</td>
+                  <tr key={p.id} style={{background:isSelected?"rgba(37,99,235,0.05)":""}}>
+                    {isOwner&&tab==="pending"&&(
+                      <td>
+                        <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(p.id)} style={{cursor:"pointer"}}/>
+                      </td>
+                    )}
+                    <td>
+                      <div className="fw-600">{creator?.name||"—"}</div>
+                      {p.notes&&<div style={{fontSize:11,color:"var(--ink3)",fontStyle:"italic"}}>{p.notes}</div>}
+                    </td>
+                    <td style={{fontSize:12,color:"var(--ink3)"}}>{campaign?.name||"—"}</td>
+                    <td style={{fontSize:13}}>{p.videos_approved}</td>
                     <td className="text-green fw-600">{fmtMoney(p.amount_owed)}</td>
                     <td><span className="badge badge-gray">{p.payment_method||"—"}</span></td>
                     <td>{statusBadge(p.status)}</td>
-                    <td>{p.status==="Pending"&&isOwner&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Mark Paid</button>}</td>
+                    <td style={{fontSize:12,color:"var(--ink3)"}}>{p.status==="Paid"?fmtDate(p.paid_date):fmtDate(p.week_ending)}</td>
+                    <td>
+                      <div style={{display:"flex",gap:6}}>
+                        {p.status==="Pending"&&isOwner&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Pay</button>}
+                        {isOwner&&<button className="btn btn-sm btn-ghost" style={{color:"var(--red)",fontSize:11}} onClick={()=>deletePayment(p.id)}>✕</button>}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        {allPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>No payments yet</h3></div>}
+        {filtered.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>{tab==="pending"?"No pending payments":"No payments found"}</h3></div>}
       </div>
+
+      {/* Create payment modal */}
+      {showCreate&&(
+        <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Add Payment</div>
+            <div className="modal-sub">Manually add a payment record</div>
+            <div className="form-group">
+              <label className="form-label">Creator</label>
+              <select className="select" value={createForm.creator_id} onChange={e=>{
+                const creator = db.creators.find(c=>c.id===e.target.value);
+                setCreateForm({...createForm, creator_id:e.target.value});
+              }}>
+                <option value="">Select creator...</option>
+                {db.creators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Campaign <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
+              <select className="select" value={createForm.campaign_id} onChange={e=>setCreateForm({...createForm,campaign_id:e.target.value})}>
+                <option value="">Select campaign...</option>
+                {db.campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Videos Approved</label>
+                <input className="form-input" type="number" min="1" value={createForm.videos_approved} onChange={e=>setCreateForm({...createForm,videos_approved:e.target.value})}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Amount ($)</label>
+                <input className="form-input" type="number" placeholder="0.00" value={createForm.amount_owed} onChange={e=>setCreateForm({...createForm,amount_owed:e.target.value})}/>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Payment Method</label>
+                <select className="select" value={createForm.payment_method} onChange={e=>setCreateForm({...createForm,payment_method:e.target.value})}>
+                  {["Venmo","PayPal","Zelle","Bank Transfer","Check","Other"].map(m=><option key={m}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Notes <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
+              <input className="form-input" placeholder="e.g. Bonus for extra video" value={createForm.notes} onChange={e=>setCreateForm({...createForm,notes:e.target.value})}/>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setShowCreate(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={createPayment} disabled={saving||!createForm.creator_id||!createForm.amount_owed}>{saving?"Saving...":"Add Payment"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
