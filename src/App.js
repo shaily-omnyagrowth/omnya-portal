@@ -1558,7 +1558,9 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
   const totalCost = salesCost + amCost + creatorCost;
   const grossProfit = revenue - totalCost;
   const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
-  const costPerVideo = approved > 0 ? Math.round(totalCost/approved) : 0;
+  // Cost per video = total campaign cost ÷ videos needed (full commitment)
+  const totalCampaignCost = (Number(campaign.videos_needed||1) * Number(campaign.pay_per_video||0)) + amCost + salesCost;
+  const costPerVideo = Number(campaign.videos_needed||0) > 0 ? Math.round(totalCampaignCost / Number(campaign.videos_needed)) : 0;
   const marginColor = margin>=50?"var(--green)":margin>=25?"var(--gold)":"var(--red)";
   const cpvColor = costPerVideo===0?"var(--ink3)":costPerVideo<=50?"var(--green)":costPerVideo<=60?"var(--gold)":"var(--red)";
   const cpvFlag = costPerVideo===0?"":costPerVideo<=50?"🟢":costPerVideo<=60?"⚠️":"🚨";
