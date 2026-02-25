@@ -2473,8 +2473,7 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
       const campaign = db.campaigns.find(c=>c.id===p.campaign_id);
       rows.push([creator?.name||"—", campaign?.name||"—", p.videos_approved, p.amount_owed, p.payment_method||"—", p.status, p.week_ending||"—", p.paid_date||"—", p.notes||""]);
     });
-    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(",")).join("
-");
+    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(",")).join("\n");
     const blob = new Blob([csv], {type:"text/csv"});
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href=url; a.download="omnya-payments.csv"; a.click();
