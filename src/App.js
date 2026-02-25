@@ -2567,17 +2567,21 @@ function RevenueAnalytics({ db, user, isOwner }) {
       const revenue = Number(c.budget||0);
       const amRate = getAMRate(clientAM);
       const amCost = revenue * amRate;
-      const grossProfit = revenue - creatorCost - amCost;
+      // Sales commission — any campaign for this client that is sales sourced adds 30%
+      const hasSalesSourced = clientCampaigns.some(camp=>camp.is_sales_sourced);
+      const salesCost = hasSalesSourced ? revenue * 0.30 : 0;
+      const grossProfit = revenue - creatorCost - amCost - salesCost;
       const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
       const totalApproved = clientCampaigns.reduce((t,camp)=>t+db.submissions.filter(s=>s.campaign_id===camp.id&&s.final_status==="Approved").length,0);
-      const costPerVideo = totalApproved > 0 ? Math.round((creatorCost+amCost)/totalApproved) : 0;
+      const costPerVideo = totalApproved > 0 ? Math.round((creatorCost+amCost+salesCost)/totalApproved) : 0;
 
-      return { client:c, clientAM, revenue, creatorCost, amCost, amRate, grossProfit, margin, totalApproved, costPerVideo, campaigns:clientCampaigns.length };
+      return { client:c, clientAM, revenue, creatorCost, amCost, amRate, salesCost, hasSalesSourced, grossProfit, margin, totalApproved, costPerVideo, campaigns:clientCampaigns.length };
     });
 
   const totalRevenue = clientData.reduce((a,c)=>a+c.revenue,0);
   const totalCreatorCost = clientData.reduce((a,c)=>a+c.creatorCost,0);
   const totalAMCost = clientData.reduce((a,c)=>a+c.amCost,0);
+  const totalSalesCost = clientData.reduce((a,c)=>a+(c.salesCost||0),0);
   const totalProfit = clientData.reduce((a,c)=>a+c.grossProfit,0);
   const totalMargin = totalRevenue>0?Math.round((totalProfit/totalRevenue)*100):0;
 
@@ -2608,6 +2612,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
                 <th>Revenue</th>
                 <th>Creator Cost</th>
                 {isOwner&&<th>AM Cost</th>}
+                {isOwner&&<th>Sales Comm.</th>}
                 <th>Gross Profit</th>
                 <th>Margin</th>
                 <th>Videos</th>
@@ -2626,6 +2631,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
                   <td className="text-green fw-600">{fmtMoney(revenue)}</td>
                   <td style={{color:"var(--red)"}}>{fmtMoney(creatorCost)}</td>
                   {isOwner&&<td style={{color:"var(--orange)"}}>{fmtMoney(amCost)}</td>}
+                  {isOwner&&<td style={{color:hasSalesSourced?"var(--orange)":"var(--ink3)",fontSize:12}}>{hasSalesSourced?fmtMoney(salesCost):"—"}</td>}
                   <td style={{color:grossProfit>=0?"var(--green)":"var(--red)",fontWeight:600}}>{fmtMoney(grossProfit)}</td>
                   <td>
                     <div style={{fontWeight:700,color:marginColor(margin)}}>{margin}%</div>
