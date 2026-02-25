@@ -951,67 +951,34 @@ function SubmitContent({ user, db, onRefresh }) {
   const [success, setSuccess] = useState(false);
   const [err, setErr] = useState("");
 
-  const uploadToDrive = async (fileObj, campaignId) => {
+  const uploadToSupabase = async (fileObj, campaignId) => {
     const campaign = db.campaigns.find(c=>c.id===campaignId);
-    const client = db.clients.find(c=>c.id===campaign?.client_id);
-    const driveLink = client?.drive_link;
-
-    // Extract folder ID from drive link if available
-    let folderId = null;
-    if (driveLink) {
-      const match = driveLink.match(/folders\/([a-zA-Z0-9_-]+)/);
-      if (match) folderId = match[1];
-    }
-
-    const fileName = `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`;
+    const fileName = `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
+    const filePath = `submissions/${campaignId}/${Date.now()}_${fileName}`;
 
     setUploadProgress(20);
 
-    // Step 1: Get resumable upload URL from serverless function
-    const urlRes = await fetch("/api/get-upload-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName,
-        fileSize: fileObj.size,
-        mimeType: fileObj.type || "video/mp4",
-        folderId,
-      })
-    });
+    const { data, error } = await supabase.storage
+      .from("submissions")
+      .upload(filePath, fileObj, {
+        cacheControl: "3600",
+        upsert: false,
+        onUploadProgress: (progress) => {
+          const pct = Math.round((progress.loaded / progress.total) * 70) + 20;
+          setUploadProgress(pct);
+        }
+      });
 
-    const urlData = await urlRes.json();
-    if (urlData.error) throw new Error(urlData.error);
-
-    setUploadProgress(40);
-
-    // Step 2: Upload file directly to Google from browser
-    const uploadRes = await fetch(urlData.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": fileObj.type || "video/mp4" },
-      body: fileObj,
-    });
-
-    if (!uploadRes.ok) {
-      const err = await uploadRes.text();
-      throw new Error("Upload failed: " + err);
-    }
-
-    setUploadProgress(80);
-    const uploadData = await uploadRes.json();
-    const fileId = uploadData.id;
-
-    // Step 3: Make file publicly viewable
-    await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${urlData.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ role: "reader", type: "anyone" }),
-    });
+    if (error) throw new Error(error.message);
 
     setUploadProgress(95);
-    return `https://drive.google.com/file/d/${fileId}/view`;
+
+    const { data: urlData } = supabase.storage
+      .from("submissions")
+      .getPublicUrl(filePath);
+
+    return urlData.publicUrl;
   };
 
   const submit = async () => {
@@ -1026,7 +993,7 @@ function SubmitContent({ user, db, onRefresh }) {
     if (uploadMode==="file" && file) {
       try {
         setUploadProgress(10);
-        fileLink = await uploadToDrive(file, form.campaign_id);
+        fileLink = await uploadToSupabase(file, form.campaign_id);
         setUploadProgress(90);
       } catch(e) {
         setErr("Upload failed: " + e.message);
@@ -1119,7 +1086,7 @@ function SubmitContent({ user, db, onRefresh }) {
               </label>
               {submitting&&uploadProgress>0&&(
                 <div style={{marginTop:8}}>
-                  <div style={{fontSize:12,color:"var(--ink3)",marginBottom:4}}>Uploading to Drive... {uploadProgress}%</div>
+                  <div style={{fontSize:12,color:"var(--ink3)",marginBottom:4}}>Uploading... {uploadProgress}%</div>
                   <div className="progress-bar"><div className="progress-fill" style={{width:`${uploadProgress}%`,transition:"width 0.3s"}}/></div>
                 </div>
               )}
@@ -1150,7 +1117,7 @@ function SubmitContent({ user, db, onRefresh }) {
 
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <button className="btn btn-primary" onClick={submit} disabled={submitting||myJobs.length===0} style={{marginTop:8}}>
-          {submitting ? (uploadProgress>0?"Uploading to Drive...":"Submitting...") : "Submit for Review →"}
+          {submitting ? (uploadProgress>0?"Uploading...":"Submitting...") : "Submit for Review →"}
         </button>
       </div>
     </div>
