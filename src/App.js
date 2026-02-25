@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 // ============================================================
@@ -942,104 +942,37 @@ function JobBoard({ user, db, onRefresh }) {
 function SubmitContent({ user, db, onRefresh }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
   const myJobs = db.campaigns.filter(c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed");
-  const [form, setForm] = useState({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
-  const [file, setFile] = useState(null);
-  const [uploadMode, setUploadMode] = useState("file"); // "file" or "link"
+  const [form, setForm] = useState({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok"});
   const [submitting, setSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [success, setSuccess] = useState(false);
   const [err, setErr] = useState("");
 
-  const uploadToDrive = async (fileObj, campaignId) => {
-    const campaign = db.campaigns.find(c=>c.id===campaignId);
-    const client = db.clients.find(c=>c.id===campaign?.client_id);
-    const driveLink = client?.drive_link;
-
-    // Extract folder ID from drive link if available
-    let folderId = null;
-    if (driveLink) {
-      const match = driveLink.match(/folders\/([a-zA-Z0-9_-]+)/);
-      if (match) folderId = match[1];
-    }
-
-    const fileName = `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`;
-    const renamedFile = new File([fileObj], fileName, {type: fileObj.type});
-
-    const formData = new FormData();
-    formData.append("file", renamedFile);
-    if (folderId) formData.append("folderId", folderId);
-
-    setUploadProgress(30);
-    const uploadRes = await fetch("/api/upload-to-drive", {
-      method: "POST",
-      body: formData
-    });
-
-    setUploadProgress(80);
-    const uploadData = await uploadRes.json();
-    if (uploadData.error) throw new Error(uploadData.error);
-    return uploadData.url;
-  };
-
   const submit = async () => {
-    if (!form.campaign_id) { setErr("Please select a campaign"); return; }
-    if (uploadMode==="file" && !file) { setErr("Please select a video file to upload"); return; }
-    if (uploadMode==="link" && !form.concept_link) { setErr("Please enter a video link"); return; }
-    
-    setSubmitting(true); setErr(""); setUploadProgress(0);
-
-    let fileLink = form.concept_link;
-
-    if (uploadMode==="file" && file) {
-      try {
-        setUploadProgress(10);
-        fileLink = await uploadToDrive(file, form.campaign_id);
-        setUploadProgress(90);
-      } catch(e) {
-        setErr("Upload failed: " + e.message);
-        setSubmitting(false); setUploadProgress(0); return;
-      }
-    }
-
+    if (!form.campaign_id||!form.concept_link) { setErr("Please fill in all required fields"); return; }
+    setSubmitting(true); setErr("");
     const newSub = {
       creator_id: creator.id, campaign_id: form.campaign_id,
-      submission_type: form.type, concept_link: fileLink,
+      submission_type: form.type, concept_link: form.concept_link,
       concept_status: "Pending",
       final_status: form.type==="Final"?"Pending":null,
       posted_link: form.posted_link||null, platform: form.platform,
-      payment_status: "Unpaid",
-      notes: form.comment||null,
-      due_date: form.due_date||null
+      payment_status: "Unpaid"
     };
-
     const { error } = await supabase.from("submissions").insert(newSub);
-    if (error) { setErr(error.message); setSubmitting(false); setUploadProgress(0); return; }
+    if (error) { setErr(error.message); setSubmitting(false); return; }
     await onRefresh();
-    setSuccess(true);
-    setForm({...form, concept_link:"", posted_link:"", comment:""});
-    setFile(null);
-    setUploadProgress(0);
+    setSuccess(true); setForm({...form,concept_link:"",posted_link:""});
+    setTimeout(()=>setSuccess(false), 4000);
     setSubmitting(false);
   };
 
   if (!creator) return <div className="content"><ErrorMsg msg="Creator profile not found." /></div>;
 
-  if (success) return (
-    <div className="content" style={{maxWidth:600}}>
-      <div style={{textAlign:"center",padding:"60px 24px"}}>
-        <div style={{fontSize:48,marginBottom:16}}>✅</div>
-        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:28,marginBottom:8}}>Submitted!</div>
-        <div style={{fontSize:14,color:"var(--ink3)",marginBottom:24}}>Your content has been submitted for review. Your AM will get back to you shortly.</div>
-        <button className="btn btn-primary" onClick={()=>setSuccess(false)}>Submit Another</button>
-      </div>
-    </div>
-  );
-
   return (
     <div className="content" style={{maxWidth:600}}>
+      {success&&<div style={{background:"rgba(26,122,74,0.1)",border:"1px solid var(--green)",borderRadius:"var(--radius)",padding:"14px 20px",marginBottom:20,color:"var(--green)",fontSize:14,fontWeight:600}}>✓ Submitted! Your AM will review it shortly.</div>}
       <div className="card">
         <div className="card-title">New Content Submission</div>
-
         <div className="form-group">
           <label className="form-label">Campaign</label>
           <select className="select" value={form.campaign_id} onChange={e=>setForm({...form,campaign_id:e.target.value})}>
@@ -1047,7 +980,6 @@ function SubmitContent({ user, db, onRefresh }) {
             {myJobs.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}
           </select>
         </div>
-
         <div className="form-group">
           <label className="form-label">Submission Type</label>
           <div style={{display:"flex",gap:8}}>
@@ -1057,45 +989,12 @@ function SubmitContent({ user, db, onRefresh }) {
               </button>
             ))}
           </div>
-          <div className="form-hint">{form.type==="Concept"?"Submit your concept video for approval before posting":"Submit your final posted video link"}</div>
+          <div className="form-hint">{form.type==="Concept"?"Submit a screen recording of your concept idea":"Submit the link to your live posted video"}</div>
         </div>
-
         <div className="form-group">
-          <label className="form-label">Upload Method</label>
-          <div style={{display:"flex",gap:8,marginBottom:12}}>
-            <button className={`btn btn-sm ${uploadMode==="file"?"btn-primary":"btn-ghost"}`} onClick={()=>setUploadMode("file")}>📁 Upload File</button>
-            <button className={`btn btn-sm ${uploadMode==="link"?"btn-primary":"btn-ghost"}`} onClick={()=>setUploadMode("link")}>🔗 Paste Link</button>
-          </div>
-
-          {uploadMode==="file" ? (
-            <div>
-              <input type="file" accept="video/*" style={{display:"none"}} id="videoUpload" onChange={e=>setFile(e.target.files[0])}/>
-              <label htmlFor="videoUpload" style={{display:"block",border:"2px dashed var(--border2)",borderRadius:"var(--radius-sm)",padding:"24px",textAlign:"center",cursor:"pointer",background:"var(--bg2)"}}>
-                {file ? (
-                  <div>
-                    <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>📹 {file.name}</div>
-                    <div style={{fontSize:11,color:"var(--ink3)"}}>{(file.size/1024/1024).toFixed(1)}MB · Click to change</div>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{fontSize:24,marginBottom:8}}>📹</div>
-                    <div style={{fontSize:13,fontWeight:600}}>Click to upload video</div>
-                    <div style={{fontSize:11,color:"var(--ink3)",marginTop:4}}>MP4, MOV, AVI supported</div>
-                  </div>
-                )}
-              </label>
-              {submitting&&uploadProgress>0&&(
-                <div style={{marginTop:8}}>
-                  <div style={{fontSize:12,color:"var(--ink3)",marginBottom:4}}>Uploading to Drive... {uploadProgress}%</div>
-                  <div className="progress-bar"><div className="progress-fill" style={{width:`${uploadProgress}%`,transition:"width 0.3s"}}/></div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <input className="form-input" placeholder={form.type==="Concept"?"https://loom.com/share/...":"https://tiktok.com/@..."} value={form.concept_link} onChange={e=>setForm({...form,concept_link:e.target.value})}/>
-          )}
+          <label className="form-label">{form.type==="Concept"?"Concept Video Link (Loom, Drive, etc.)":"Live Posted Video Link"}</label>
+          <input className="form-input" placeholder={form.type==="Concept"?"https://loom.com/share/...":"https://tiktok.com/@..."} value={form.concept_link} onChange={e=>setForm({...form,concept_link:e.target.value})} />
         </div>
-
         {form.type==="Final"&&(
           <div className="form-group">
             <label className="form-label">Platform</label>
@@ -1104,20 +1003,9 @@ function SubmitContent({ user, db, onRefresh }) {
             </select>
           </div>
         )}
-
-        <div className="form-group">
-          <label className="form-label">Due Date <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
-          <input className="form-input" type="date" value={form.due_date||""} onChange={e=>setForm({...form,due_date:e.target.value})}/>
-          <div className="form-hint">When is this content due? Used to track your on-time rate.</div>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Comment <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
-          <textarea className="textarea" rows={2} placeholder="Any notes for your AM about this submission..." value={form.comment} onChange={e=>setForm({...form,comment:e.target.value})}/>
-        </div>
-
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <button className="btn btn-primary" onClick={submit} disabled={submitting||myJobs.length===0} style={{marginTop:8}}>
-          {submitting ? (uploadProgress>0?"Uploading to Drive...":"Submitting...") : "Submit for Review →"}
+          {submitting?"Submitting...":"Submit for Review →"}
         </button>
       </div>
     </div>
@@ -1428,7 +1316,6 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
     return client?.am_id===am?.id;
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [viewCampaign, setViewCampaign] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
@@ -1453,17 +1340,16 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
       <div className="card">
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Campaign</th><th>Client</th><th>AM</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
+            <thead><tr><th>Campaign</th><th>Client</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
             <tbody>
               {campaigns.map(c=>{
                 const client=db.clients.find(cl=>cl.id===c.client_id);
                 const approved=db.submissions.filter(s=>s.campaign_id===c.id&&s.final_status==="Approved").length;
                 const pct=Math.round((approved/(c.videos_needed||1))*100);
                 return (
-                  <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setViewCampaign(c)}>
-                    <td><div className="fw-600" style={{color:"var(--blue)"}}>{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
+                  <tr key={c.id}>
+                    <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
                     <td className="text-muted">{client?.name||"—"}</td>
-                    <td style={{fontSize:12,color:"var(--ink3)"}}>{db.accountManagers.find(a=>a.id===client?.am_id)?.name||"—"}</td>
                     <td><span className="badge badge-blue">{c.format}</span></td>
                     <td>
                       <div style={{fontSize:11,color:"var(--ink3)",marginBottom:4}}>{approved}/{c.videos_needed} videos</div>
@@ -1478,7 +1364,6 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </table>
         </div>
       </div>
-      {viewCampaign&&<CampaignDetail campaign={viewCampaign} db={db} onRefresh={async()=>{await onRefresh();setViewCampaign(db.campaigns.find(c=>c.id===viewCampaign.id)||null);}} onClose={()=>setViewCampaign(null)}/>}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -1505,515 +1390,9 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   );
 }
 
-function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [uploadingBrief, setUploadingBrief] = useState(false);
-  const [isSalesSourced, setIsSalesSourced] = useState(campaign.is_sales_sourced||false);
-  const [editForm, setEditForm] = useState({
-    name: campaign.name||"",
-    description: campaign.description||"",
-    format: campaign.format||"TikTok",
-    videos_needed: campaign.videos_needed||10,
-    pay_per_video: campaign.pay_per_video||10,
-    deadline: campaign.deadline||"",
-    status: campaign.status||"Open",
-    is_sales_sourced: campaign.is_sales_sourced||false
-  });
-  const client = db.clients.find(c=>c.id===campaign.client_id);
-  const clientAM = db.accountManagers.find(a=>a.id===client?.am_id);
-  const assignedCreators = db.creators.filter(c=>(campaign.assigned_creators||[]).includes(c.id));
-  const availableCreators = db.creators.filter(c=>!(campaign.assigned_creators||[]).includes(c.id)&&c.status==="Active");
-  const approved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved").length;
-
-  // Profitability calculations
-  const revenue = Number(client?.budget||0);
-  const salesCommissionRate = isSalesSourced ? 0.30 : 0;
-  const amRate = (clientAM?.name||"").toLowerCase().includes("lilli") ? 0.20 : 0.10;
-  const salesCost = revenue * salesCommissionRate;
-  const amCost = revenue * amRate;
-  const creatorCost = approved * Number(campaign.pay_per_video||0);
-  const totalCost = salesCost + amCost + creatorCost;
-  const grossProfit = revenue - totalCost;
-  const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
-  // Cost per video = total campaign cost ÷ videos needed (full commitment)
-  const totalCampaignCost = (Number(campaign.videos_needed||1) * Number(campaign.pay_per_video||0)) + amCost + salesCost;
-  const costPerVideo = Number(campaign.videos_needed||0) > 0 ? Math.round(totalCampaignCost / Number(campaign.videos_needed)) : 0;
-  const marginColor = margin>=50?"var(--green)":margin>=25?"var(--gold)":"var(--red)";
-  const cpvColor = costPerVideo===0?"var(--ink3)":costPerVideo<=50?"var(--green)":costPerVideo<=60?"var(--gold)":"var(--red)";
-  const cpvFlag = costPerVideo===0?"":costPerVideo<=50?"🟢":costPerVideo<=60?"⚠️":"🚨";
-
-  // At Risk flags
-  const pendingSubs = db.submissions.filter(s=>s.campaign_id===campaign.id&&(s.concept_status==="Pending"||s.final_status==="Pending"));
-  const staleSubs = pendingSubs.filter(s=>{
-    const days = (Date.now()-new Date(s.created_at).getTime())/(1000*60*60*24);
-    return days>3;
-  });
-
-  // Velocity calculations
-  const now = new Date();
-  const startOfWeek = new Date(now); startOfWeek.setDate(now.getDate()-now.getDay()); startOfWeek.setHours(0,0,0,0);
-  const startOfLastWeek = new Date(startOfWeek); startOfLastWeek.setDate(startOfWeek.getDate()-7);
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  const allApproved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved");
-  const thisWeekApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfWeek).length;
-  const lastWeekApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfLastWeek&&new Date(s.created_at)<startOfWeek).length;
-  const thisMonthApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfMonth).length;
-  const velocityChange = lastWeekApproved===0 ? (thisWeekApproved>0?100:0) : Math.round(((thisWeekApproved-lastWeekApproved)/lastWeekApproved)*100);
-  const velocityColor = velocityChange>0?"var(--green)":velocityChange===0?"var(--ink3)":"var(--red)";
-  const velocityIcon = velocityChange>0?"↑":velocityChange===0?"→":"↓";
-
-  const toggleSalesSourced = async () => {
-    const newVal = !isSalesSourced;
-    setIsSalesSourced(newVal);
-    await supabase.from("campaigns").update({is_sales_sourced:newVal}).eq("id",campaign.id);
-  };
-
-  const uploadBrief = async (file) => {
-    if (!file) return;
-    setUploadingBrief(true);
-    const path = `briefs/${campaign.id}/${file.name}`;
-    await supabase.storage.from("submissions").upload(path, file, {upsert:true});
-    const { data } = supabase.storage.from("submissions").getPublicUrl(path);
-    await supabase.from("campaigns").update({brief_url:data.publicUrl}).eq("id",campaign.id);
-    await onRefresh();
-    setUploadingBrief(false);
-  };
-
-  const assignCreator = async (creatorId) => {
-    setSaving(true);
-    const updated = [...(campaign.assigned_creators||[]), creatorId];
-    await supabase.from("campaigns").update({assigned_creators:updated, status:"In Progress"}).eq("id", campaign.id);
-    await onRefresh(); setSaving(false);
-  };
-
-  const removeCreator = async (creatorId) => {
-    setSaving(true);
-    const updated = (campaign.assigned_creators||[]).filter(id=>id!==creatorId);
-    await supabase.from("campaigns").update({assigned_creators:updated}).eq("id", campaign.id);
-    await onRefresh(); setSaving(false);
-  };
-
-  const saveEdit = async () => {
-    setSaving(true);
-    await supabase.from("campaigns").update({...editForm, videos_needed:Number(editForm.videos_needed), pay_per_video:Number(editForm.pay_per_video)}).eq("id", campaign.id);
-    await onRefresh(); setEditing(false); setSaving(false);
-  };
-
-  const deleteCampaign = async () => {
-    setDeleting(true);
-    await supabase.from("campaigns").delete().eq("id", campaign.id);
-    await onRefresh(); onClose();
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{maxWidth:640,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-        
-        {/* Header */}
-        <div className="flex-between mb-16">
-          <div>
-            <div className="modal-title" style={{marginBottom:2}}>{campaign.name}</div>
-            <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name||"—"} · {campaign.format} · Due {fmtDate(campaign.deadline)}</div>
-            {client&&db.accountManagers.find(a=>a.id===client.am_id)&&<div style={{fontSize:12,color:"var(--ink3)",marginTop:2}}>AM: {db.accountManagers.find(a=>a.id===client.am_id)?.name}</div>}
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
-            {!editing&&<button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} onClick={()=>setConfirmDelete(true)}>🗑 Delete</button>}
-            <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
-          </div>
-        </div>
-
-        {/* Confirm Delete */}
-        {confirmDelete&&(
-          <div style={{background:"#fff3f3",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:16}}>
-            <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>Delete this campaign?</div>
-            <div style={{fontSize:12,color:"var(--ink3)",marginBottom:12}}>This cannot be undone.</div>
-            <div style={{display:"flex",gap:8}}>
-              <button className="btn btn-sm btn-ghost" onClick={()=>setConfirmDelete(false)}>Cancel</button>
-              <button className="btn btn-sm" style={{background:"var(--red)",color:"#fff"}} onClick={deleteCampaign} disabled={deleting}>{deleting?"Deleting...":"Yes, Delete"}</button>
-            </div>
-          </div>
-        )}
-
-        {/* Edit Form */}
-        {editing ? (
-          <div>
-            <div className="form-group"><label className="form-label">Campaign Name</label><input className="form-input" value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Description / Guidelines</label><textarea className="textarea" rows={4} value={editForm.description} onChange={e=>setEditForm({...editForm,description:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">Format</label><select className="select" value={editForm.format} onChange={e=>setEditForm({...editForm,format:e.target.value})}>{["TikTok","IG Reel","FB Reel","YouTube Short"].map(f=><option key={f}>{f}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Status</label><select className="select" value={editForm.status} onChange={e=>setEditForm({...editForm,status:e.target.value})}>{["Open","In Progress","Completed","Paused"].map(s=><option key={s}>{s}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Videos Needed</label><input className="form-input" type="number" value={editForm.videos_needed} onChange={e=>setEditForm({...editForm,videos_needed:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={editForm.pay_per_video} onChange={e=>setEditForm({...editForm,pay_per_video:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Deadline</label><input className="form-input" type="date" value={editForm.deadline} onChange={e=>setEditForm({...editForm,deadline:e.target.value})}/></div>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditing(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {/* At Risk Flags */}
-            {(staleSubs.length>0||margin<60||costPerVideo>60)&&(
-              <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:6}}>
-                {staleSubs.length>0&&<div style={{background:"#fff0f0",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:"8px 12px",fontSize:12,color:"var(--red)"}}>🚨 {staleSubs.length} submission{staleSubs.length!==1?"s":""} pending review for 3+ days</div>}
-                {margin<60&&revenue>0&&<div style={{background:"#fffbe6",border:"1px solid #ffe066",borderRadius:"var(--radius-sm)",padding:"8px 12px",fontSize:12,color:"#b08800"}}>⚠️ Margin is {margin}% — below 60% target</div>}
-                {costPerVideo>60&&<div style={{background:"#fff0f0",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:"8px 12px",fontSize:12,color:"var(--red)"}}>🚨 Cost per video ${costPerVideo} exceeds $60 threshold</div>}
-              </div>
-            )}
-
-            {/* Sales Sourced Toggle */}
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,padding:"10px 14px",background:"var(--bg2)",borderRadius:"var(--radius-sm)"}}>
-              <input type="checkbox" id="salesToggle" checked={isSalesSourced} onChange={toggleSalesSourced} style={{width:16,height:16,cursor:"pointer"}}/>
-              <label htmlFor="salesToggle" style={{fontSize:13,cursor:"pointer",userSelect:"none"}}>
-                ☑ Sales sourced <span style={{color:"var(--ink3)",fontWeight:400}}>(+30% sales commission)</span>
-              </label>
-            </div>
-
-            {/* Profitability Stats */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
-              <div className="stat-card"><div className="stat-label">Revenue</div><div className="stat-value" style={{fontSize:16,color:"var(--green)"}}>{fmtMoney(revenue)}</div></div>
-              <div className="stat-card"><div className="stat-label">Creator Cost</div><div className="stat-value" style={{fontSize:16,color:"var(--red)"}}>{fmtMoney(creatorCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{approved} approved × {fmtMoney(campaign.pay_per_video)}</div></div>
-              <div className="stat-card"><div className="stat-label">AM Cost</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(amCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{amRate*100}% of budget</div></div>
-              {isSalesSourced&&<div className="stat-card"><div className="stat-label">Sales Comm.</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(salesCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>30% of budget</div></div>}
-              <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value" style={{fontSize:16,color:grossProfit>=0?"var(--green)":"var(--red)"}}>{fmtMoney(grossProfit)}</div></div>
-              <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value" style={{fontSize:16,color:marginColor}}>{margin}%</div><div style={{width:"100%",background:"var(--bg2)",borderRadius:4,height:4,marginTop:4}}><div style={{width:`${Math.min(Math.max(margin,0),100)}%`,background:marginColor,height:4,borderRadius:4}}/></div></div>
-              <div className="stat-card"><div className="stat-label">Cost/Video</div><div className="stat-value" style={{fontSize:16,color:cpvColor}}>{cpvFlag} {costPerVideo>0?fmtMoney(costPerVideo):"—"}</div></div>
-              <div className="stat-card"><div className="stat-label">Progress</div><div className="stat-value" style={{fontSize:16}}>{approved}/{campaign.videos_needed}</div></div>
-            </div>
-
-            {/* Velocity Dashboard */}
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>⚡ Velocity</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
-                <div className="stat-card">
-                  <div className="stat-label">This Week</div>
-                  <div className="stat-value" style={{fontSize:20}}>{thisWeekApproved}</div>
-                  <div style={{fontSize:11,color:"var(--ink3)"}}>approved videos</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-label">Last Week</div>
-                  <div className="stat-value" style={{fontSize:20}}>{lastWeekApproved}</div>
-                  <div style={{fontSize:11,color:"var(--ink3)"}}>approved videos</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-label">Week Change</div>
-                  <div className="stat-value" style={{fontSize:20,color:velocityColor}}>{velocityIcon} {Math.abs(velocityChange)}%</div>
-                  <div style={{fontSize:11,color:"var(--ink3)"}}>vs last week</div>
-                </div>
-                <div className="stat-card">
-                  <div className="stat-label">This Month</div>
-                  <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-                    <div className="stat-value" style={{fontSize:20}}>{thisMonthApproved}</div>
-                    <div style={{fontSize:12,color:"var(--ink3)"}}>/ {campaign.videos_needed}</div>
-                  </div>
-                  <div style={{width:"100%",background:"var(--bg2)",borderRadius:4,height:4,marginTop:4}}>
-                    <div style={{width:`${Math.min(Math.round((thisMonthApproved/(campaign.videos_needed||1))*100),100)}%`,background:"var(--green)",height:4,borderRadius:4}}/>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Brief Doc */}
-            <div style={{marginBottom:16,padding:"10px 14px",background:"var(--bg2)",borderRadius:"var(--radius-sm)"}}>
-              <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>📄 Creator Brief</div>
-              {campaign.brief_url ? (
-                <div className="flex-between">
-                  <a href={campaign.brief_url} target="_blank" rel="noreferrer" className="btn btn-sm btn-primary">📥 View Brief</a>
-                  <label style={{cursor:"pointer",fontSize:12,color:"var(--ink3)"}}>
-                    Replace
-                    <input type="file" accept=".pdf,.doc,.docx" style={{display:"none"}} onChange={e=>uploadBrief(e.target.files[0])}/>
-                  </label>
-                </div>
-              ) : (
-                <label style={{cursor:"pointer"}}>
-                  <div style={{border:"2px dashed var(--border2)",borderRadius:"var(--radius-sm)",padding:"12px",textAlign:"center",fontSize:12,color:"var(--ink3)"}}>
-                    {uploadingBrief?"Uploading...":"+ Upload brief doc (PDF, Word)"}
-                  </div>
-                  <input type="file" accept=".pdf,.doc,.docx" style={{display:"none"}} onChange={e=>uploadBrief(e.target.files[0])}/>
-                </label>
-              )}
-            </div>
-
-            {/* Description */}
-            {campaign.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:20,fontSize:13,color:"var(--ink2)"}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:6}}>Guidelines</div>{campaign.description}</div>}
-
-            {/* Assigned Creators */}
-            <div style={{marginBottom:20}}>
-              <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Assigned Creators ({assignedCreators.length})</div>
-              {assignedCreators.length===0&&<div style={{fontSize:13,color:"var(--ink3)",fontStyle:"italic"}}>No creators assigned yet</div>}
-              {assignedCreators.map(c=>(
-                <div key={c.id} className="flex-between" style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
-                  <div><div style={{fontWeight:600,fontSize:13}}>{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{c.platform||"—"} · {c.niche||"—"}</div></div>
-                  <button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} onClick={()=>removeCreator(c.id)} disabled={saving}>Remove</button>
-                </div>
-              ))}
-            </div>
-
-            {/* Available Creators */}
-            <div>
-              <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Add Creators ({availableCreators.length} available)</div>
-              {availableCreators.length===0&&<div style={{fontSize:13,color:"var(--ink3)",fontStyle:"italic"}}>All active creators are already assigned</div>}
-              {availableCreators.map(c=>(
-                <div key={c.id} className="flex-between" style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
-                  <div><div style={{fontWeight:600,fontSize:13}}>{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{c.platform||"—"} · {c.niche||"—"}</div></div>
-                  <button className="btn btn-sm btn-primary" onClick={()=>assignCreator(c.id)} disabled={saving}>+ Assign</button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Forum */}
-        {!editing&&<CampaignForum campaign={campaign} user={db._currentUser} db={db} canPin={isOwner||db.accountManagers.some(a=>a.user_id===db._currentUser?.id||a.email===db._currentUser?.email)}/>}
-      </div>
-    </div>
-  );
-}
-
-
-function CreatorActiveJobs({ user, db, onNavigate }) {
-  const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
-  const myJobs = db.campaigns.filter(c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed");
-  const [selectedJob, setSelectedJob] = useState(null);
-
-  if (selectedJob) {
-    const job = db.campaigns.find(c=>c.id===selectedJob);
-    const client = db.clients.find(c=>c.id===job?.client_id);
-    const mySubs = db.submissions.filter(s=>s.creator_id===creator?.id&&s.campaign_id===job?.id);
-    return (
-      <div className="content">
-        <button className="btn btn-ghost btn-sm" style={{marginBottom:16}} onClick={()=>setSelectedJob(null)}>← Back to Jobs</button>
-        <div className="card mb-16">
-          <div className="flex-between mb-8">
-            <div>
-              <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20,marginBottom:4}}>{job?.name}</div>
-              <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name} · Due {fmtDate(job?.deadline)} · {fmtMoney(job?.pay_per_video)}/video</div>
-            </div>
-            {statusBadge(job?.status)}
-          </div>
-          {job?.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:12,fontSize:13}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:6}}>Guidelines</div><p style={{color:"var(--ink2)",margin:0}}>{job.description}</p></div>}
-          {job?.brief_url&&<div style={{marginBottom:12}}><a href={job.brief_url} target="_blank" rel="noreferrer" className="btn btn-sm btn-primary">📄 View Creator Brief</a></div>}
-          <div className="flex-between">
-            <div style={{fontSize:12,color:"var(--ink3)"}}>{mySubs.length} submission{mySubs.length!==1?"s":""}</div>
-            <button className="btn btn-primary btn-sm" onClick={()=>onNavigate("submit")}>Submit Content</button>
-          </div>
-        </div>
-        {job&&<CampaignForum campaign={job} user={user} db={db} canPin={false}/>}
-      </div>
-    );
-  }
-
-  return (
-    <div className="content">
-      {myJobs.length===0&&<div className="empty"><div className="empty-icon">🎯</div><h3>No active jobs</h3><p>Apply for jobs to get started</p></div>}
-      {myJobs.map(job=>{
-        const client = db.clients.find(c=>c.id===job.client_id);
-        const mySubs = db.submissions.filter(s=>s.creator_id===creator?.id&&s.campaign_id===job.id);
-        return (
-          <div key={job.id} className="card mb-16" style={{cursor:"pointer"}} onClick={()=>setSelectedJob(job.id)}>
-            <div className="flex-between mb-8">
-              <div>
-                <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18,marginBottom:4,color:"var(--blue)"}}>{job.name}</div>
-                <div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name} · Due {fmtDate(job.deadline)} · {fmtMoney(job.pay_per_video)}/video</div>
-              </div>
-              {statusBadge(job.status)}
-            </div>
-            <div style={{fontSize:12,color:"var(--ink3)"}}>{mySubs.length} submission{mySubs.length!==1?"s":""} · Click to view details & forum</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function CampaignForum({ campaign, user, db, canPin }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const bottomRef = useRef(null);
-
-  const senderName = () => {
-    const am = db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email);
-    const creator = db.creators.find(c=>c.user_id===user?.id||c.email===user?.email);
-    if (am) return am.name;
-    if (creator) return creator.name;
-    return user?.email?.split("@")[0]||"Unknown";
-  };
-
-  const loadMessages = async () => {
-    const { data } = await supabase.from("messages").select("*").eq("campaign_id", campaign.id).order("created_at", {ascending:true});
-    setMessages(data||[]);
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    loadMessages();
-    const channel = supabase.channel(`campaign-${campaign.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `campaign_id=eq.${campaign.id}` },
-        payload => { setMessages(prev => [...prev, payload.new]); }
-      )
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages", filter: `campaign_id=eq.${campaign.id}` },
-        payload => { setMessages(prev => prev.map(m => m.id===payload.new.id ? payload.new : m)); }
-      )
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages", filter: `campaign_id=eq.${campaign.id}` },
-        payload => { setMessages(prev => prev.filter(m => m.id!==payload.old.id)); }
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [campaign.id]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({behavior:"smooth"});
-  }, [messages]);
-
-  const send = async () => {
-    if (!input.trim()) return;
-    setSending(true);
-    await supabase.from("messages").insert({
-      campaign_id: campaign.id,
-      user_id: user?.id,
-      sender_name: senderName(),
-      content: input.trim(),
-      is_pinned: false
-    });
-    setInput("");
-    setSending(false);
-  };
-
-  const togglePin = async (msg) => {
-    const pinnedCount = messages.filter(m=>m.is_pinned&&m.id!==msg.id).length;
-    if (!msg.is_pinned && pinnedCount >= 3) return alert("Max 3 pinned messages allowed.");
-    await supabase.from("messages").update({is_pinned:!msg.is_pinned}).eq("id", msg.id);
-  };
-
-  const deleteMsg = async (msgId) => {
-    await supabase.from("messages").delete().eq("id", msgId);
-  };
-
-  const toggleReaction = async (msg, emoji) => {
-    const reactions = msg.reactions || {};
-    const users = reactions[emoji] || [];
-    const userId = user?.id || user?.email;
-    const hasReacted = users.includes(userId);
-    const updated = hasReacted ? users.filter(u=>u!==userId) : [...users, userId];
-    const newReactions = {...reactions, [emoji]: updated};
-    if (updated.length === 0) delete newReactions[emoji];
-    // Optimistic update
-    setMessages(prev => prev.map(m => m.id===msg.id ? {...m, reactions: newReactions} : m));
-    await supabase.from("messages").update({reactions: newReactions}).eq("id", msg.id);
-  };
-
-  const pinned = messages.filter(m=>m.is_pinned);
-  const regular = messages.filter(m=>!m.is_pinned);
-
-  if (loading) return <div style={{marginTop:24,textAlign:"center",fontSize:13,color:"var(--ink3)"}}>Loading forum...</div>;
-
-  return (
-    <div style={{marginTop:24,borderTop:"1px solid var(--border)",paddingTop:20}}>
-      <div style={{fontSize:13,fontWeight:600,marginBottom:12}}>💬 Campaign Forum</div>
-
-      {/* Pinned Messages */}
-      {pinned.length>0&&(
-        <div style={{marginBottom:16}}>
-          {pinned.map(m=>(
-            <div key={m.id} style={{background:"#fffbe6",border:"1px solid #ffe066",borderRadius:"var(--radius-sm)",padding:"10px 12px",marginBottom:8,position:"relative"}}>
-              <div style={{fontSize:11,color:"#b08800",marginBottom:4}}>📌 Pinned · {m.sender_name}</div>
-              <div style={{fontSize:13,color:"var(--ink)"}}>{m.content}</div>
-              {canPin&&<button onClick={()=>togglePin(m)} style={{position:"absolute",top:8,right:8,background:"none",border:"none",cursor:"pointer",fontSize:11,color:"var(--ink3)"}}>Unpin</button>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Message Thread */}
-      <div style={{maxHeight:320,overflowY:"auto",display:"flex",flexDirection:"column",gap:8,marginBottom:12,padding:"4px 0"}}>
-        {regular.length===0&&<div style={{fontSize:13,color:"var(--ink3)",fontStyle:"italic",textAlign:"center",padding:16}}>No messages yet — start the conversation!</div>}
-        {regular.map(m=>{
-          const isMe = m.user_id===user?.id||m.sender_name===senderName();
-          return (
-            <div key={m.id} style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start"}}>
-              <div style={{fontSize:11,color:"var(--ink3)",marginBottom:2,paddingLeft:isMe?0:4,paddingRight:isMe?4:0}}>{m.sender_name} · {new Date(m.created_at).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexDirection:isMe?"row-reverse":"row"}}>
-                <div style={{display:"flex",flexDirection:"column",alignItems:isMe?"flex-end":"flex-start",gap:4}}>
-                  <div style={{maxWidth:360,background:isMe?"var(--ink)":"var(--bg2)",color:isMe?"#fff":"var(--ink)",borderRadius:isMe?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"8px 12px",fontSize:13}}>{m.content}</div>
-                  <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:isMe?"flex-end":"flex-start"}}>
-                    {["👍","👎"].map(emoji=>{
-                      const users = (m.reactions||{})[emoji]||[];
-                      const hasReacted = users.includes(user?.id||user?.email);
-                      return (
-                        <button key={emoji} onClick={()=>toggleReaction(m,emoji)} style={{background:hasReacted?"var(--bg3, #e8e8e8)":"var(--bg2)",border:"1px solid var(--border)",borderRadius:20,padding:"2px 7px",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:3}}>
-                          {emoji}{users.length>0&&<span style={{fontSize:11,color:"var(--ink3)"}}>{users.length}</span>}
-                        </button>
-                      );
-                    })}
-                    {canPin&&<button onClick={()=>togglePin(m)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,opacity:0.4}} title="Pin">📌</button>}
-                    {(canPin||m.user_id===user?.id)&&<button onClick={()=>deleteMsg(m.id)} style={{background:"none",border:"1px solid var(--border)",borderRadius:20,padding:"2px 7px",cursor:"pointer",fontSize:11,color:"var(--red)",opacity:0.7}} title="Delete">🗑</button>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        <div ref={bottomRef}/>
-      </div>
-
-      {/* Input */}
-      <div style={{display:"flex",gap:8}}>
-        <input
-          className="form-input"
-          style={{flex:1}}
-          placeholder="Type a message..."
-          value={input}
-          onChange={e=>setInput(e.target.value)}
-          onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()}
-        />
-        <button className="btn btn-primary btn-sm" onClick={send} disabled={sending||!input.trim()}>{sending?"...":"Send"}</button>
-      </div>
-    </div>
-  );
-}
-
-function getRetentionScore(client, db) {
-  const clientCampaigns = db.campaigns.filter(c=>c.client_id===client.id);
-  const allApproved = db.submissions.filter(s=>{
-    return clientCampaigns.some(c=>c.id===s.campaign_id) && s.final_status==="Approved";
-  });
-
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth()-1, 1);
-
-  const thisMonth = allApproved.filter(s=>new Date(s.created_at)>=startOfMonth).length;
-  const lastMonth = allApproved.filter(s=>new Date(s.created_at)>=startOfLastMonth&&new Date(s.created_at)<startOfMonth).length;
-
-  const revenue = Number(client.budget||0);
-  const creatorCost = allApproved.reduce((t,s)=>{
-    const camp = db.campaigns.find(c=>c.id===s.campaign_id);
-    return t+Number(camp?.pay_per_video||0);
-  },0);
-  const margin = revenue>0?Math.round(((revenue-creatorCost)/revenue)*100):0;
-
-  const outputTrend = lastMonth===0?(thisMonth>0?"up":"flat"):thisMonth>lastMonth?"up":thisMonth===lastMonth?"flat":"down";
-  const hasActiveCampaigns = clientCampaigns.some(c=>c.status==="In Progress"||c.status==="Open");
-
-  // Score logic
-  if (margin>=40 && outputTrend!=="down" && hasActiveCampaigns) return {score:"green", label:"🟢 Healthy", desc:"High output · Good margin", color:"var(--green)", bg:"rgba(26,122,74,0.08)"};
-  if (margin>=25 && outputTrend==="down") return {score:"yellow", label:"🟡 Watch", desc:"Margin OK but output slowing", color:"#b08800", bg:"#fffbe6"};
-  if (margin<25 || (!hasActiveCampaigns && allApproved.length>0)) return {score:"red", label:"🔴 At Risk", desc:"Low output · Thin margin", color:"var(--red)", bg:"rgba(220,53,69,0.08)"};
-  return {score:"yellow", label:"🟡 Watch", desc:"Insufficient data", color:"#b08800", bg:"#fffbe6"};
-}
-
 function ClientsPage({ isOwner, db, onRefresh }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editClient, setEditClient] = useState(null);
-  const [viewClient, setViewClient] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_terms:"",drive_link:""};
@@ -2035,7 +1414,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
     await onRefresh(); setEditClient(null); setSaving(false);
   };
 
-  const ClientForm = ({ data, setData, onSave, onCancel, title, db }) => (
+  const ClientForm = ({ data, setData, onSave, onCancel, title }) => (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <div className="modal-title">{title}</div>
@@ -2053,7 +1432,6 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
         <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
         <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" placeholder="Contract terms, special notes..." value={data.contract_terms||""} onChange={e=>setData({...data,contract_terms:e.target.value})}/></div>
-        <div className="form-group"><label className="form-label">Assign Account Manager</label><select className="select" value={data.am_id||""} onChange={e=>setData({...data,am_id:e.target.value||null})}><option value="">— Unassigned —</option>{db.accountManagers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
@@ -2076,14 +1454,14 @@ function ClientsPage({ isOwner, db, onRefresh }) {
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner&&<><th>Budget</th><th>Contact</th><th>Email</th></>}
-                <th>AM</th><th>Drive</th>
+                <th>Drive</th>
                 {isOwner&&<th>Edit</th>}
               </tr>
             </thead>
             <tbody>
               {db.clients.map(c=>(
                 <tr key={c.id}>
-                  <td className="fw-600" style={{cursor:"pointer",color:"var(--blue)"}} onClick={()=>setViewClient(c)}>{c.name}</td>
+                  <td className="fw-600">{c.name}</td>
                   <td>{statusBadge(c.deal_type)}</td>
                   <td>{c.videos_per_month}</td>
                   <td>{statusBadge(c.status)}</td>
@@ -2092,7 +1470,6 @@ function ClientsPage({ isOwner, db, onRefresh }) {
                     <td>{c.contact_name||"—"}</td>
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>}
-                  <td style={{fontSize:12}}>{db.accountManagers.find(a=>a.id===c.am_id)?.name||"—"}</td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
                   {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
                 </tr>
@@ -2102,69 +1479,8 @@ function ClientsPage({ isOwner, db, onRefresh }) {
         </div>
       </div>
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact info and budget visible to owner only.</div>}
-      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
-      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
-      {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)}/>}
-    </div>
-  );
-}
-
-function ClientProfile({ client, db, onRefresh, onClose }) {
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    description: client.description||"",
-    goals: client.goals||"",
-    target_audience: client.target_audience||"",
-    content_guidelines: client.content_guidelines||"",
-    notes: client.notes||""
-  });
-
-  const save = async () => {
-    setSaving(true);
-    await supabase.from("clients").update(form).eq("id", client.id);
-    await onRefresh();
-    setSaving(false);
-    setEditing(false);
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{maxWidth:600,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-        <div className="flex-between mb-16">
-          <div>
-            <div className="modal-title" style={{marginBottom:2}}>{client.name}</div>
-            <div style={{fontSize:12,color:"var(--ink3)"}}>{client.deal_type} · {client.status}</div>
-          </div>
-          <div style={{display:"flex",gap:8}}>
-            {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
-            <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
-          </div>
-        </div>
-
-        {editing ? (
-          <div>
-            <div className="form-group"><label className="form-label">What does this client do?</label><textarea className="textarea" rows={3} placeholder="Describe the client's business, product, or service..." value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Goals</label><textarea className="textarea" rows={3} placeholder="What are they trying to achieve with UGC? Brand awareness, conversions, followers..." value={form.goals} onChange={e=>setForm({...form,goals:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Target Audience</label><textarea className="textarea" rows={2} placeholder="Who are they targeting? Age, interests, demographics..." value={form.target_audience} onChange={e=>setForm({...form,target_audience:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Content Guidelines</label><textarea className="textarea" rows={3} placeholder="Dos and don'ts, tone of voice, style preferences..." value={form.content_guidelines} onChange={e=>setForm({...form,content_guidelines:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Notes</label><textarea className="textarea" rows={2} placeholder="Any other important info..." value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditing(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save"}</button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {[["What they do", form.description],["Goals", form.goals],["Target Audience", form.target_audience],["Content Guidelines", form.content_guidelines],["Notes", form.notes]].map(([label, val])=>(
-              <div key={label} style={{marginBottom:16}}>
-                <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:4}}>{label}</div>
-                <div style={{fontSize:14,color:val?"var(--ink)":"var(--ink3)",fontStyle:val?"normal":"italic"}}>{val||"Not filled in yet"}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client"/>}
+      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client"/>}
     </div>
   );
 }
@@ -2302,11 +1618,8 @@ function OwnerDashboard({ db }) {
   );
 }
 
-function PaymentManagement({ db, onRefresh, user, isOwner }) {
-  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
-  const myCreatorIds = am ? db.creators.filter(c=>c.am_id===am.id).map(c=>c.id) : null;
-  const allPayments = isOwner ? db.payments : db.payments.filter(p=>myCreatorIds?.includes(p.creator_id));
-  const pending = allPayments.filter(p=>p.status==="Pending");
+function PaymentManagement({ db, onRefresh }) {
+  const pending = db.payments.filter(p=>p.status==="Pending");
   const totalOwed = pending.reduce((a,p)=>a+Number(p.amount_owed||0),0);
   const [saving, setSaving] = useState(false);
 
@@ -2324,20 +1637,19 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
 
   return (
     <div className="content">
-      {isOwner&&<div className="mb-16"><span className="owner-badge">👑 Owner View — All payments</span></div>}
-      {!isOwner&&<div className="mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>Payments for your creators</div></div>}
+      <div className="mb-16"><span className="owner-badge">👑 Owner Only</span></div>
       <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
         <div className="stat-card stat-highlight"><div className="stat-label">Pending Payments</div><div className="stat-value">{pending.length}</div></div>
         <div className="stat-card"><div className="stat-label">Total Owed</div><div className="stat-value">{fmtMoney(totalOwed)}</div></div>
         <div className="stat-card"><div className="stat-label">Paid This Month</div><div className="stat-value">{fmtMoney(db.payments.filter(p=>p.status==="Paid").reduce((a,p)=>a+Number(p.amount_owed||0),0))}</div></div>
       </div>
-      {pending.length>0&&<div className="flex-between mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>{pending.length} payments pending</div>{isOwner&&<button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button>}</div>}
+      {pending.length>0&&<div className="flex-between mb-16"><div style={{fontSize:13,color:"var(--ink3)"}}>{pending.length} payments pending</div><button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button></div>}
       <div className="card">
         <div className="table-wrap">
           <table>
             <thead><tr><th>Creator</th><th>Week Ending</th><th>Videos</th><th>Amount</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
-              {allPayments.map(p=>{
+              {db.payments.map(p=>{
                 const creator=db.creators.find(c=>c.id===p.creator_id);
                 return (
                   <tr key={p.id}>
@@ -2347,500 +1659,87 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
                     <td className="text-green fw-600">{fmtMoney(p.amount_owed)}</td>
                     <td><span className="badge badge-gray">{p.payment_method||"—"}</span></td>
                     <td>{statusBadge(p.status)}</td>
-                    <td>{p.status==="Pending"&&isOwner&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Mark Paid</button>}</td>
+                    <td>{p.status==="Pending"&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Mark Paid</button>}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        {allPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>No payments yet</h3></div>}
+        {db.payments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>No payments yet</h3></div>}
       </div>
     </div>
   );
 }
 
-function RevenueTrendChart({ db, clientData }) {
-  // Generate last 6 months labels
-  const months = [];
-  for (let i=5; i>=0; i--) {
-    const d = new Date();
-    d.setMonth(d.getMonth()-i);
-    months.push({ label: d.toLocaleString("default",{month:"short"}), year: d.getFullYear(), month: d.getMonth() });
-  }
-
-  // For now, use current snapshot for current month and project backward
-  // As real data accumulates via submissions, this will fill in
-  const totalRevenue = clientData.reduce((a,c)=>a+c.revenue,0);
-  const totalCost = clientData.reduce((a,c)=>a+c.creatorCost+c.amCost,0);
-  const totalProfit = totalRevenue - totalCost;
-  const currentMargin = totalRevenue>0?Math.round((totalProfit/totalRevenue)*100):0;
-
-  // Build trend from submissions by month
-  const getMonthData = (year, month) => {
-    const monthSubs = db.submissions.filter(s=>{
-      if (!s.created_at) return false;
-      const d = new Date(s.created_at);
-      return d.getFullYear()===year && d.getMonth()===month && s.final_status==="Approved";
-    });
-    const creatorCost = monthSubs.reduce((total,s)=>{
-      const camp = db.campaigns.find(c=>c.id===s.campaign_id);
-      return total + Number(camp?.pay_per_video||0);
-    },0);
-    // Revenue = current active client budgets (snapshot)
-    const isCurrentMonth = year===new Date().getFullYear()&&month===new Date().getMonth();
-    const revenue = isCurrentMonth ? totalRevenue : 0; // Will populate as history builds
-    const margin = revenue>0?Math.round(((revenue-creatorCost)/revenue)*100):0;
-    return { creatorCost, revenue, margin, approved: monthSubs.length };
-  };
-
-  const data = months.map(m=>({...m, ...getMonthData(m.year, m.month)}));
-  const currentMonthData = data[data.length-1];
-  const maxRevenue = Math.max(...data.map(d=>d.revenue), 1);
-
-  return (
-    <div>
-      <div style={{display:"flex",gap:16,marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}><div style={{width:12,height:3,background:"var(--green)",borderRadius:2}}/> Revenue</div>
-        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}><div style={{width:12,height:3,background:"var(--red)",borderRadius:2,borderStyle:"dashed"}}/> Costs</div>
-        <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"var(--ink3)"}}>* Revenue history populates as months accumulate</div>
-      </div>
-      <div style={{display:"flex",gap:8,alignItems:"flex-end",height:120,paddingBottom:24,position:"relative"}}>
-        {data.map((m,i)=>{
-          const revH = m.revenue>0?Math.round((m.revenue/maxRevenue)*100):0;
-          const costH = m.revenue>0?Math.round(((m.creatorCost)/maxRevenue)*100):0;
-          const isCurrent = i===data.length-1;
-          return (
-            <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-              <div style={{width:"100%",display:"flex",gap:2,alignItems:"flex-end",height:96}}>
-                <div style={{flex:1,background:isCurrent?"var(--green)":"rgba(26,122,74,0.3)",borderRadius:"3px 3px 0 0",height:`${revH}%`,minHeight:revH>0?4:0,transition:"height 0.3s"}}/>
-                <div style={{flex:1,background:isCurrent?"var(--red)":"rgba(220,53,69,0.3)",borderRadius:"3px 3px 0 0",height:`${costH}%`,minHeight:costH>0?4:0,transition:"height 0.3s"}}/>
-              </div>
-              <div style={{fontSize:10,color:isCurrent?"var(--ink)":"var(--ink3)",fontWeight:isCurrent?600:400}}>{m.label}</div>
-              {isCurrent&&<div style={{fontSize:10,color:"var(--green)",fontWeight:600}}>{fmtMoney(m.revenue)}</div>}
-            </div>
-          );
-        })}
-      </div>
-      <div style={{display:"flex",gap:16,paddingTop:8,borderTop:"1px solid var(--border)"}}>
-        <div style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>This month: </span><span style={{fontWeight:600,color:"var(--green)"}}>{fmtMoney(currentMonthData.revenue)}</span></div>
-        <div style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Margin: </span><span style={{fontWeight:600,color:currentMargin>=50?"var(--green)":currentMargin>=25?"var(--gold)":"var(--red)"}}>{currentMargin}%</span></div>
-        <div style={{fontSize:12}}><span style={{color:"var(--ink3)"}}>Approved videos: </span><span style={{fontWeight:600}}>{currentMonthData.approved}</span></div>
-      </div>
-    </div>
-  );
-}
-
-function CreatorPerformance({ db, isOwner, user }) {
-  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
-  
-  const creators = db.creators.filter(c => isOwner ? true : c.am_id===am?.id);
-
-  const getScore = (creator) => {
-    const subs = db.submissions.filter(s=>s.creator_id===creator.id);
-    if (subs.length===0) return { approvalRate:0, revisionRate:0, onTimeRate:0, totalRevenue:0, score:0, tier:"—", subs:0 };
-    
-    const approved = subs.filter(s=>s.final_status==="Approved").length;
-    const revisions = subs.filter(s=>s.concept_status==="Revisions Needed").length;
-    const onTime = subs.filter(s=>{
-      if (!s.due_date) return true; // no due date = not tracked
-      return new Date(s.created_at)<=new Date(s.due_date);
-    }).length;
-    const trackedDates = subs.filter(s=>s.due_date).length;
-    
-    const approvalRate = subs.length>0?Math.round((approved/subs.length)*100):0;
-    const revisionRate = subs.length>0?Math.round((revisions/subs.length)*100):0;
-    const onTimeRate = trackedDates>0?Math.round((onTime/trackedDates)*100):null;
-    
-    // Revenue = approved videos × pay_per_video from their campaigns
-    const totalRevenue = subs.reduce((total,s)=>{
-      if (s.final_status!=="Approved") return total;
-      const camp = db.campaigns.find(c=>c.id===s.campaign_id);
-      return total + Number(camp?.pay_per_video||0);
-    }, 0);
-
-    // Score: 40% approval rate + 30% low revisions + 30% on time
-    const approvalScore = approvalRate * 0.4;
-    const revisionScore = (100-revisionRate) * 0.3;
-    const onTimeScore = onTimeRate!==null ? onTimeRate*0.3 : 25; // default 25 if no data
-    const score = Math.round(approvalScore + revisionScore + onTimeScore);
-    
-    const tier = score>=80?"A":score>=60?"B":score>=40?"C":"D";
-    return { approvalRate, revisionRate, onTimeRate, totalRevenue, score, tier, subs:subs.length };
-  };
-
-  const tierColor = (t) => t==="A"?"var(--green)":t==="B"?"var(--blue)":t==="C"?"var(--gold)":"var(--red)";
-  const tierBg = (t) => t==="A"?"rgba(26,122,74,0.1)":t==="B"?"rgba(37,99,235,0.1)":t==="C"?"rgba(255,165,0,0.1)":"rgba(220,53,69,0.1)";
-
-  const scored = creators.map(c=>({creator:c, ...getScore(c)})).sort((a,b)=>b.score-a.score);
-
+function RevenueAnalytics({ db }) {
+  const active = db.clients.filter(c=>c.status==="Active");
+  const totalRevenue = active.reduce((a,c)=>a+Number(c.budget||0),0);
+  const creatorCosts = db.creators.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.weekly_rate||0)*4,0);
+  const profit = totalRevenue - creatorCosts;
   return (
     <div className="content">
-      <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{fontSize:13,color:"var(--ink3)"}}>Creator performance scores based on approval rate, revisions, and on-time delivery</div>
-      </div>
-
-      {/* Tier Legend */}
-      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
-        {[["A","80-100 · Top performer"],["B","60-79 · Solid"],["C","40-59 · Needs improvement"],["D","<40 · At risk"]].map(([tier,desc])=>(
-          <div key={tier} style={{background:tierBg(tier),border:`1px solid ${tierColor(tier)}`,borderRadius:20,padding:"4px 12px",fontSize:12}}>
-            <span style={{fontWeight:700,color:tierColor(tier)}}>Tier {tier}</span> <span style={{color:"var(--ink3)"}}>{desc}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Creator</th>
-                <th>Tier</th>
-                <th>Score</th>
-                <th>Submissions</th>
-                <th>Approval Rate</th>
-                <th>Revision Rate</th>
-                <th>On-Time Rate</th>
-                <th>Revenue Generated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {scored.map(({creator,tier,score,approvalRate,revisionRate,onTimeRate,totalRevenue,subs})=>(
-                <tr key={creator.id}>
-                  <td>
-                    <div className="fw-600">{creator.name}</div>
-                    <div style={{fontSize:11,color:"var(--ink3)"}}>{creator.platform||"—"} · {creator.niche||"—"}</div>
-                  </td>
-                  <td>
-                    <span style={{background:tierBg(tier),color:tierColor(tier),fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:13}}>
-                      {tier==="—"?"—":`Tier ${tier}`}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{fontWeight:700,color:score>=80?"var(--green)":score>=60?"var(--blue)":score>=40?"var(--gold)":"var(--red)"}}>{subs===0?"—":`${score}/100`}</div>
-                  </td>
-                  <td style={{fontSize:13}}>{subs}</td>
-                  <td>
-                    <div style={{fontSize:13,fontWeight:600,color:approvalRate>=70?"var(--green)":approvalRate>=40?"var(--gold)":"var(--red)"}}>{subs===0?"—":`${approvalRate}%`}</div>
-                  </td>
-                  <td>
-                    <div style={{fontSize:13,color:revisionRate<=20?"var(--green)":revisionRate<=40?"var(--gold)":"var(--red)"}}>{subs===0?"—":`${revisionRate}%`}</div>
-                  </td>
-                  <td style={{fontSize:13,color:"var(--ink3)"}}>{onTimeRate===null?"No data":`${onTimeRate}%`}</td>
-                  <td className="text-green fw-600">{fmtMoney(totalRevenue)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {scored.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">⭐</div><h3>No creators yet</h3></div>}
-      </div>
-    </div>
-  );
-}
-
-function RevenueAnalytics({ db, user, isOwner }) {
-  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
-
-  // AM commission rate — 20% for senior, 10% default
-  const getAMRate = (amRecord) => {
-    if (!amRecord) return 0.10;
-    const name = (amRecord.name||"").toLowerCase();
-    if (name.includes("lilli")) return 0.20;
-    return 0.10;
-  };
-
-  // Build per-client profitability
-  const clientData = db.clients
-    .filter(c => isOwner ? true : c.am_id === am?.id)
-    .map(c => {
-      const clientAM = db.accountManagers.find(a=>a.id===c.am_id);
-      const clientCampaigns = db.campaigns.filter(camp=>camp.client_id===c.id);
-      
-      // Creator costs = sum of (approved videos × pay_per_video) across all campaigns
-      const creatorCost = clientCampaigns.reduce((total, camp) => {
-        const approved = db.submissions.filter(s=>s.campaign_id===camp.id&&s.final_status==="Approved").length;
-        return total + (approved * Number(camp.pay_per_video||0));
-      }, 0);
-
-      const revenue = Number(c.budget||0);
-      const amRate = getAMRate(clientAM);
-      const amCost = revenue * amRate;
-      const grossProfit = revenue - creatorCost - amCost;
-      const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
-      const totalApproved = clientCampaigns.reduce((t,camp)=>t+db.submissions.filter(s=>s.campaign_id===camp.id&&s.final_status==="Approved").length,0);
-      const costPerVideo = totalApproved > 0 ? Math.round((creatorCost+amCost)/totalApproved) : 0;
-
-      return { client:c, clientAM, revenue, creatorCost, amCost, amRate, grossProfit, margin, totalApproved, costPerVideo, campaigns:clientCampaigns.length };
-    });
-
-  const totalRevenue = clientData.reduce((a,c)=>a+c.revenue,0);
-  const totalCreatorCost = clientData.reduce((a,c)=>a+c.creatorCost,0);
-  const totalAMCost = clientData.reduce((a,c)=>a+c.amCost,0);
-  const totalProfit = clientData.reduce((a,c)=>a+c.grossProfit,0);
-  const totalMargin = totalRevenue>0?Math.round((totalProfit/totalRevenue)*100):0;
-
-  const marginColor = (m) => m>=50?"var(--green)":m>=25?"var(--gold)":"var(--red)";
-
-  return (
-    <div className="content">
-      {isOwner&&<div className="mb-16"><span className="owner-badge">👑 Full Agency View</span></div>}
-
-      {/* Top Stats */}
-      <div className="stats-grid" style={{gridTemplateColumns:"repeat(5,1fr)",marginBottom:24}}>
+      <div className="mb-16"><span className="owner-badge">👑 Owner Only</span></div>
+      <div className="stats-grid">
         <div className="stat-card stat-highlight"><div className="stat-label">Monthly Revenue</div><div className="stat-value">{fmtMoney(totalRevenue)}</div></div>
-        <div className="stat-card"><div className="stat-label">Creator Costs</div><div className="stat-value" style={{color:"var(--red)"}}>{fmtMoney(totalCreatorCost)}</div></div>
-        {isOwner&&<div className="stat-card"><div className="stat-label">AM Costs</div><div className="stat-value" style={{color:"var(--orange)"}}>{fmtMoney(totalAMCost)}</div></div>}
-        <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value" style={{color:"var(--green)"}}>{fmtMoney(totalProfit)}</div></div>
-        <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value" style={{color:marginColor(totalMargin)}}>{totalMargin}%</div></div>
+        <div className="stat-card"><div className="stat-label">Creator Costs</div><div className="stat-value">{fmtMoney(creatorCosts)}</div></div>
+        <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value">{fmtMoney(profit)}</div></div>
+        <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value">{totalRevenue>0?Math.round((profit/totalRevenue)*100):0}%</div></div>
       </div>
-
-      {/* Per Client Profitability */}
       <div className="card">
-        <div className="card-title">Campaign Profitability by Client</div>
+        <div className="card-title">Revenue by Client</div>
         <div className="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>Client</th>
-                {isOwner&&<th>AM</th>}
-                <th>Revenue</th>
-                <th>Creator Cost</th>
-                {isOwner&&<th>AM Cost</th>}
-                <th>Gross Profit</th>
-                <th>Margin</th>
-                <th>Videos</th>
-                <th>Cost/Video</th>
-                <th>Retention Risk</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Budget</th><th>Rev/Video</th><th>Status</th></tr></thead>
             <tbody>
-              {clientData.map(({client,clientAM,revenue,creatorCost,amCost,grossProfit,margin,totalApproved,costPerVideo})=>(
-                <tr key={client.id}>
-                  <td>
-                    <div className="fw-600">{client.name}</div>
-                    <div style={{fontSize:11,color:"var(--ink3)"}}>{client.deal_type} · {client.status}</div>
-                  </td>
-                  {isOwner&&<td style={{fontSize:12,color:"var(--ink3)"}}>{clientAM?.name||"—"}<br/><span style={{fontSize:10,color:"var(--ink3)"}}>{clientAM?`${getAMRate(clientAM)*100}%`:"—"}</span></td>}
-                  <td className="text-green fw-600">{fmtMoney(revenue)}</td>
-                  <td style={{color:"var(--red)"}}>{fmtMoney(creatorCost)}</td>
-                  {isOwner&&<td style={{color:"var(--orange)"}}>{fmtMoney(amCost)}</td>}
-                  <td style={{color:grossProfit>=0?"var(--green)":"var(--red)",fontWeight:600}}>{fmtMoney(grossProfit)}</td>
-                  <td>
-                    <div style={{fontWeight:700,color:marginColor(margin)}}>{margin}%</div>
-                    <div style={{width:60,background:"var(--bg2)",borderRadius:4,height:4,marginTop:3}}>
-                      <div style={{width:`${Math.min(Math.max(margin,0),100)}%`,background:marginColor(margin),height:4,borderRadius:4}}/>
-                    </div>
-                  </td>
-                  <td style={{fontSize:13}}>{totalApproved}</td>
-                  <td style={{fontSize:13,color:"var(--ink3)"}}>{costPerVideo>0?fmtMoney(costPerVideo):"—"}</td>
-                  <td>
-                    {(()=>{ const r=getRetentionScore(client,db); return (
-                      <div>
-                        <div style={{fontWeight:600,fontSize:12,color:r.color}}>{r.label}</div>
-                        <div style={{fontSize:10,color:"var(--ink3)",marginTop:2}}>{r.desc}</div>
-                      </div>
-                    ); })()}
-                  </td>
+              {db.clients.map(c=>(
+                <tr key={c.id}>
+                  <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{c.contact_name||""}</div></td>
+                  <td>{statusBadge(c.deal_type)}</td>
+                  <td>{c.videos_per_month}</td>
+                  <td className="text-green fw-600">{fmtMoney(c.budget)}</td>
+                  <td className="text-muted">{fmtMoney(c.videos_per_month>0?Math.round(c.budget/c.videos_per_month):0)}</td>
+                  <td>{statusBadge(c.status)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {clientData.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">📈</div><h3>No clients yet</h3></div>}
+        {db.clients.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">📈</div><h3>No clients yet</h3></div>}
       </div>
-
-      {/* Client Retention Predictor */}
-      {clientData.length>0&&(
-        <div className="card" style={{marginBottom:16}}>
-          <div className="card-title">🔮 Client Retention Predictor</div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-            {clientData.map(({client})=>{
-              const r = getRetentionScore(client, db);
-              return (
-                <div key={client.id} style={{background:r.bg,border:`1px solid ${r.color}`,borderRadius:"var(--radius-sm)",padding:"10px 14px",minWidth:160}}>
-                  <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{client.name}</div>
-                  <div style={{fontWeight:700,fontSize:12,color:r.color}}>{r.label}</div>
-                  <div style={{fontSize:11,color:"var(--ink3)",marginTop:2}}>{r.desc}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Revenue Trend Chart */}
-      <div className="card" style={{marginTop:16}}>
-        <div className="card-title">📈 Revenue Trend (Last 6 Months)</div>
-        <RevenueTrendChart db={db} clientData={clientData}/>
-      </div>
-
-      {/* Key Insights */}
-      {clientData.length>0&&(
-        <div className="card" style={{marginTop:16}}>
-          <div className="card-title">💡 Key Insights</div>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            {clientData.sort((a,b)=>b.margin-a.margin).slice(0,1).map(d=>(
-              <div key={d.client.id} style={{fontSize:13,padding:"10px 14px",background:"rgba(26,122,74,0.08)",borderRadius:"var(--radius-sm)",borderLeft:"3px solid var(--green)"}}>
-                🏆 <strong>{d.client.name}</strong> is your most profitable account at <strong>{d.margin}% margin</strong>
-              </div>
-            ))}
-            {clientData.filter(d=>d.margin<25&&d.revenue>0).map(d=>(
-              <div key={d.client.id} style={{fontSize:13,padding:"10px 14px",background:"rgba(220,53,69,0.08)",borderRadius:"var(--radius-sm)",borderLeft:"3px solid var(--red)"}}>
-                ⚠️ <strong>{d.client.name}</strong> has a thin margin of <strong>{d.margin}%</strong> — consider repricing or reducing creator costs
-              </div>
-            ))}
-            {totalMargin<30&&totalRevenue>0&&(
-              <div style={{fontSize:13,padding:"10px 14px",background:"rgba(255,165,0,0.08)",borderRadius:"var(--radius-sm)",borderLeft:"3px solid var(--gold)"}}>
-                📊 Overall agency margin is <strong>{totalMargin}%</strong> — healthy range is 40-60% for a UGC agency
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function TeamPerformance({ db, onRefresh }) {
-  const [editingSatisfaction, setEditingSatisfaction] = useState(null);
-  const [satValue, setSatValue] = useState(0);
-
-  const saveSatisfaction = async (clientId, score) => {
-    await supabase.from("clients").update({satisfaction_score: score}).eq("id", clientId);
-    await onRefresh();
-    setEditingSatisfaction(null);
-  };
-
+function TeamPerformance({ db }) {
   return (
     <div className="content">
       <div className="mb-16"><span className="owner-badge">👑 Owner View</span></div>
-      <div style={{display:"flex",flexDirection:"column",gap:20}}>
+      <div className="grid-2">
         {db.accountManagers.map(am=>{
-          const amCreators = db.creators.filter(c=>c.am_id===am.id);
-          const amClients = db.clients.filter(c=>c.am_id===am.id);
-          const amCampaigns = db.campaigns.filter(camp=>amClients.some(cl=>cl.id===camp.client_id));
-          const activeCampaigns = amCampaigns.filter(c=>c.status==="In Progress"||c.status==="Open");
-
-          // Review turnaround time — avg days from submission to review
-          const reviewedSubs = db.submissions.filter(s=>{
-            const cr = db.creators.find(c=>c.id===s.creator_id);
-            return cr?.am_id===am.id && s.reviewed_at && s.created_at;
-          });
-          const avgTurnaround = reviewedSubs.length>0
-            ? (reviewedSubs.reduce((t,s)=>t+((new Date(s.reviewed_at)-new Date(s.created_at))/(1000*60*60*24)),0)/reviewedSubs.length).toFixed(1)
-            : null;
-
-          // Creator retention — active creators / total creators ever
-          const activeCreators = amCreators.filter(c=>c.status==="Active").length;
-          const retentionRate = amCreators.length>0?Math.round((activeCreators/amCreators.length)*100):0;
-
-          // Campaign profit %
-          const amRevenue = amClients.reduce((t,c)=>t+Number(c.budget||0),0);
-          const amCreatorCost = db.submissions.filter(s=>{
-            const cr=db.creators.find(c=>c.id===s.creator_id);
-            return cr?.am_id===am.id&&s.final_status==="Approved";
-          }).reduce((t,s)=>{
-            const camp=db.campaigns.find(c=>c.id===s.campaign_id);
-            return t+Number(camp?.pay_per_video||0);
-          },0);
-          const amRate = (am.name||"").toLowerCase().includes("lilli")?0.20:0.10;
-          const amCost = amRevenue*amRate;
-          const amProfit = amRevenue - amCreatorCost - amCost;
-          const amMargin = amRevenue>0?Math.round((amProfit/amRevenue)*100):0;
-
-          // Client satisfaction avg
-          const ratedClients = amClients.filter(c=>c.satisfaction_score);
-          const avgSatisfaction = ratedClients.length>0
-            ? (ratedClients.reduce((t,c)=>t+c.satisfaction_score,0)/ratedClients.length).toFixed(1)
-            : null;
-
-          const totalApproved = db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&s.final_status==="Approved";}).length;
-
+          const amCreators=db.creators.filter(c=>c.am_id===am.id);
+          const amClients=db.clients.filter(c=>c.am_id===am.id);
+          const totalApproved=db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&s.final_status==="Approved";}).length;
+          const pending=db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&(s.concept_status==="Pending"||s.final_status==="Pending");}).length;
           return (
             <div key={am.id} className="card">
-              {/* AM Header */}
-              <div className="flex-between mb-16">
-                <div className="flex-center gap-12">
-                  <div className={`creator-avatar ${getAvatarColor(am.name)}`} style={{width:48,height:48,fontSize:18}}>{getInitials(am.name)}</div>
-                  <div>
-                    <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20}}>{am.name}</div>
-                    <div style={{fontSize:12,color:"var(--ink3)"}}>{am.email} · {amRate*100}% commission</div>
-                  </div>
-                </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,color:amMargin>=40?"var(--green)":amMargin>=20?"var(--gold)":"var(--red)"}}>{amMargin}%</div>
-                  <div style={{fontSize:11,color:"var(--ink3)"}}>Campaign Margin</div>
-                </div>
+              <div className="flex-center gap-12 mb-16">
+                <div className={`creator-avatar ${getAvatarColor(am.name)}`} style={{width:44,height:44,fontSize:16}}>{getInitials(am.name)}</div>
+                <div><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18}}>{am.name}</div><div style={{fontSize:12,color:"var(--ink3)"}}>{am.email}</div></div>
               </div>
-
-              {/* Key Metrics Grid */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:20}}>
-                {[
-                  ["Active Campaigns", activeCampaigns.length, "var(--blue)"],
-                  ["Creators", `${activeCreators}/${amCreators.length}`, "var(--ink)"],
-                  ["Approved Videos", totalApproved, "var(--green)"],
-                  ["Avg Turnaround", avgTurnaround?`${avgTurnaround}d`:"—", avgTurnaround&&avgTurnaround<=3?"var(--green)":avgTurnaround&&avgTurnaround<=5?"var(--gold)":"var(--red)"],
-                  ["Creator Retention", `${retentionRate}%`, retentionRate>=80?"var(--green)":retentionRate>=60?"var(--gold)":"var(--red)"],
-                ].map(([label,val,color])=>(
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+                {[["Creators",amCreators.length,"var(--ink)"],["Clients",amClients.length,"var(--ink)"],["Approved",totalApproved,"var(--green)"],["Pending",pending,pending>0?"var(--orange)":"var(--ink)"]].map(([label,val,color])=>(
                   <div key={label} style={{background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:12,textAlign:"center"}}>
-                    <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,color}}>{val}</div>
-                    <div style={{fontSize:10,color:"var(--ink3)"}}>{label}</div>
+                    <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:28,color}}>{val}</div>
+                    <div style={{fontSize:11,color:"var(--ink3)"}}>{label}</div>
                   </div>
                 ))}
               </div>
-
-              {/* Client Satisfaction Ratings */}
-              <div style={{marginBottom:16}}>
-                <div style={{fontSize:12,fontWeight:600,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <span>Client Satisfaction</span>
-                  {avgSatisfaction&&<span style={{fontWeight:700,color:"var(--green)"}}>⭐ {avgSatisfaction} avg</span>}
-                </div>
-                {amClients.length===0&&<div style={{fontSize:12,color:"var(--ink3)",fontStyle:"italic"}}>No clients assigned</div>}
-                {amClients.map(cl=>(
-                  <div key={cl.id} className="flex-between" style={{padding:"6px 0",borderBottom:"1px solid var(--border)"}}>
-                    <div style={{fontSize:13,fontWeight:500}}>{cl.name}</div>
-                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                      {editingSatisfaction===cl.id ? (
-                        <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                          {[1,2,3,4,5].map(n=>(
-                            <button key={n} onClick={()=>setSatValue(n)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,opacity:satValue>=n?1:0.3}}>⭐</button>
-                          ))}
-                          <button className="btn btn-sm btn-primary" onClick={()=>saveSatisfaction(cl.id,satValue)} style={{marginLeft:4}}>Save</button>
-                          <button className="btn btn-sm btn-ghost" onClick={()=>setEditingSatisfaction(null)}>✕</button>
-                        </div>
-                      ) : (
-                        <div style={{display:"flex",gap:4,alignItems:"center"}}>
-                          <span style={{fontSize:13}}>{"⭐".repeat(cl.satisfaction_score||0)||<span style={{color:"var(--ink3)",fontSize:12}}>Not rated</span>}</span>
-                          <button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setEditingSatisfaction(cl.id);setSatValue(cl.satisfaction_score||0);}}>
-                            {cl.satisfaction_score?"Edit":"Rate"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Creator breakdown */}
-              <div>
-                <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Creator Approval Rates</div>
-                {amCreators.map(c=>{
-                  const subs=db.submissions.filter(s=>s.creator_id===c.id);
-                  const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
-                  return (
-                    <div key={c.id} className="flex-between" style={{padding:"4px 0",fontSize:13}}>
-                      <span>{c.name}</span>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <div style={{width:60,background:"var(--bg2)",borderRadius:4,height:4}}>
-                          <div style={{width:`${rate}%`,background:rate>80?"var(--green)":"var(--gold)",height:4,borderRadius:4}}/>
-                        </div>
-                        <span style={{color:rate>80?"var(--green)":"var(--gold)",fontWeight:600,fontSize:12,width:32,textAlign:"right"}}>{rate}%</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              {amCreators.map(c=>{
+                const subs=db.submissions.filter(s=>s.creator_id===c.id);
+                const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
+                return <div key={c.id} className="flex-between" style={{padding:"5px 0",fontSize:13}}><span>{c.name}</span><span style={{color:rate>80?"var(--green)":"var(--gold)"}}>{rate}%</span></div>;
+              })}
             </div>
           );
         })}
@@ -3286,8 +2185,7 @@ export default function App() {
       }
       setDb({
         creators:c.data||[], clients:cl.data||[], campaigns:cam.data||[],
-        submissions:sub.data||[], accountManagers:am.data||[], payments:pay.data||[],
-        _currentUser: user
+        submissions:sub.data||[], accountManagers:am.data||[], payments:pay.data||[]
       });
     } catch(e) { setDbError("Failed to load data. Check your connection."); }
     setDbLoading(false);
@@ -3329,7 +2227,7 @@ export default function App() {
     if(role==="creator"){
       if(page==="dashboard") return <CreatorDashboard user={user} db={db}/>;
       if(page==="jobs") return <JobBoard user={user} db={db} onRefresh={loadDB}/>;
-      if(page==="active-jobs") return <CreatorActiveJobs user={user} db={db} onNavigate={setPage}/>;
+      if(page==="active-jobs") return <div className="content">{db.campaigns.filter(c=>(c.assigned_creators||[]).includes(db.creators.find(cr=>cr.user_id===user.id||cr.email===user.email)?.id)&&c.status!=="Completed").map(job=>{const creator=db.creators.find(c=>c.user_id===user.id||c.email===user.email);const client=db.clients.find(c=>c.id===job.client_id);const mySubs=db.submissions.filter(s=>s.creator_id===creator?.id&&s.campaign_id===job.id);return(<div key={job.id} className="card mb-16"><div className="flex-between mb-16"><div><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18,marginBottom:4}}>{job.name}</div><div style={{fontSize:12,color:"var(--ink3)"}}>{client?.name} · Due {fmtDate(job.deadline)} · {fmtMoney(job.pay_per_video)}/video</div></div>{statusBadge(job.status)}</div><div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:14,marginBottom:16,fontSize:13}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:8}}>Guidelines</div><p style={{color:"var(--ink2)"}}>{job.description}</p></div><div className="flex-between"><div style={{fontSize:12,color:"var(--ink3)"}}>{mySubs.length} submission{mySubs.length!==1?"s":""}</div><button className="btn btn-primary btn-sm" onClick={()=>setPage("submit")}>Submit Content</button></div></div>);})}{db.campaigns.filter(c=>(c.assigned_creators||[]).includes(db.creators.find(cr=>cr.user_id===user.id||cr.email===user.email)?.id)).length===0&&<div className="empty"><div className="empty-icon">🎯</div><h3>No active jobs</h3><p>Apply for jobs to get started</p></div>}</div>;
       if(page==="submit") return <SubmitContent user={user} db={db} onRefresh={loadDB}/>;
       if(page==="submissions") return <MySubmissions user={user} db={db}/>;
       if(page==="insights") return <CreatorInsights user={user} db={db} onRefresh={loadDB}/>;
@@ -3343,17 +2241,13 @@ export default function App() {
       if(page==="clients") return <ClientsPage isOwner={false} db={db} onRefresh={loadDB}/>;
       if(page==="content-library") return <ContentLibrary db={db} onRefresh={loadDB}/>;
       if(page==="analytics") return <Analytics db={db}/>;
-      if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={false}/>;
-      if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={false} user={user}/>;
-      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/>;
     }
     if(role==="owner"){
       if(page==="dashboard") return <OwnerDashboard db={db}/>;
       if(page==="clients-full") return <ClientsPage isOwner={true} db={db} onRefresh={loadDB}/>;
-      if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/>;
-      if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={true} user={user}/>;
-      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/>;
-      if(page==="team") return <TeamPerformance db={db} onRefresh={loadDB}/>;
+      if(page==="revenue") return <RevenueAnalytics db={db}/>;
+      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB}/>;
+      if(page==="team") return <TeamPerformance db={db}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
       if(page==="creators-manage") return <CreatorsManage db={db} onRefresh={loadDB}/>;
       if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
