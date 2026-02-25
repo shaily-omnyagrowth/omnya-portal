@@ -2207,41 +2207,138 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
   );
 }
 
-function RevenueAnalytics({ db }) {
-  const active = db.clients.filter(c=>c.status==="Active");
-  const totalRevenue = active.reduce((a,c)=>a+Number(c.budget||0),0);
-  const creatorCosts = db.creators.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.weekly_rate||0)*4,0);
-  const profit = totalRevenue - creatorCosts;
+function RevenueAnalytics({ db, user, isOwner }) {
+  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
+
+  // AM commission rate — 20% for senior, 10% default
+  const getAMRate = (amRecord) => {
+    if (!amRecord) return 0.10;
+    const name = (amRecord.name||"").toLowerCase();
+    if (name.includes("lilli")) return 0.20;
+    return 0.10;
+  };
+
+  // Build per-client profitability
+  const clientData = db.clients
+    .filter(c => isOwner ? true : c.am_id === am?.id)
+    .map(c => {
+      const clientAM = db.accountManagers.find(a=>a.id===c.am_id);
+      const clientCampaigns = db.campaigns.filter(camp=>camp.client_id===c.id);
+      
+      // Creator costs = sum of (approved videos × pay_per_video) across all campaigns
+      const creatorCost = clientCampaigns.reduce((total, camp) => {
+        const approved = db.submissions.filter(s=>s.campaign_id===camp.id&&s.final_status==="Approved").length;
+        return total + (approved * Number(camp.pay_per_video||0));
+      }, 0);
+
+      const revenue = Number(c.budget||0);
+      const amRate = getAMRate(clientAM);
+      const amCost = revenue * amRate;
+      const grossProfit = revenue - creatorCost - amCost;
+      const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
+      const totalApproved = clientCampaigns.reduce((t,camp)=>t+db.submissions.filter(s=>s.campaign_id===camp.id&&s.final_status==="Approved").length,0);
+      const costPerVideo = totalApproved > 0 ? Math.round((creatorCost+amCost)/totalApproved) : 0;
+
+      return { client:c, clientAM, revenue, creatorCost, amCost, amRate, grossProfit, margin, totalApproved, costPerVideo, campaigns:clientCampaigns.length };
+    });
+
+  const totalRevenue = clientData.reduce((a,c)=>a+c.revenue,0);
+  const totalCreatorCost = clientData.reduce((a,c)=>a+c.creatorCost,0);
+  const totalAMCost = clientData.reduce((a,c)=>a+c.amCost,0);
+  const totalProfit = clientData.reduce((a,c)=>a+c.grossProfit,0);
+  const totalMargin = totalRevenue>0?Math.round((totalProfit/totalRevenue)*100):0;
+
+  const marginColor = (m) => m>=50?"var(--green)":m>=25?"var(--gold)":"var(--red)";
+
   return (
     <div className="content">
-      <div className="mb-16"><span className="owner-badge">👑 Owner Only</span></div>
-      <div className="stats-grid">
+      {isOwner&&<div className="mb-16"><span className="owner-badge">👑 Full Agency View</span></div>}
+
+      {/* Top Stats */}
+      <div className="stats-grid" style={{gridTemplateColumns:"repeat(5,1fr)",marginBottom:24}}>
         <div className="stat-card stat-highlight"><div className="stat-label">Monthly Revenue</div><div className="stat-value">{fmtMoney(totalRevenue)}</div></div>
-        <div className="stat-card"><div className="stat-label">Creator Costs</div><div className="stat-value">{fmtMoney(creatorCosts)}</div></div>
-        <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value">{fmtMoney(profit)}</div></div>
-        <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value">{totalRevenue>0?Math.round((profit/totalRevenue)*100):0}%</div></div>
+        <div className="stat-card"><div className="stat-label">Creator Costs</div><div className="stat-value" style={{color:"var(--red)"}}>{fmtMoney(totalCreatorCost)}</div></div>
+        {isOwner&&<div className="stat-card"><div className="stat-label">AM Costs</div><div className="stat-value" style={{color:"var(--orange)"}}>{fmtMoney(totalAMCost)}</div></div>}
+        <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value" style={{color:"var(--green)"}}>{fmtMoney(totalProfit)}</div></div>
+        <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value" style={{color:marginColor(totalMargin)}}>{totalMargin}%</div></div>
       </div>
+
+      {/* Per Client Profitability */}
       <div className="card">
-        <div className="card-title">Revenue by Client</div>
+        <div className="card-title">Campaign Profitability by Client</div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Budget</th><th>Rev/Video</th><th>Status</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Client</th>
+                {isOwner&&<th>AM</th>}
+                <th>Revenue</th>
+                <th>Creator Cost</th>
+                {isOwner&&<th>AM Cost</th>}
+                <th>Gross Profit</th>
+                <th>Margin</th>
+                <th>Videos</th>
+                <th>Cost/Video</th>
+                <th>Health</th>
+              </tr>
+            </thead>
             <tbody>
-              {db.clients.map(c=>(
-                <tr key={c.id}>
-                  <td><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{c.contact_name||""}</div></td>
-                  <td>{statusBadge(c.deal_type)}</td>
-                  <td>{c.videos_per_month}</td>
-                  <td className="text-green fw-600">{fmtMoney(c.budget)}</td>
-                  <td className="text-muted">{fmtMoney(c.videos_per_month>0?Math.round(c.budget/c.videos_per_month):0)}</td>
-                  <td>{statusBadge(c.status)}</td>
+              {clientData.map(({client,clientAM,revenue,creatorCost,amCost,grossProfit,margin,totalApproved,costPerVideo})=>(
+                <tr key={client.id}>
+                  <td>
+                    <div className="fw-600">{client.name}</div>
+                    <div style={{fontSize:11,color:"var(--ink3)"}}>{client.deal_type} · {client.status}</div>
+                  </td>
+                  {isOwner&&<td style={{fontSize:12,color:"var(--ink3)"}}>{clientAM?.name||"—"}<br/><span style={{fontSize:10,color:"var(--ink3)"}}>{clientAM?`${getAMRate(clientAM)*100}%`:"—"}</span></td>}
+                  <td className="text-green fw-600">{fmtMoney(revenue)}</td>
+                  <td style={{color:"var(--red)"}}>{fmtMoney(creatorCost)}</td>
+                  {isOwner&&<td style={{color:"var(--orange)"}}>{fmtMoney(amCost)}</td>}
+                  <td style={{color:grossProfit>=0?"var(--green)":"var(--red)",fontWeight:600}}>{fmtMoney(grossProfit)}</td>
+                  <td>
+                    <div style={{fontWeight:700,color:marginColor(margin)}}>{margin}%</div>
+                    <div style={{width:60,background:"var(--bg2)",borderRadius:4,height:4,marginTop:3}}>
+                      <div style={{width:`${Math.min(Math.max(margin,0),100)}%`,background:marginColor(margin),height:4,borderRadius:4}}/>
+                    </div>
+                  </td>
+                  <td style={{fontSize:13}}>{totalApproved}</td>
+                  <td style={{fontSize:13,color:"var(--ink3)"}}>{costPerVideo>0?fmtMoney(costPerVideo):"—"}</td>
+                  <td>
+                    {margin>=50&&<span className="badge badge-green">🟢 Healthy</span>}
+                    {margin>=25&&margin<50&&<span className="badge badge-orange">🟡 Watch</span>}
+                    {margin<25&&margin>=0&&<span className="badge" style={{background:"#fff0f0",color:"var(--red)"}}>🔴 Thin</span>}
+                    {margin<0&&<span className="badge" style={{background:"#fff0f0",color:"var(--red)"}}>🔴 Loss</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {db.clients.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">📈</div><h3>No clients yet</h3></div>}
+        {clientData.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">📈</div><h3>No clients yet</h3></div>}
       </div>
+
+      {/* Key Insights */}
+      {clientData.length>0&&(
+        <div className="card" style={{marginTop:16}}>
+          <div className="card-title">💡 Key Insights</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {clientData.sort((a,b)=>b.margin-a.margin).slice(0,1).map(d=>(
+              <div key={d.client.id} style={{fontSize:13,padding:"10px 14px",background:"rgba(26,122,74,0.08)",borderRadius:"var(--radius-sm)",borderLeft:"3px solid var(--green)"}}>
+                🏆 <strong>{d.client.name}</strong> is your most profitable account at <strong>{d.margin}% margin</strong>
+              </div>
+            ))}
+            {clientData.filter(d=>d.margin<25&&d.revenue>0).map(d=>(
+              <div key={d.client.id} style={{fontSize:13,padding:"10px 14px",background:"rgba(220,53,69,0.08)",borderRadius:"var(--radius-sm)",borderLeft:"3px solid var(--red)"}}>
+                ⚠️ <strong>{d.client.name}</strong> has a thin margin of <strong>{d.margin}%</strong> — consider repricing or reducing creator costs
+              </div>
+            ))}
+            {totalMargin<30&&totalRevenue>0&&(
+              <div style={{fontSize:13,padding:"10px 14px",background:"rgba(255,165,0,0.08)",borderRadius:"var(--radius-sm)",borderLeft:"3px solid var(--gold)"}}>
+                📊 Overall agency margin is <strong>{totalMargin}%</strong> — healthy range is 40-60% for a UGC agency
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2781,7 +2878,7 @@ export default function App() {
     if(role==="owner"){
       if(page==="dashboard") return <OwnerDashboard db={db}/>;
       if(page==="clients-full") return <ClientsPage isOwner={true} db={db} onRefresh={loadDB}/>;
-      if(page==="revenue") return <RevenueAnalytics db={db}/>;
+      if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/>;
       if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/>;
       if(page==="team") return <TeamPerformance db={db}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
