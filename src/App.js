@@ -1570,6 +1570,7 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
     const newVal = !isSalesSourced;
     setIsSalesSourced(newVal);
     await supabase.from("campaigns").update({is_sales_sourced:newVal}).eq("id",campaign.id);
+    await onRefresh();
   };
 
   const uploadBrief = async (file) => {
