@@ -97,7 +97,6 @@ export default async function handler(req, res) {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": `multipart/related; boundary=${boundary}`,
-          "Content-Length": body.length,
         },
         body,
       }
