@@ -942,37 +942,123 @@ function JobBoard({ user, db, onRefresh }) {
 function SubmitContent({ user, db, onRefresh }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
   const myJobs = db.campaigns.filter(c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed");
-  const [form, setForm] = useState({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok"});
+  const [form, setForm] = useState({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
+  const [file, setFile] = useState(null);
+  const [uploadMode, setUploadMode] = useState("file"); // "file" or "link"
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [success, setSuccess] = useState(false);
   const [err, setErr] = useState("");
 
+  const getAccessToken = async () => {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body: new URLSearchParams({
+        client_id: process.env.REACT_APP_GOOGLE_CLIENT_ID,
+        client_secret: process.env.REACT_APP_GOOGLE_CLIENT_SECRET,
+        refresh_token: process.env.REACT_APP_GOOGLE_REFRESH_TOKEN,
+        grant_type: "refresh_token"
+      })
+    });
+    const data = await res.json();
+    return data.access_token;
+  };
+
+  const uploadToDrive = async (fileObj, campaignId) => {
+    const campaign = db.campaigns.find(c=>c.id===campaignId);
+    const client = db.clients.find(c=>c.id===campaign?.client_id);
+    const driveLink = client?.drive_link;
+    
+    // Extract folder ID from drive link if available
+    let folderId = null;
+    if (driveLink) {
+      const match = driveLink.match(/folders\/([a-zA-Z0-9_-]+)/);
+      if (match) folderId = match[1];
+    }
+
+    const accessToken = await getAccessToken();
+    
+    // Create file metadata
+    const metadata = {
+      name: `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`,
+      ...(folderId ? {parents:[folderId]} : {})
+    };
+
+    const formData = new FormData();
+    formData.append("metadata", new Blob([JSON.stringify(metadata)], {type:"application/json"}));
+    formData.append("file", fileObj);
+
+    setUploadProgress(30);
+    const uploadRes = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
+      method:"POST",
+      headers:{Authorization: `Bearer ${accessToken}`},
+      body: formData
+    });
+
+    setUploadProgress(80);
+    const uploadData = await uploadRes.json();
+    return uploadData.webViewLink || `https://drive.google.com/file/d/${uploadData.id}/view`;
+  };
+
   const submit = async () => {
-    if (!form.campaign_id||!form.concept_link) { setErr("Please fill in all required fields"); return; }
-    setSubmitting(true); setErr("");
+    if (!form.campaign_id) { setErr("Please select a campaign"); return; }
+    if (uploadMode==="file" && !file) { setErr("Please select a video file to upload"); return; }
+    if (uploadMode==="link" && !form.concept_link) { setErr("Please enter a video link"); return; }
+    
+    setSubmitting(true); setErr(""); setUploadProgress(0);
+
+    let fileLink = form.concept_link;
+
+    if (uploadMode==="file" && file) {
+      try {
+        setUploadProgress(10);
+        fileLink = await uploadToDrive(file, form.campaign_id);
+        setUploadProgress(90);
+      } catch(e) {
+        setErr("Upload failed: " + e.message);
+        setSubmitting(false); setUploadProgress(0); return;
+      }
+    }
+
     const newSub = {
       creator_id: creator.id, campaign_id: form.campaign_id,
-      submission_type: form.type, concept_link: form.concept_link,
+      submission_type: form.type, concept_link: fileLink,
       concept_status: "Pending",
       final_status: form.type==="Final"?"Pending":null,
       posted_link: form.posted_link||null, platform: form.platform,
-      payment_status: "Unpaid"
+      payment_status: "Unpaid",
+      notes: form.comment||null
     };
+
     const { error } = await supabase.from("submissions").insert(newSub);
-    if (error) { setErr(error.message); setSubmitting(false); return; }
+    if (error) { setErr(error.message); setSubmitting(false); setUploadProgress(0); return; }
     await onRefresh();
-    setSuccess(true); setForm({...form,concept_link:"",posted_link:""});
-    setTimeout(()=>setSuccess(false), 4000);
+    setSuccess(true);
+    setForm({...form, concept_link:"", posted_link:"", comment:""});
+    setFile(null);
+    setUploadProgress(0);
     setSubmitting(false);
   };
 
   if (!creator) return <div className="content"><ErrorMsg msg="Creator profile not found." /></div>;
 
+  if (success) return (
+    <div className="content" style={{maxWidth:600}}>
+      <div style={{textAlign:"center",padding:"60px 24px"}}>
+        <div style={{fontSize:48,marginBottom:16}}>✅</div>
+        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:28,marginBottom:8}}>Submitted!</div>
+        <div style={{fontSize:14,color:"var(--ink3)",marginBottom:24}}>Your content has been submitted for review. Your AM will get back to you shortly.</div>
+        <button className="btn btn-primary" onClick={()=>setSuccess(false)}>Submit Another</button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="content" style={{maxWidth:600}}>
-      {success&&<div style={{background:"rgba(26,122,74,0.1)",border:"1px solid var(--green)",borderRadius:"var(--radius)",padding:"14px 20px",marginBottom:20,color:"var(--green)",fontSize:14,fontWeight:600}}>✓ Submitted! Your AM will review it shortly.</div>}
       <div className="card">
         <div className="card-title">New Content Submission</div>
+
         <div className="form-group">
           <label className="form-label">Campaign</label>
           <select className="select" value={form.campaign_id} onChange={e=>setForm({...form,campaign_id:e.target.value})}>
@@ -980,6 +1066,7 @@ function SubmitContent({ user, db, onRefresh }) {
             {myJobs.map(j=><option key={j.id} value={j.id}>{j.name}</option>)}
           </select>
         </div>
+
         <div className="form-group">
           <label className="form-label">Submission Type</label>
           <div style={{display:"flex",gap:8}}>
@@ -989,12 +1076,45 @@ function SubmitContent({ user, db, onRefresh }) {
               </button>
             ))}
           </div>
-          <div className="form-hint">{form.type==="Concept"?"Submit a screen recording of your concept idea":"Submit the link to your live posted video"}</div>
+          <div className="form-hint">{form.type==="Concept"?"Submit your concept video for approval before posting":"Submit your final posted video link"}</div>
         </div>
+
         <div className="form-group">
-          <label className="form-label">{form.type==="Concept"?"Concept Video Link (Loom, Drive, etc.)":"Live Posted Video Link"}</label>
-          <input className="form-input" placeholder={form.type==="Concept"?"https://loom.com/share/...":"https://tiktok.com/@..."} value={form.concept_link} onChange={e=>setForm({...form,concept_link:e.target.value})} />
+          <label className="form-label">Upload Method</label>
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <button className={`btn btn-sm ${uploadMode==="file"?"btn-primary":"btn-ghost"}`} onClick={()=>setUploadMode("file")}>📁 Upload File</button>
+            <button className={`btn btn-sm ${uploadMode==="link"?"btn-primary":"btn-ghost"}`} onClick={()=>setUploadMode("link")}>🔗 Paste Link</button>
+          </div>
+
+          {uploadMode==="file" ? (
+            <div>
+              <input type="file" accept="video/*" style={{display:"none"}} id="videoUpload" onChange={e=>setFile(e.target.files[0])}/>
+              <label htmlFor="videoUpload" style={{display:"block",border:"2px dashed var(--border2)",borderRadius:"var(--radius-sm)",padding:"24px",textAlign:"center",cursor:"pointer",background:"var(--bg2)"}}>
+                {file ? (
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>📹 {file.name}</div>
+                    <div style={{fontSize:11,color:"var(--ink3)"}}>{(file.size/1024/1024).toFixed(1)}MB · Click to change</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{fontSize:24,marginBottom:8}}>📹</div>
+                    <div style={{fontSize:13,fontWeight:600}}>Click to upload video</div>
+                    <div style={{fontSize:11,color:"var(--ink3)",marginTop:4}}>MP4, MOV, AVI supported</div>
+                  </div>
+                )}
+              </label>
+              {submitting&&uploadProgress>0&&(
+                <div style={{marginTop:8}}>
+                  <div style={{fontSize:12,color:"var(--ink3)",marginBottom:4}}>Uploading to Drive... {uploadProgress}%</div>
+                  <div className="progress-bar"><div className="progress-fill" style={{width:`${uploadProgress}%`,transition:"width 0.3s"}}/></div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <input className="form-input" placeholder={form.type==="Concept"?"https://loom.com/share/...":"https://tiktok.com/@..."} value={form.concept_link} onChange={e=>setForm({...form,concept_link:e.target.value})}/>
+          )}
         </div>
+
         {form.type==="Final"&&(
           <div className="form-group">
             <label className="form-label">Platform</label>
@@ -1003,9 +1123,15 @@ function SubmitContent({ user, db, onRefresh }) {
             </select>
           </div>
         )}
+
+        <div className="form-group">
+          <label className="form-label">Comment <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
+          <textarea className="textarea" rows={2} placeholder="Any notes for your AM about this submission..." value={form.comment} onChange={e=>setForm({...form,comment:e.target.value})}/>
+        </div>
+
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <button className="btn btn-primary" onClick={submit} disabled={submitting||myJobs.length===0} style={{marginTop:8}}>
-          {submitting?"Submitting...":"Submit for Review →"}
+          {submitting ? (uploadProgress>0?"Uploading to Drive...":"Submitting...") : "Submit for Review →"}
         </button>
       </div>
     </div>
