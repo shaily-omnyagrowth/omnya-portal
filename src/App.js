@@ -1705,7 +1705,7 @@ function CampaignForum({ campaign, user, db, canPin }) {
                       );
                     })}
                     {canPin&&<button onClick={()=>togglePin(m)} style={{background:"none",border:"none",cursor:"pointer",fontSize:12,opacity:0.4}} title="Pin">📌</button>}
-                    {(canPin||m.user_id===user?.id)&&<button onClick={()=>deleteMsg(m.id)} style={{background:"none",border:"none",cursor:"pointer",fontSize:11,opacity:0.3}} title="Delete">✕</button>}
+                    {(canPin||m.user_id===user?.id)&&<button onClick={()=>deleteMsg(m.id)} style={{background:"none",border:"1px solid var(--border)",borderRadius:20,padding:"2px 7px",cursor:"pointer",fontSize:11,color:"var(--red)",opacity:0.7}} title="Delete">🗑</button>}
                   </div>
                 </div>
               </div>
