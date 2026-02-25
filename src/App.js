@@ -2114,7 +2114,7 @@ function ClientsPage({ isOwner, db, onRefresh }) {
   const [viewClient, setViewClient] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_terms:"",drive_link:""};
+  const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_notes:"",contract_url:"",drive_link:""};
   const [form, setForm] = useState(emptyForm);
 
   const create = async () => {
@@ -2150,7 +2150,8 @@ function ClientsPage({ isOwner, db, onRefresh }) {
           <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={data.contact_phone||""} onChange={e=>setData({...data,contact_phone:e.target.value})}/></div>
         </div>
         <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
-        <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" placeholder="Contract terms, special notes..." value={data.contract_terms||""} onChange={e=>setData({...data,contract_terms:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" rows={3} placeholder="Contract terms, payment schedule, special conditions..." value={data.contract_notes||""} onChange={e=>setData({...data,contract_notes:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Contract URL <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label><input className="form-input" placeholder="https://docs.google.com/..." value={data.contract_url||""} onChange={e=>setData({...data,contract_url:e.target.value})}/></div>
         <div className="form-group"><label className="form-label">Assign Account Manager</label><select className="select" value={data.am_id||""} onChange={e=>setData({...data,am_id:e.target.value||null})}><option value="">— Unassigned —</option>{db.accountManagers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
         {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
         <div className="modal-actions">
@@ -2215,7 +2216,9 @@ function ClientProfile({ client, db, onRefresh, onClose }) {
     goals: client.goals||"",
     target_audience: client.target_audience||"",
     content_guidelines: client.content_guidelines||"",
-    notes: client.notes||""
+    notes: client.notes||"",
+    contract_notes: client.contract_notes||"",
+    contract_url: client.contract_url||""
   });
 
   const save = async () => {
@@ -2247,6 +2250,11 @@ function ClientProfile({ client, db, onRefresh, onClose }) {
             <div className="form-group"><label className="form-label">Target Audience</label><textarea className="textarea" rows={2} placeholder="Who are they targeting? Age, interests, demographics..." value={form.target_audience} onChange={e=>setForm({...form,target_audience:e.target.value})}/></div>
             <div className="form-group"><label className="form-label">Content Guidelines</label><textarea className="textarea" rows={3} placeholder="Dos and don'ts, tone of voice, style preferences..." value={form.content_guidelines} onChange={e=>setForm({...form,content_guidelines:e.target.value})}/></div>
             <div className="form-group"><label className="form-label">Notes</label><textarea className="textarea" rows={2} placeholder="Any other important info..." value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></div>
+            <div style={{borderTop:"1px solid var(--border)",paddingTop:16,marginTop:4}}>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--ink3)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:12}}>📄 Contract</div>
+              <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" rows={3} placeholder="Payment schedule, deliverables, special terms..." value={form.contract_notes} onChange={e=>setForm({...form,contract_notes:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Contract URL</label><input className="form-input" placeholder="https://docs.google.com/..." value={form.contract_url} onChange={e=>setForm({...form,contract_url:e.target.value})}/></div>
+            </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setEditing(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save"}</button>
@@ -2260,6 +2268,18 @@ function ClientProfile({ client, db, onRefresh, onClose }) {
                 <div style={{fontSize:14,color:val?"var(--ink)":"var(--ink3)",fontStyle:val?"normal":"italic"}}>{val||"Not filled in yet"}</div>
               </div>
             ))}
+            {/* Contract section */}
+            <div style={{borderTop:"1px solid var(--border)",paddingTop:16,marginTop:4}}>
+              <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:12}}>📄 Contract</div>
+              {form.contract_url&&(
+                <div style={{marginBottom:12}}>
+                  <a href={form.contract_url} target="_blank" rel="noreferrer" className="btn btn-sm btn-primary">📄 View Contract</a>
+                </div>
+              )}
+              <div style={{fontSize:14,color:form.contract_notes?"var(--ink)":"var(--ink3)",fontStyle:form.contract_notes?"normal":"italic",background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:form.contract_notes?"12px":"0",whiteSpace:"pre-wrap"}}>
+                {form.contract_notes||"No contract notes yet"}
+              </div>
+            </div>
           </div>
         )}
       </div>
