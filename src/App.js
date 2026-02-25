@@ -964,22 +964,54 @@ function SubmitContent({ user, db, onRefresh }) {
     }
 
     const fileName = `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`;
-    const renamedFile = new File([fileObj], fileName, {type: fileObj.type});
 
-    const formData = new FormData();
-    formData.append("file", renamedFile);
-    if (folderId) formData.append("folderId", folderId);
+    setUploadProgress(20);
 
-    setUploadProgress(30);
-    const uploadRes = await fetch("/api/upload-to-drive", {
+    // Step 1: Get resumable upload URL from serverless function
+    const urlRes = await fetch("/api/get-upload-url", {
       method: "POST",
-      body: formData
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName,
+        fileSize: fileObj.size,
+        mimeType: fileObj.type || "video/mp4",
+        folderId,
+      })
     });
+
+    const urlData = await urlRes.json();
+    if (urlData.error) throw new Error(urlData.error);
+
+    setUploadProgress(40);
+
+    // Step 2: Upload file directly to Google from browser
+    const uploadRes = await fetch(urlData.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": fileObj.type || "video/mp4" },
+      body: fileObj,
+    });
+
+    if (!uploadRes.ok) {
+      const err = await uploadRes.text();
+      throw new Error("Upload failed: " + err);
+    }
 
     setUploadProgress(80);
     const uploadData = await uploadRes.json();
-    if (uploadData.error) throw new Error(uploadData.error);
-    return uploadData.url;
+    const fileId = uploadData.id;
+
+    // Step 3: Make file publicly viewable
+    await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${urlData.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ role: "reader", type: "anyone" }),
+    });
+
+    setUploadProgress(95);
+    return `https://drive.google.com/file/d/${fileId}/view`;
   };
 
   const submit = async () => {
