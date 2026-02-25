@@ -2718,35 +2718,145 @@ function RevenueAnalytics({ db, user, isOwner }) {
   );
 }
 
-function TeamPerformance({ db }) {
+function TeamPerformance({ db, onRefresh }) {
+  const [editingSatisfaction, setEditingSatisfaction] = useState(null);
+  const [satValue, setSatValue] = useState(0);
+
+  const saveSatisfaction = async (clientId, score) => {
+    await supabase.from("clients").update({satisfaction_score: score}).eq("id", clientId);
+    await onRefresh();
+    setEditingSatisfaction(null);
+  };
+
   return (
     <div className="content">
       <div className="mb-16"><span className="owner-badge">👑 Owner View</span></div>
-      <div className="grid-2">
+      <div style={{display:"flex",flexDirection:"column",gap:20}}>
         {db.accountManagers.map(am=>{
-          const amCreators=db.creators.filter(c=>c.am_id===am.id);
-          const amClients=db.clients.filter(c=>c.am_id===am.id);
-          const totalApproved=db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&s.final_status==="Approved";}).length;
-          const pending=db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&(s.concept_status==="Pending"||s.final_status==="Pending");}).length;
+          const amCreators = db.creators.filter(c=>c.am_id===am.id);
+          const amClients = db.clients.filter(c=>c.am_id===am.id);
+          const amCampaigns = db.campaigns.filter(camp=>amClients.some(cl=>cl.id===camp.client_id));
+          const activeCampaigns = amCampaigns.filter(c=>c.status==="In Progress"||c.status==="Open");
+
+          // Review turnaround time — avg days from submission to review
+          const reviewedSubs = db.submissions.filter(s=>{
+            const cr = db.creators.find(c=>c.id===s.creator_id);
+            return cr?.am_id===am.id && s.reviewed_at && s.created_at;
+          });
+          const avgTurnaround = reviewedSubs.length>0
+            ? (reviewedSubs.reduce((t,s)=>t+((new Date(s.reviewed_at)-new Date(s.created_at))/(1000*60*60*24)),0)/reviewedSubs.length).toFixed(1)
+            : null;
+
+          // Creator retention — active creators / total creators ever
+          const activeCreators = amCreators.filter(c=>c.status==="Active").length;
+          const retentionRate = amCreators.length>0?Math.round((activeCreators/amCreators.length)*100):0;
+
+          // Campaign profit %
+          const amRevenue = amClients.reduce((t,c)=>t+Number(c.budget||0),0);
+          const amCreatorCost = db.submissions.filter(s=>{
+            const cr=db.creators.find(c=>c.id===s.creator_id);
+            return cr?.am_id===am.id&&s.final_status==="Approved";
+          }).reduce((t,s)=>{
+            const camp=db.campaigns.find(c=>c.id===s.campaign_id);
+            return t+Number(camp?.pay_per_video||0);
+          },0);
+          const amRate = (am.name||"").toLowerCase().includes("lilli")?0.20:0.10;
+          const amCost = amRevenue*amRate;
+          const amProfit = amRevenue - amCreatorCost - amCost;
+          const amMargin = amRevenue>0?Math.round((amProfit/amRevenue)*100):0;
+
+          // Client satisfaction avg
+          const ratedClients = amClients.filter(c=>c.satisfaction_score);
+          const avgSatisfaction = ratedClients.length>0
+            ? (ratedClients.reduce((t,c)=>t+c.satisfaction_score,0)/ratedClients.length).toFixed(1)
+            : null;
+
+          const totalApproved = db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&s.final_status==="Approved";}).length;
+
           return (
             <div key={am.id} className="card">
-              <div className="flex-center gap-12 mb-16">
-                <div className={`creator-avatar ${getAvatarColor(am.name)}`} style={{width:44,height:44,fontSize:16}}>{getInitials(am.name)}</div>
-                <div><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18}}>{am.name}</div><div style={{fontSize:12,color:"var(--ink3)"}}>{am.email}</div></div>
+              {/* AM Header */}
+              <div className="flex-between mb-16">
+                <div className="flex-center gap-12">
+                  <div className={`creator-avatar ${getAvatarColor(am.name)}`} style={{width:48,height:48,fontSize:18}}>{getInitials(am.name)}</div>
+                  <div>
+                    <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20}}>{am.name}</div>
+                    <div style={{fontSize:12,color:"var(--ink3)"}}>{am.email} · {amRate*100}% commission</div>
+                  </div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,color:amMargin>=40?"var(--green)":amMargin>=20?"var(--gold)":"var(--red)"}}>{amMargin}%</div>
+                  <div style={{fontSize:11,color:"var(--ink3)"}}>Campaign Margin</div>
+                </div>
               </div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-                {[["Creators",amCreators.length,"var(--ink)"],["Clients",amClients.length,"var(--ink)"],["Approved",totalApproved,"var(--green)"],["Pending",pending,pending>0?"var(--orange)":"var(--ink)"]].map(([label,val,color])=>(
+
+              {/* Key Metrics Grid */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:20}}>
+                {[
+                  ["Active Campaigns", activeCampaigns.length, "var(--blue)"],
+                  ["Creators", `${activeCreators}/${amCreators.length}`, "var(--ink)"],
+                  ["Approved Videos", totalApproved, "var(--green)"],
+                  ["Avg Turnaround", avgTurnaround?`${avgTurnaround}d`:"—", avgTurnaround&&avgTurnaround<=3?"var(--green)":avgTurnaround&&avgTurnaround<=5?"var(--gold)":"var(--red)"],
+                  ["Creator Retention", `${retentionRate}%`, retentionRate>=80?"var(--green)":retentionRate>=60?"var(--gold)":"var(--red)"],
+                ].map(([label,val,color])=>(
                   <div key={label} style={{background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:12,textAlign:"center"}}>
-                    <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:28,color}}>{val}</div>
-                    <div style={{fontSize:11,color:"var(--ink3)"}}>{label}</div>
+                    <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,color}}>{val}</div>
+                    <div style={{fontSize:10,color:"var(--ink3)"}}>{label}</div>
                   </div>
                 ))}
               </div>
-              {amCreators.map(c=>{
-                const subs=db.submissions.filter(s=>s.creator_id===c.id);
-                const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
-                return <div key={c.id} className="flex-between" style={{padding:"5px 0",fontSize:13}}><span>{c.name}</span><span style={{color:rate>80?"var(--green)":"var(--gold)"}}>{rate}%</span></div>;
-              })}
+
+              {/* Client Satisfaction Ratings */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:12,fontWeight:600,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span>Client Satisfaction</span>
+                  {avgSatisfaction&&<span style={{fontWeight:700,color:"var(--green)"}}>⭐ {avgSatisfaction} avg</span>}
+                </div>
+                {amClients.length===0&&<div style={{fontSize:12,color:"var(--ink3)",fontStyle:"italic"}}>No clients assigned</div>}
+                {amClients.map(cl=>(
+                  <div key={cl.id} className="flex-between" style={{padding:"6px 0",borderBottom:"1px solid var(--border)"}}>
+                    <div style={{fontSize:13,fontWeight:500}}>{cl.name}</div>
+                    <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                      {editingSatisfaction===cl.id ? (
+                        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                          {[1,2,3,4,5].map(n=>(
+                            <button key={n} onClick={()=>setSatValue(n)} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,opacity:satValue>=n?1:0.3}}>⭐</button>
+                          ))}
+                          <button className="btn btn-sm btn-primary" onClick={()=>saveSatisfaction(cl.id,satValue)} style={{marginLeft:4}}>Save</button>
+                          <button className="btn btn-sm btn-ghost" onClick={()=>setEditingSatisfaction(null)}>✕</button>
+                        </div>
+                      ) : (
+                        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                          <span style={{fontSize:13}}>{"⭐".repeat(cl.satisfaction_score||0)||<span style={{color:"var(--ink3)",fontSize:12}}>Not rated</span>}</span>
+                          <button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setEditingSatisfaction(cl.id);setSatValue(cl.satisfaction_score||0);}}>
+                            {cl.satisfaction_score?"Edit":"Rate"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Creator breakdown */}
+              <div>
+                <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Creator Approval Rates</div>
+                {amCreators.map(c=>{
+                  const subs=db.submissions.filter(s=>s.creator_id===c.id);
+                  const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
+                  return (
+                    <div key={c.id} className="flex-between" style={{padding:"4px 0",fontSize:13}}>
+                      <span>{c.name}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{width:60,background:"var(--bg2)",borderRadius:4,height:4}}>
+                          <div style={{width:`${rate}%`,background:rate>80?"var(--green)":"var(--gold)",height:4,borderRadius:4}}/>
+                        </div>
+                        <span style={{color:rate>80?"var(--green)":"var(--gold)",fontWeight:600,fontSize:12,width:32,textAlign:"right"}}>{rate}%</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
@@ -3259,7 +3369,7 @@ export default function App() {
       if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/>;
       if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={true} user={user}/>;
       if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/>;
-      if(page==="team") return <TeamPerformance db={db}/>;
+      if(page==="team") return <TeamPerformance db={db} onRefresh={loadDB}/>;
       if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
       if(page==="creators-manage") return <CreatorsManage db={db} onRefresh={loadDB}/>;
       if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
