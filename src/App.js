@@ -2621,7 +2621,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
               </tr>
             </thead>
             <tbody>
-              {clientData.map(({client,clientAM,revenue,creatorCost,amCost,grossProfit,margin,totalApproved,costPerVideo})=>(
+              {clientData.map(({client,clientAM,revenue,creatorCost,amCost,salesCost,hasSalesSourced,grossProfit,margin,totalApproved,costPerVideo})=>(
                 <tr key={client.id}>
                   <td>
                     <div className="fw-600">{client.name}</div>
