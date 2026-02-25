@@ -940,7 +940,7 @@ function JobBoard({ user, db, onRefresh }) {
   );
 }
 
-function SubmitContent({ user, db, onRefresh }) {
+function SubmitContent({ user, db, onRefresh, setPage }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
   const myJobs = db.campaigns.filter(c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed");
   const [form, setForm] = useState({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
@@ -1026,11 +1026,40 @@ function SubmitContent({ user, db, onRefresh }) {
 
   if (success) return (
     <div className="content" style={{maxWidth:600}}>
-      <div style={{textAlign:"center",padding:"60px 24px"}}>
-        <div style={{fontSize:48,marginBottom:16}}>✅</div>
-        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:28,marginBottom:8}}>Submitted!</div>
-        <div style={{fontSize:14,color:"var(--ink3)",marginBottom:24}}>Your content has been submitted for review. Your AM will get back to you shortly.</div>
-        <button className="btn btn-primary" onClick={()=>setSuccess(false)}>Submit Another</button>
+      <div style={{textAlign:"center",padding:"48px 24px"}}>
+        <div style={{fontSize:64,marginBottom:16}}>✅</div>
+        <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:32,marginBottom:8}}>Content Uploaded!</div>
+        <div style={{fontSize:15,color:"var(--ink2)",marginBottom:24,lineHeight:1.6}}>
+          Your video has been uploaded and is now <strong>pending review</strong>.<br/>
+          Your AM will review it and let you know if it's approved or needs changes.
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:320,margin:"0 auto 32px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",textAlign:"left"}}>
+            <div style={{fontSize:20}}>📋</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:600}}>Status: Pending Review</div>
+              <div style={{fontSize:12,color:"var(--ink3)"}}>Your AM has been notified</div>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",textAlign:"left"}}>
+            <div style={{fontSize:20}}>⏱️</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:600}}>Review Time: 1-3 days</div>
+              <div style={{fontSize:12,color:"var(--ink3)"}}>You'll see feedback in My Submissions</div>
+            </div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",textAlign:"left"}}>
+            <div style={{fontSize:20}}>💬</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:600}}>Check My Submissions</div>
+              <div style={{fontSize:12,color:"var(--ink3)"}}>Track approval status and feedback there</div>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+          <button className="btn btn-ghost" onClick={()=>setPage("submissions")}>View My Submissions</button>
+          <button className="btn btn-primary" onClick={()=>setSuccess(false)}>Submit Another</button>
+        </div>
       </div>
     </div>
   );
@@ -3744,7 +3773,7 @@ export default function App() {
       if(page==="dashboard") return <CreatorDashboard user={user} db={db}/>;
       if(page==="jobs") return <JobBoard user={user} db={db} onRefresh={loadDB}/>;
       if(page==="active-jobs") return <CreatorActiveJobs user={user} db={db} onNavigate={setPage}/>;
-      if(page==="submit") return <SubmitContent user={user} db={db} onRefresh={loadDB}/>;
+      if(page==="submit") return <SubmitContent user={user} db={db} onRefresh={loadDB} setPage={setPage}/>;
       if(page==="submissions") return <MySubmissions user={user} db={db}/>;
       if(page==="insights") return <CreatorInsights user={user} db={db} onRefresh={loadDB}/>;
       if(page==="earnings") return <CreatorEarnings user={user} db={db}/>;
