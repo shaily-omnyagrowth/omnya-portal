@@ -1015,13 +1015,11 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
 
     const { error } = await supabase.from("submissions").insert(newSub);
     if (error) { setErr(error.message); setSubmitting(false); setUploadProgress(0); return; }
-    successRef.current = true;
-    setSuccess(true);
-    setForm({...form, concept_link:"", posted_link:"", comment:""});
     setFile(null);
     setUploadProgress(0);
     setSubmitting(false);
-    await onRefresh();
+    setForm({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
+    setSuccess(true);
   };
 
   if (!creator) return <div className="content"><ErrorMsg msg="Creator profile not found." /></div>;
