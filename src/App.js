@@ -950,6 +950,7 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [success, setSuccess] = useState(false);
   const [err, setErr] = useState("");
+  const successRef = useRef(false);
 
   const uploadToSupabase = async (fileObj, campaignId) => {
     const campaign = db.campaigns.find(c=>c.id===campaignId);
@@ -1014,6 +1015,7 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
 
     const { error } = await supabase.from("submissions").insert(newSub);
     if (error) { setErr(error.message); setSubmitting(false); setUploadProgress(0); return; }
+    successRef.current = true;
     setSuccess(true);
     setForm({...form, concept_link:"", posted_link:"", comment:""});
     setFile(null);
@@ -1024,7 +1026,7 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
 
   if (!creator) return <div className="content"><ErrorMsg msg="Creator profile not found." /></div>;
 
-  if (success) return (
+  if (success || successRef.current) return (
     <div className="content" style={{maxWidth:600}}>
       <div style={{textAlign:"center",padding:"48px 24px"}}>
         <div style={{fontSize:64,marginBottom:16}}>✅</div>
@@ -1057,8 +1059,8 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
           </div>
         </div>
         <div style={{display:"flex",gap:10,justifyContent:"center"}}>
-          <button className="btn btn-ghost" onClick={()=>setPage("submissions")}>View My Submissions</button>
-          <button className="btn btn-primary" onClick={()=>setSuccess(false)}>Submit Another</button>
+          <button className="btn btn-ghost" onClick={()=>{successRef.current=false;setPage("submissions");}}>View My Submissions</button>
+          <button className="btn btn-primary" onClick={()=>{setSuccess(false);successRef.current=false;}}>Submit Another</button>
         </div>
       </div>
     </div>
