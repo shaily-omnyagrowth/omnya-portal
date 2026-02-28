@@ -2497,7 +2497,32 @@ function Analytics({ db }) {
 // OWNER PAGES
 // ============================================================
 
-function OwnerDashboard({ db }) {
+function OwnerDashboard({ db, onRefresh }) {
+  const [pendingUsers, setPendingUsers] = React.useState([]);
+  const [approvingSaving, setApprovingSaving] = React.useState(false);
+
+  React.useEffect(()=>{
+    supabase.from("user_profiles").select("*").eq("role","pending").then(({data})=>{
+      if(data) setPendingUsers(data);
+    });
+  },[db]);
+
+  const approveUser = async(userId, role, name) => {
+    setApprovingSaving(true);
+    await supabase.from("user_profiles").update({role, full_name:name}).eq("id",userId);
+    if(role==="account_manager") {
+      const profile = pendingUsers.find(u=>u.id===userId);
+      await supabase.from("account_managers").upsert({name, email:profile?.email, user_id:userId},{onConflict:"email"});
+    }
+    setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
+    setApprovingSaving(false);
+    await onRefresh();
+  };
+
+  const denyUser = async(userId) => {
+    await supabase.from("user_profiles").update({role:"denied"}).eq("id",userId);
+    setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
+  };
   const totalRevenue = db.clients.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.budget||0),0);
   const creatorCost = db.creators.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.weekly_rate||0)*4,0);
   const profit = totalRevenue - creatorCost;
@@ -2505,6 +2530,30 @@ function OwnerDashboard({ db }) {
   return (
     <div className="content">
       <div className="mb-16"><span className="owner-badge">👑 Owner View</span></div>
+
+      {/* Pending Users */}
+      {pendingUsers.length>0&&(
+        <div className="card" style={{marginBottom:20,border:"2px solid var(--orange)"}}>
+          <div className="flex-between mb-16">
+            <div className="card-title" style={{marginBottom:0}}>🔔 Pending Approvals</div>
+            <span className="badge badge-orange">{pendingUsers.length} waiting</span>
+          </div>
+          {pendingUsers.map(u=>(
+            <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid var(--border2)"}}>
+              <div className={`creator-avatar ${getAvatarColor(u.full_name||u.email)}`} style={{width:36,height:36,fontSize:13}}>{getInitials(u.full_name||u.email)}</div>
+              <div style={{flex:1}}>
+                <div className="fw-600 fs-13">{u.full_name||u.email}</div>
+                <div style={{fontSize:11,color:"var(--ink3)"}}>{u.email} · Requested: {u.requested_role||"—"}</div>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button className="btn btn-green btn-sm" disabled={approvingSaving} onClick={()=>approveUser(u.id,"account_manager",u.full_name||u.email.split("@")[0])}>✓ AM</button>
+                <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff"}} disabled={approvingSaving} onClick={()=>approveUser(u.id,"creator",u.full_name||u.email.split("@")[0])}>✓ Creator</button>
+                <button className="btn btn-red btn-sm" disabled={approvingSaving} onClick={()=>denyUser(u.id)}>✕ Deny</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="stats-grid">
         <div className="stat-card stat-highlight"><div className="stat-label">Monthly Revenue</div><div className="stat-value">{fmtMoney(totalRevenue)}</div></div>
         <div className="stat-card"><div className="stat-label">Active Clients</div><div className="stat-value">{db.clients.filter(c=>c.status==="Active").length}</div></div>
@@ -3706,6 +3755,10 @@ export default function App() {
     });
     const {data:{subscription}} = supabase.auth.onAuthStateChange(async(_,session)=>{
       if (!session) { setUser(null); setNeedsSetup(false); }
+      else {
+        const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",session.user.id).single();
+        if (profile) setUser({...session.user,...profile});
+      }
     });
     return ()=>subscription.unsubscribe();
   },[]);
@@ -3791,7 +3844,7 @@ export default function App() {
       if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/>;
     }
     if(role==="owner"){
-      if(page==="dashboard") return <OwnerDashboard db={db}/>;
+      if(page==="dashboard") return <OwnerDashboard db={db} onRefresh={loadDB}/>;
       if(page==="clients-full") return <ClientsPage isOwner={true} db={db} onRefresh={loadDB}/>;
       if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/>;
       if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={true} user={user}/>;
