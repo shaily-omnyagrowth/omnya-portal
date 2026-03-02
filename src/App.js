@@ -3831,7 +3831,7 @@ export default function App() {
       if(page==="insights") return <CreatorInsights user={user} db={db} onRefresh={loadDB}/>;
       if(page==="earnings") return <CreatorEarnings user={user} db={db}/>;
     }
-    if(role==="am"){
+    if(role==="am"||role==="account_manager"){
       if(page==="dashboard") return <AMDashboard user={user} db={db}/>;
       if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
       if(page==="my-creators") return <MyCreators user={user} db={db}/>;
