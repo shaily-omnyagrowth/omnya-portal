@@ -1731,7 +1731,7 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
   // Profitability calculations
   const revenue = Number(client?.budget||0);
   const salesCommissionRate = isSalesSourced ? 0.30 : 0;
-  const amRate = (clientAM?.name||"").toLowerCase().includes("lilli") ? 0.20 : 0.10;
+  const amRate = Number(clientAM?.commission_rate||0.10);
   const salesCost = revenue * salesCommissionRate;
   const amCost = revenue * amRate;
   const creatorCost = approved * Number(campaign.pay_per_video||0);
@@ -3031,9 +3031,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
   // AM commission rate — 20% for senior, 10% default
   const getAMRate = (amRecord) => {
     if (!amRecord) return 0.10;
-    const name = (amRecord.name||"").toLowerCase();
-    if (name.includes("lilli")) return 0.20;
-    return 0.10;
+    return Number(amRecord.commission_rate||0.10);
   };
 
   // Build per-client profitability
@@ -3236,7 +3234,7 @@ function TeamPerformance({ db, onRefresh }) {
             const camp=db.campaigns.find(c=>c.id===s.campaign_id);
             return t+Number(camp?.pay_per_video||0);
           },0);
-          const amRate = (am.name||"").toLowerCase().includes("lilli")?0.20:0.10;
+          const amRate = Number(am.commission_rate||0.10);
           const amCost = amRevenue*amRate;
           const amProfit = amRevenue - amCreatorCost - amCost;
           const amMargin = amRevenue>0?Math.round((amProfit/amRevenue)*100):0;
@@ -3622,6 +3620,7 @@ function CreatorsManage({ db, onRefresh }) {
     await supabase.from("account_managers").update({
       name: editAM.name,
       email: editAM.email,
+      commission_rate: Number(editAM.commission_rate||0.10),
     }).eq("id", editAM.id);
     await onRefresh();
     setEditAM(null);
@@ -3719,6 +3718,12 @@ function CreatorsManage({ db, onRefresh }) {
             <div className="modal-title">Edit Account Manager</div>
             <div className="form-group"><label className="form-label">Name</label><input className="form-input" value={editAM.name||""} onChange={e=>setEditAM({...editAM,name:e.target.value})}/></div>
             <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editAM.email||""} onChange={e=>setEditAM({...editAM,email:e.target.value})}/></div>
+            <div className="form-group">
+              <label className="form-label">Commission Rate</label>
+              <select className="select" value={editAM.commission_rate||0.10} onChange={e=>setEditAM({...editAM,commission_rate:Number(e.target.value)})}>
+                {[0.05,0.08,0.10,0.12,0.15,0.18,0.20,0.25].map(r=><option key={r} value={r}>{r*100}%{r===0.10?" (default)":""}</option>)}
+              </select>
+            </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setEditAM(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={saveAM} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
