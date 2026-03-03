@@ -2498,10 +2498,10 @@ function Analytics({ db }) {
 // ============================================================
 
 function OwnerDashboard({ db, onRefresh }) {
-  const [pendingUsers, setPendingUsers] = React.useState([]);
-  const [approvingSaving, setApprovingSaving] = React.useState(false);
+  const [pendingUsers, setPendingUsers] = useState([]);
+  const [approvingSaving, setApprovingSaving] = useState(false);
 
-  React.useEffect(()=>{
+  useEffect(()=>{
     supabase.from("user_profiles").select("*").eq("role","pending").then(({data})=>{
       if(data) setPendingUsers(data);
     });
