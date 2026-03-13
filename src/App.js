@@ -711,8 +711,9 @@ function Login({ onLogin }) {
 // ============================================================
 
 function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
-  const role = user.role || "creator";
-  const roleLabel = { creator: "Creator Portal", am: "Account Manager", owner: "Owner" };
+  const rawRole = user.role || "creator";
+  const role = rawRole === "account_manager" ? "am" : rawRole;
+  const roleLabel = { creator: "Creator Portal", am: "Account Manager", account_manager: "Account Manager", owner: "Owner" };
 
   const navs = {
     creator: [
@@ -2509,10 +2510,19 @@ function OwnerDashboard({ db, onRefresh }) {
 
   const approveUser = async(userId, role, name) => {
     setApprovingSaving(true);
+    const profile = pendingUsers.find(u=>u.id===userId);
+    const email = profile?.email || "";
     await supabase.from("user_profiles").update({role, full_name:name}).eq("id",userId);
     if(role==="account_manager") {
-      const profile = pendingUsers.find(u=>u.id===userId);
-      await supabase.from("account_managers").upsert({name, email:profile?.email, user_id:userId},{onConflict:"email"});
+      await supabase.from("account_managers").upsert({name, email, user_id:userId},{onConflict:"email"});
+    }
+    if(role==="creator") {
+      const {data:existing} = await supabase.from("creators").select("id").eq("email",email).single();
+      if(!existing) {
+        await supabase.from("creators").insert({name, email, user_id:userId, status:"Active"});
+      } else {
+        await supabase.from("creators").update({user_id:userId, name}).eq("email",email);
+      }
     }
     setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
     setApprovingSaving(false);
@@ -3754,7 +3764,13 @@ export default function App() {
       if (session) {
         const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",session.user.id).single();
         if (profile) setUser({...session.user,...profile});
-        else { setUser(session.user); setNeedsSetup(true); }
+        else {
+          // No profile yet — create as pending, never show owner setup to unknown users
+          const requestedRole = session.user.user_metadata?.requested_role || "creator";
+          await supabase.from("user_profiles").upsert({ id: session.user.id, email: session.user.email, full_name: session.user.email.split("@")[0], role: "pending", requested_role: requestedRole });
+          setUser({...session.user, role:"pending"});
+          setNeedsSetup(false);
+        }
       }
       setLoading(false);
     });
@@ -3763,6 +3779,11 @@ export default function App() {
       else {
         const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",session.user.id).single();
         if (profile) setUser({...session.user,...profile});
+        else {
+          const requestedRole = session.user.user_metadata?.requested_role || "creator";
+          await supabase.from("user_profiles").upsert({ id: session.user.id, email: session.user.email, full_name: session.user.email.split("@")[0], role: "pending", requested_role: requestedRole });
+          setUser({...session.user, role:"pending"});
+        }
       }
     });
     return ()=>subscription.unsubscribe();
@@ -3811,7 +3832,8 @@ export default function App() {
   const handleLogout = async()=>{ await supabase.auth.signOut(); setUser(null); setPage("dashboard"); };
   const handleSetupComplete = ()=>{ setNeedsSetup(false); loadDB(); };
 
-  const role = user?.role||"creator";
+  const rawRole = user?.role||"creator";
+  const role = rawRole === "account_manager" ? "am" : rawRole;
   const pendingCount = db.submissions.filter(s=>s.concept_status==="Pending"||s.final_status==="Pending").length;
 
   const pageTitles = {
