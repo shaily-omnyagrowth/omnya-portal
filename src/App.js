@@ -698,7 +698,7 @@ function Login({ onLogin }) {
         <div className="demo-hints" style={{marginTop:20}}>
           <p>First time setup</p>
           <div style={{fontSize:12,color:"var(--ink3)",lineHeight:1.7}}>
-            After signing up, an admin will assign your role (Creator / AM / Owner). Contact Shaily to get access.
+            After signing up, an admin will assign your role (Creator / AM / Owner). Contact your admin to get access.
           </div>
         </div>
       </div>
@@ -945,6 +945,8 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
   const myJobs = db.campaigns.filter(c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed");
   const [form, setForm] = useState({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
+  if(!creator) return <div className="content"><div className="empty"><div className="empty-icon">👤</div><h3>Profile not found</h3><p>Your creator profile hasn't been set up yet. Contact your account manager.</p></div></div>;
+  if(myJobs.length===0) return <div className="content"><div className="empty"><div className="empty-icon">📋</div><h3>No active campaigns</h3><p>You haven't been assigned to any campaigns yet. Check Available Jobs or contact your account manager.</p><button className="btn btn-primary" style={{marginTop:16}} onClick={()=>setPage("jobs")}>Browse Jobs</button></div></div>;
   const [file, setFile] = useState(null);
   const [uploadMode, setUploadMode] = useState("file"); // "file" or "link"
   const [submitting, setSubmitting] = useState(false);
@@ -1337,6 +1339,7 @@ function AMDashboard({ user, db }) {
   const pendingC = db.submissions.filter(s=>s.concept_status==="Pending").length;
   const pendingF = db.submissions.filter(s=>s.final_status==="Pending").length;
   const approvedWeek = db.submissions.filter(s=>s.final_status==="Approved"&&new Date(s.approved_date)>new Date(Date.now()-7*86400000)).length;
+  if(!am) return <div className="content"><div className="empty"><div className="empty-icon">⚙️</div><h3>Account not fully set up</h3><p>Your account manager profile isn't linked yet. Contact Shai to get assigned to clients and creators.</p></div></div>;
   return (
     <div className="content">
       <div className="stats-grid">
@@ -3362,7 +3365,7 @@ create table if not exists user_profiles (
   id uuid references auth.users primary key,
   email text unique not null,
   full_name text,
-  role text default 'creator' check (role in ('creator','am','owner')),
+  role text default 'pending' check (role in ('creator','am','account_manager','owner','pending','denied')),
   created_at timestamptz default now()
 );
 
@@ -3889,10 +3892,10 @@ export default function App() {
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>;
   if(!user) return <><style>{styles}</style><Login onLogin={handleLogin}/></>;
   if(needsSetup) return <><style>{styles}</style><SetupScreen user={user} onComplete={handleSetupComplete}/></>;
-  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! Shaily will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
-  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact Shaily for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
-  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! Shaily will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
-  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact Shaily for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
 
   return (
     <>
