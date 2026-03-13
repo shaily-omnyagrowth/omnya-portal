@@ -1,6 +1,39 @@
 /* eslint-disable */
 import { useState, useEffect, useCallback, useRef } from "react";
+import React from "react";
 import { createClient } from "@supabase/supabase-js";
+
+// ============================================================
+// ERROR BOUNDARY
+// ============================================================
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.error("Portal error:", error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9fafb",flexDirection:"column",gap:16,padding:24,textAlign:"center"}}>
+          <div style={{fontSize:48}}>⚠️</div>
+          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Something went wrong</div>
+          <div style={{fontSize:14,color:"#6b7280",maxWidth:340}}>
+            {this.props.label ? `Error in ${this.props.label}.` : "An unexpected error occurred."} Try refreshing.
+          </div>
+          <button onClick={()=>this.setState({hasError:false,error:null})} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
+            Try Again
+          </button>
+          <button onClick={()=>window.location.reload()} style={{padding:"8px 20px",background:"transparent",color:"#6b7280",border:"1px solid #e5e7eb",borderRadius:8,cursor:"pointer",fontSize:13}}>
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
 
 // ============================================================
 // SUPABASE CLIENT
@@ -3853,38 +3886,38 @@ export default function App() {
     if(dbLoading) return <Spinner/>;
 
     if(role==="creator"){
-      if(page==="dashboard") return <CreatorDashboard user={user} db={db}/>;
-      if(page==="jobs") return <JobBoard user={user} db={db} onRefresh={loadDB}/>;
-      if(page==="active-jobs") return <CreatorActiveJobs user={user} db={db} onNavigate={setPage}/>;
-      if(page==="submit") return <SubmitContent user={user} db={db} onRefresh={loadDB} setPage={setPage}/>;
-      if(page==="submissions") return <MySubmissions user={user} db={db}/>;
-      if(page==="insights") return <CreatorInsights user={user} db={db} onRefresh={loadDB}/>;
-      if(page==="earnings") return <CreatorEarnings user={user} db={db}/>;
+      if(page==="dashboard") return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db}/></ErrorBoundary>;
+      if(page==="jobs") return <ErrorBoundary label="Job Board"><JobBoard user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="active-jobs") return <ErrorBoundary label="Active Jobs"><CreatorActiveJobs user={user} db={db} onNavigate={setPage}/></ErrorBoundary>;
+      if(page==="submit") return <ErrorBoundary label="Submit Content"><SubmitContent user={user} db={db} onRefresh={loadDB} setPage={setPage}/></ErrorBoundary>;
+      if(page==="submissions") return <ErrorBoundary label="My Submissions"><MySubmissions user={user} db={db}/></ErrorBoundary>;
+      if(page==="insights") return <ErrorBoundary label="Video Insights"><CreatorInsights user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="earnings") return <ErrorBoundary label="Earnings"><CreatorEarnings user={user} db={db}/></ErrorBoundary>;
     }
     if(role==="am"||role==="account_manager"){
-      if(page==="dashboard") return <AMDashboard user={user} db={db}/>;
-      if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
-      if(page==="my-creators") return <MyCreators user={user} db={db}/>;
-      if(page==="campaigns") return <CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={false}/>;
-      if(page==="clients") return <ClientsPage isOwner={false} db={db} onRefresh={loadDB} user={user}/>;
-      if(page==="content-library") return <ContentLibrary db={db} onRefresh={loadDB}/>;
-      if(page==="analytics") return <Analytics db={db}/>;
-      if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={false}/>;
-      if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={false} user={user}/>;
-      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/>;
+      if(page==="dashboard") return <ErrorBoundary label="AM Dashboard"><AMDashboard user={user} db={db}/></ErrorBoundary>;
+      if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="my-creators") return <ErrorBoundary label="My Creators"><MyCreators user={user} db={db}/></ErrorBoundary>;
+      if(page==="campaigns") return <ErrorBoundary label="Campaigns"><CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={false}/></ErrorBoundary>;
+      if(page==="clients") return <ErrorBoundary label="Clients"><ClientsPage isOwner={false} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
+      if(page==="content-library") return <ErrorBoundary label="Content Library"><ContentLibrary db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="analytics") return <ErrorBoundary label="Analytics"><Analytics db={db}/></ErrorBoundary>;
+      if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={false}/></ErrorBoundary>;
+      if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={false} user={user}/></ErrorBoundary>;
+      if(page==="payments") return <ErrorBoundary label="Payments"><PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/></ErrorBoundary>;
     }
     if(role==="owner"){
-      if(page==="dashboard") return <OwnerDashboard db={db} onRefresh={loadDB}/>;
-      if(page==="clients-full") return <ClientsPage isOwner={true} db={db} onRefresh={loadDB}/>;
-      if(page==="revenue") return <RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/>;
-      if(page==="creator-performance") return <CreatorPerformance db={db} isOwner={true} user={user}/>;
-      if(page==="payments") return <PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/>;
-      if(page==="team") return <TeamPerformance db={db} onRefresh={loadDB}/>;
-      if(page==="pending-users") return <PendingUsers onRefresh={loadDB}/>;
-      if(page==="creators-manage") return <CreatorsManage db={db} onRefresh={loadDB}/>;
-      if(page==="review-queue") return <ReviewQueue db={db} onRefresh={loadDB}/>;
-      if(page==="campaigns") return <CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={true}/>;
-      if(page==="content-library") return <ContentLibrary db={db} onRefresh={loadDB}/>;
+      if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/></ErrorBoundary>;
+      if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user}/></ErrorBoundary>;
+      if(page==="payments") return <ErrorBoundary label="Payments"><PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/></ErrorBoundary>;
+      if(page==="team") return <ErrorBoundary label="Team Performance"><TeamPerformance db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="pending-users") return <ErrorBoundary label="Pending Users"><PendingUsers onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="creators-manage") return <ErrorBoundary label="Manage Creators"><CreatorsManage db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="campaigns") return <ErrorBoundary label="Campaigns"><CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={true}/></ErrorBoundary>;
+      if(page==="content-library") return <ErrorBoundary label="Content Library"><ContentLibrary db={db} onRefresh={loadDB}/></ErrorBoundary>;
     }
     return <div className="content"><div className="empty"><div className="empty-icon">🚧</div><h3>Coming soon</h3></div></div>;
   };
