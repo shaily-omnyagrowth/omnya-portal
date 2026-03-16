@@ -3901,15 +3901,27 @@ function ResetPassword({ onComplete }) {
     if (password.length < 6) { setErr("Password must be at least 6 chars"); return; }
     
     setLoading(true); setErr("");
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) { setErr(error.message); setLoading(false); return; }
-    
-    setSuccess(true);
-    setLoading(false);
-    setTimeout(() => {
-      supabase.auth.signOut();
-      onComplete();
-    }, 2000);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) { 
+        setErr(error.message); 
+        setLoading(false); 
+        return; 
+      }
+      
+      setSuccess(true);
+      setLoading(false);
+      setTimeout(async () => {
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {}
+        onComplete();
+      }, 2000);
+    } catch (e) {
+      console.error("Password reset error:", e);
+      setErr("Failed to update password. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (
