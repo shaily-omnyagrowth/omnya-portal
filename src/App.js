@@ -3551,6 +3551,18 @@ alter table account_managers enable row level security;
 alter table messages enable row level security;
 
 -- Policies
+do $$
+begin
+  drop policy if exists "Allow all" on user_profiles;
+  drop policy if exists "Allow all" on creators;
+  drop policy if exists "Allow all" on clients;
+  drop policy if exists "Allow all" on campaigns;
+  drop policy if exists "Allow all" on submissions;
+  drop policy if exists "Allow all" on payments;
+  drop policy if exists "Allow all" on account_managers;
+  drop policy if exists "Allow all" on messages;
+end $$;
+
 create policy "Allow all" on user_profiles for all using (true) with check (true);
 create policy "Allow all" on creators for all using (true) with check (true);
 create policy "Allow all" on clients for all using (true) with check (true);
