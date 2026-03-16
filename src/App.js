@@ -683,11 +683,13 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState("login"); // login | signup
+  const [mode, setMode] = useState("login"); // login | signup | forgot
   const [requestedRole, setRequestedRole] = useState("creator");
 
   const handle = async () => {
-    if (!email || !password) { setErr("Please enter email and password"); return; }
+    if (!email && mode !== "login") { setErr("Please enter email"); return; }
+    if (mode === "login" && (!email || !password)) { setErr("Please enter email and password"); return; }
+    
     setLoading(true); setErr("");
     try {
       if (mode === "signup") {
@@ -695,6 +697,14 @@ function Login({ onLogin }) {
         if (error) { setErr(error.message); setLoading(false); return; }
         setErr("Check your email to confirm your account, then sign in.");
         setMode("login"); setLoading(false); return;
+      }
+      if (mode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin,
+        });
+        if (error) { setErr(error.message); setLoading(false); return; }
+        setErr("Password reset link sent! Check your email.");
+        setLoading(false); return;
       }
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) { setErr(error.message); setLoading(false); return; }
@@ -711,16 +721,35 @@ function Login({ onLogin }) {
         <div className="login-logo">
           <img src={LOGO_URI} alt="Omnya" style={{height:56,width:"auto"}} />
         </div>
-        <div className="login-title">{mode === "login" ? "Welcome back" : "Create account"}</div>
-        <div className="login-sub">{mode === "login" ? "Sign in to your creator portal" : "Join the Omnya creator network"}</div>
+        <div className="login-title">
+          {mode === "login" ? "Welcome back" : mode === "signup" ? "Create account" : "Reset Password"}
+        </div>
+        <div className="login-sub">
+          {mode === "login" ? "Sign in to your creator portal" : mode === "signup" ? "Join the Omnya creator network" : "Enter your email to receive a reset link"}
+        </div>
+        
         <div className="field">
           <label>Email</label>
           <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="you@omnya.com" />
         </div>
-        <div className="field">
-          <label>Password</label>
-          <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
-        </div>
+
+        {mode !== "forgot" && (
+          <div className="field">
+            <div className="flex-between">
+              <label>Password</label>
+              {mode === "login" && (
+                <span 
+                  style={{fontSize:12, color:"var(--blue)", cursor:"pointer", fontWeight:500}} 
+                  onClick={() => { setMode("forgot"); setErr(""); }}
+                >
+                  Forgot password?
+                </span>
+              )}
+            </div>
+            <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
+          </div>
+        )}
+
         {mode === "signup" && (
           <div className="field">
             <label>I am a...</label>
@@ -730,13 +759,19 @@ function Login({ onLogin }) {
             </select>
           </div>
         )}
-        {err && <div style={{fontSize:13,marginBottom:12,color:err.includes("Check your")?"var(--green)":"var(--red)"}}>{err}</div>}
+
+        {err && <div style={{fontSize:13,marginBottom:12,color:(err.includes("Check your") || err.includes("sent"))?"var(--green)":"var(--red)"}}>{err}</div>}
+        
         <button className="btn btn-primary btn-full" onClick={handle} disabled={loading}>
-          {loading ? "Please wait..." : mode === "login" ? "Sign In" : "Create Account"}
+          {loading ? "Please wait..." : mode === "login" ? "Sign In" : mode === "signup" ? "Create Account" : "Send Reset Link"}
         </button>
+
         <div style={{textAlign:"center",marginTop:16,fontSize:13,color:"var(--ink3)"}}>
-          {mode === "login" ? <>Don't have an account? <span style={{color:"var(--blue)",cursor:"pointer",fontWeight:600}} onClick={()=>{setMode("signup");setErr("");}}>Sign up</span></> 
-          : <>Already have an account? <span style={{color:"var(--blue)",cursor:"pointer",fontWeight:600}} onClick={()=>{setMode("login");setErr("");}}>Sign in</span></>}
+          {mode === "login" ? (
+            <>Don't have an account? <span style={{color:"var(--blue)",cursor:"pointer",fontWeight:600}} onClick={()=>{setMode("signup");setErr("");}}>Sign up</span></> 
+          ) : (
+            <>Already have an account? <span style={{color:"var(--blue)",cursor:"pointer",fontWeight:600}} onClick={()=>{setMode("login");setErr("");}}>Sign in</span></>
+          )}
         </div>
         <div className="demo-hints" style={{marginTop:20}}>
           <p>First time setup</p>
@@ -3853,6 +3888,59 @@ function CreatorsManage({ db, onRefresh }) {
   );
 }
 
+function ResetPassword({ onComplete }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  const handle = async () => {
+    if (!password) { setErr("Enter new password"); return; }
+    if (password !== confirm) { setErr("Passwords don't match"); return; }
+    if (password.length < 6) { setErr("Password must be at least 6 chars"); return; }
+    
+    setLoading(true); setErr("");
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) { setErr(error.message); setLoading(false); return; }
+    
+    setSuccess(true);
+    setLoading(false);
+    setTimeout(() => {
+      supabase.auth.signOut();
+      onComplete();
+    }, 2000);
+  };
+
+  return (
+    <div className="login-wrap">
+      <div className="login-card">
+        <div className="login-logo">
+          <img src={LOGO_URI} alt="Omnya" style={{height:56,width:"auto"}} />
+        </div>
+        <div className="login-title">Set New Password</div>
+        <div className="login-sub">Enter your new password below.</div>
+        
+        <div className="field">
+          <label>New Password</label>
+          <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" />
+        </div>
+        <div className="field">
+          <label>Confirm Password</label>
+          <input value={confirm} onChange={e=>setConfirm(e.target.value)} type="password" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
+        </div>
+
+        {err && <div style={{fontSize:13,marginBottom:12,color:"var(--red)"}}>{err}</div>}
+        {success && <div style={{fontSize:13,marginBottom:12,color:"var(--green)"}}>Password updated! Redirecting to login...</div>}
+        
+        <button className="btn btn-primary btn-full" onClick={handle} disabled={loading || success}>
+          {loading ? "Updating..." : "Update Password →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -3865,6 +3953,7 @@ export default function App() {
   const [dbLoading, setDbLoading] = useState(false);
   const [dbError, setDbError] = useState("");
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [isRecoveryMode, setIsRecoveryMode] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("last_page", page);
@@ -3904,10 +3993,16 @@ export default function App() {
       if (event === "SIGNED_OUT") {
         setUser(null);
         setNeedsSetup(false);
+        setIsRecoveryMode(false);
         localStorage.removeItem("last_page");
+      } else if (event === "PASSWORD_RECOVERY") {
+        setIsRecoveryMode(true);
       } else if (session) {
+        // Only fetch profile if not in recovery mode yet
+        // or always fetch but ensure UI shows recovery
         const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
         if (profile) setUser({ ...session.user, ...profile });
+        else setUser(session.user);
       }
     });
 
@@ -4048,6 +4143,7 @@ export default function App() {
   };
 
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>;
+  if(isRecoveryMode) return <><style>{styles}</style><ResetPassword onComplete={() => setIsRecoveryMode(false)}/></>;
   if(!user) return <><style>{styles}</style><Login onLogin={handleLogin}/></>;
   if(needsSetup) return <><style>{styles}</style><SetupScreen user={user} onComplete={handleSetupComplete}/></>;
   if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div></>;
