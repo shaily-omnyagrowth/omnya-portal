@@ -40,6 +40,18 @@ To enable analytics fetching for creators, you need to set up developer apps for
 6.  For server-side functions (like `/api/analytics`), you may also need to add `SUPABASE_SERVICE_ROLE_KEY` and any other secret keys.
 7.  Redeploy your project (or push a new commit) to ensure the new environment variables are loaded.
 
+## Database Setup
+
+To set up the required tables and security policies in Supabase:
+
+1.  Open the [database_setup.sql](database_setup.sql) file in this repository.
+2.  Copy its contents.
+3.  Go to your Supabase project -> **SQL Editor**.
+4.  Paste the SQL and click **Run**.
+
+---
+
+## Local Development
 ## Local Development
 
 Create a `.env.local` file in the root directory (if not already present) to store these variables locally:
