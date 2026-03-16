@@ -2559,7 +2559,11 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
   const [approvingSaving, setApprovingSaving] = useState(false);
 
   useEffect(()=>{
-    supabase.from("user_profiles").select("*").eq("role","pending").then(({data})=>{
+    supabase.from("user_profiles").select("*").eq("role","pending").then(({data, error})=>{
+      if (error) {
+        console.error("Failed to load pending users:", error);
+        return;
+      }
       if(data) setPendingUsers(data);
     });
   },[db]);
@@ -2589,7 +2593,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
       if (session) {
         const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
         if (profile) {
-          const { data: { user } } = await supabase.auth.getUser();
+          const { data: user } = await supabase.auth.getUser();
           setUser({ ...user, ...profile });
         }
       }
