@@ -3973,12 +3973,13 @@ export default function App() {
 
   // Check auth on load
   useEffect(() => {
+    let mounted = true;
     const initAuth = async () => {
-      setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        try {
-          const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
+      try {
+        setLoading(true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && mounted) {
+          const { data: profile, error } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
           if (profile) {
             setUser({ ...session.user, ...profile });
           } else {
@@ -3992,34 +3993,51 @@ export default function App() {
             }).select().single();
             setUser({ ...session.user, ...(newProfile || { role: "pending" }) });
           }
-        } catch (e) {
-          console.error("Auth init error:", e);
         }
+      } catch (e) {
+        console.error("Auth init error:", e);
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
     };
 
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_OUT") {
-        setUser(null);
-        setNeedsSetup(false);
-        setIsRecoveryMode(false);
-        localStorage.removeItem("last_page");
+        if (mounted) {
+          setUser(null);
+          setNeedsSetup(false);
+          setIsRecoveryMode(false);
+          localStorage.removeItem("last_page");
+        }
       } else if (event === "PASSWORD_RECOVERY") {
-        setIsRecoveryMode(true);
-      } else if (session) {
-        // Only fetch profile if not in recovery mode yet
-        // or always fetch but ensure UI shows recovery
+        if (mounted) setIsRecoveryMode(true);
+      } else if (session && mounted) {
         const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
-        if (profile) setUser({ ...session.user, ...profile });
-        else setUser(session.user);
+        if (profile && mounted) setUser({ ...session.user, ...profile });
+        else if (mounted) setUser(session.user);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
+
+  // Sync page validation
+  useEffect(() => {
+    if (user) {
+      const rawRole = user?.role || "creator";
+      const role = rawRole === "account_manager" ? "am" : rawRole;
+      const currentNavs = navs[role] || [];
+      const isPageValid = currentNavs.some(n => n.id === page);
+      if (!isPageValid && page !== "dashboard") {
+        setPage("dashboard");
+      }
+    }
+  }, [user, page]);
 
   const loadDB = useCallback(async()=>{
     if (!user) return;
@@ -4087,15 +4105,7 @@ export default function App() {
     if(dbError&&!showSQL) return <div className="content"><ErrorMsg msg={dbError} onRetry={loadDB}/><div style={{marginTop:16}}><button className="btn btn-primary btn-sm" onClick={()=>setShowSQL(true)}>📋 View Database Setup SQL</button></div></div>;
     if(dbLoading) return <Spinner/>;
 
-    // Validate page for current role
-    const currentNavs = navs[role] || [];
-    const isPageValid = currentNavs.some(n => n.id === page);
-    
-    // If the page isn't valid for the role, reset to dashboard
-    if (!isPageValid && page !== "dashboard") {
-      setPage("dashboard");
-      return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db}/></ErrorBoundary>;
-    }
+    // Validation is now handled in useEffect
 
     if(role==="creator"){
       if(page==="dashboard") return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db}/></ErrorBoundary>;
@@ -4154,17 +4164,25 @@ export default function App() {
     setLoading(false);
   };
 
-  if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>;
-  if(isRecoveryMode) return <><style>{styles}</style><ResetPassword onComplete={() => setIsRecoveryMode(false)}/></>;
-  if(!user) return <><style>{styles}</style><Login onLogin={handleLogin}/></>;
-  if(needsSetup) return <><style>{styles}</style><SetupScreen user={user} onComplete={handleSetupComplete}/></>;
-  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div></>;
-  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
-
-  return (
-    <ErrorBoundary label="App" onAuthError={handleLogout}>
+  // Main Render Helper
+  const wrapContent = (content) => (
+    <>
       <style>{styles}</style>
-      <div className="app">
+      <ErrorBoundary label="Global" onAuthError={handleLogout}>
+        {content}
+      </ErrorBoundary>
+    </>
+  );
+
+  if(loading) return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0c0c14",color:"#fff"}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3,borderColor:"rgba(255,255,255,0.1)",borderTopColor:"#3b82f6"}}/></div>);
+  if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>);
+  if(!user) return wrapContent(<Login onLogin={handleLogin}/>);
+  if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>);
+  if(user.role==="pending") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>);
+  if(user.role==="denied") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>);
+
+  return wrapContent(
+    <div className="app">
         <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} onLogout={handleLogout}/>
         <div className="main">
           <div className="topbar">
@@ -4181,6 +4199,5 @@ export default function App() {
         </div>
       </div>
       {showSQL&&<SQLSetupModal onClose={()=>setShowSQL(false)}/>}
-    </ErrorBoundary>
   );
 }
