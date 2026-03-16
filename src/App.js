@@ -4182,7 +4182,8 @@ export default function App() {
   if(user.role==="denied") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>);
 
   return wrapContent(
-    <div className="app">
+    <>
+      <div className="app">
         <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} onLogout={handleLogout}/>
         <div className="main">
           <div className="topbar">
@@ -4199,5 +4200,6 @@ export default function App() {
         </div>
       </div>
       {showSQL&&<SQLSetupModal onClose={()=>setShowSQL(false)}/>}
+    </>
   );
 }
