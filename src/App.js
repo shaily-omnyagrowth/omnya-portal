@@ -753,43 +753,44 @@ function Login({ onLogin }) {
 // SIDEBAR
 // ============================================================
 
+const roleLabel = { creator: "Creator Portal", am: "Account Manager", account_manager: "Account Manager", owner: "Owner" };
+
+const navs = {
+  creator: [
+    {id:"dashboard",icon:"🏠",label:"Dashboard"},
+    {id:"jobs",icon:"💼",label:"Available Jobs"},
+    {id:"active-jobs",icon:"🎯",label:"My Active Jobs"},
+    {id:"submit",icon:"📤",label:"Submit Content"},
+    {id:"submissions",icon:"📁",label:"My Submissions"},
+    {id:"insights",icon:"✨",label:"Video Insights"},
+    {id:"earnings",icon:"💰",label:"Earnings"},
+  ],
+  am: [
+    {id:"dashboard",icon:"🏠",label:"Dashboard"},
+    {id:"review-queue",icon:"✅",label:"Review Queue"},
+    {id:"my-creators",icon:"👥",label:"My Creators"},
+    {id:"campaigns",icon:"📢",label:"Campaigns"},
+    {id:"clients",icon:"🏢",label:"My Clients"},
+    {id:"content-library",icon:"🎬",label:"Content Library"},
+    {id:"analytics",icon:"📊",label:"Analytics"},
+  ],
+  owner: [
+    {id:"dashboard",icon:"🏠",label:"Dashboard"},
+    {id:"pending-users",icon:"🔔",label:"Approve Users"},
+    {id:"clients-full",icon:"🏢",label:"Client Management"},
+    {id:"creators-manage",icon:"🎬",label:"Manage Creators"},
+    {id:"revenue",icon:"📈",label:"Revenue Analytics"},
+    {id:"payments",icon:"💸",label:"Payment Management"},
+    {id:"team",icon:"👥",label:"Team Performance"},
+    {id:"review-queue",icon:"✅",label:"Review Queue"},
+    {id:"campaigns",icon:"📢",label:"All Campaigns"},
+    {id:"content-library",icon:"🎬",label:"Content Library"},
+  ],
+};
+
 function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
   const rawRole = user.role || "creator";
   const role = rawRole === "account_manager" ? "am" : rawRole;
-  const roleLabel = { creator: "Creator Portal", am: "Account Manager", account_manager: "Account Manager", owner: "Owner" };
-
-  const navs = {
-    creator: [
-      {id:"dashboard",icon:"🏠",label:"Dashboard"},
-      {id:"jobs",icon:"💼",label:"Available Jobs"},
-      {id:"active-jobs",icon:"🎯",label:"My Active Jobs"},
-      {id:"submit",icon:"📤",label:"Submit Content"},
-      {id:"submissions",icon:"📁",label:"My Submissions"},
-      {id:"insights",icon:"✨",label:"Video Insights"},
-      {id:"earnings",icon:"💰",label:"Earnings"},
-    ],
-    am: [
-      {id:"dashboard",icon:"🏠",label:"Dashboard"},
-      {id:"review-queue",icon:"✅",label:"Review Queue",badge:pendingCount},
-      {id:"my-creators",icon:"👥",label:"My Creators"},
-      {id:"campaigns",icon:"📢",label:"Campaigns"},
-      {id:"clients",icon:"🏢",label:"My Clients"},
-      {id:"content-library",icon:"🎬",label:"Content Library"},
-      {id:"analytics",icon:"📊",label:"Analytics"},
-    ],
-    owner: [
-      {id:"dashboard",icon:"🏠",label:"Dashboard"},
-      {id:"pending-users",icon:"🔔",label:"Approve Users"},
-      {id:"clients-full",icon:"🏢",label:"Client Management"},
-      {id:"creators-manage",icon:"🎬",label:"Manage Creators"},
-      {id:"revenue",icon:"📈",label:"Revenue Analytics"},
-      {id:"payments",icon:"💸",label:"Payment Management"},
-      {id:"team",icon:"👥",label:"Team Performance"},
-      {id:"review-queue",icon:"✅",label:"Review Queue",badge:pendingCount},
-      {id:"campaigns",icon:"📢",label:"All Campaigns"},
-      {id:"content-library",icon:"🎬",label:"Content Library"},
-    ],
-  };
 
   return (
     <div className="sidebar">
@@ -808,7 +809,7 @@ function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
             <div key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>setPage(item.id)}>
               <span className="icon">{item.icon}</span>
               <span>{item.label}</span>
-              {item.badge>0 && <span className="nav-badge">{item.badge}</span>}
+              {item.badge || (item.id === "review-queue" ? pendingCount : 0) > 0 && <span className="nav-badge">{item.badge || pendingCount}</span>}
             </div>
           ))}
         </div>
@@ -3855,7 +3856,7 @@ function CreatorsManage({ db, onRefresh }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState(() => localStorage.getItem("last_page") || "dashboard");
   const [showSQL, setShowSQL] = useState(false);
   const [db, setDb] = useState({
     creators:[], clients:[], campaigns:[], submissions:[],
@@ -3865,36 +3866,53 @@ export default function App() {
   const [dbError, setDbError] = useState("");
   const [needsSetup, setNeedsSetup] = useState(false);
 
+  useEffect(() => {
+    localStorage.setItem("last_page", page);
+  }, [page]);
+
   // Check auth on load
   useEffect(() => {
-    supabase.auth.getSession().then(async({data:{session}})=>{
+    const initAuth = async () => {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
       if (session) {
-        const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",session.user.id).single();
-        if (profile) setUser({...session.user,...profile});
-        else {
-          // No profile yet — create as pending, never show owner setup to unknown users
-          const requestedRole = session.user.user_metadata?.requested_role || "creator";
-          await supabase.from("user_profiles").upsert({ id: session.user.id, email: session.user.email, full_name: session.user.email.split("@")[0], role: "pending", requested_role: requestedRole });
-          setUser({...session.user, role:"pending"});
-          setNeedsSetup(false);
+        try {
+          const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
+          if (profile) {
+            setUser({ ...session.user, ...profile });
+          } else {
+            const requestedRole = session.user.user_metadata?.requested_role || "creator";
+            const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
+              id: session.user.id, 
+              email: session.user.email, 
+              full_name: session.user.email.split("@")[0], 
+              role: "pending", 
+              requested_role: requestedRole 
+            }).select().single();
+            setUser({ ...session.user, ...(newProfile || { role: "pending" }) });
+          }
+        } catch (e) {
+          console.error("Auth init error:", e);
         }
       }
       setLoading(false);
-    });
-    const {data:{subscription}} = supabase.auth.onAuthStateChange(async(_,session)=>{
-      if (!session) { setUser(null); setNeedsSetup(false); }
-      else {
-        const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",session.user.id).single();
-        if (profile) setUser({...session.user,...profile});
-        else {
-          const requestedRole = session.user.user_metadata?.requested_role || "creator";
-          await supabase.from("user_profiles").upsert({ id: session.user.id, email: session.user.email, full_name: session.user.email.split("@")[0], role: "pending", requested_role: requestedRole });
-          setUser({...session.user, role:"pending"});
-        }
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setNeedsSetup(false);
+        localStorage.removeItem("last_page");
+      } else if (session) {
+        const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
+        if (profile) setUser({ ...session.user, ...profile });
       }
     });
-    return ()=>subscription.unsubscribe();
-  },[]);
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   const loadDB = useCallback(async()=>{
     if (!user) return;
@@ -3961,6 +3979,16 @@ export default function App() {
   const renderPage = ()=>{
     if(dbError&&!showSQL) return <div className="content"><ErrorMsg msg={dbError} onRetry={loadDB}/><div style={{marginTop:16}}><button className="btn btn-primary btn-sm" onClick={()=>setShowSQL(true)}>📋 View Database Setup SQL</button></div></div>;
     if(dbLoading) return <Spinner/>;
+
+    // Validate page for current role
+    const currentNavs = navs[role] || [];
+    const isPageValid = currentNavs.some(n => n.id === page);
+    
+    // If the page isn't valid for the role, reset to dashboard
+    if (!isPageValid && page !== "dashboard") {
+      setPage("dashboard");
+      return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db}/></ErrorBoundary>;
+    }
 
     if(role==="creator"){
       if(page==="dashboard") return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db}/></ErrorBoundary>;
