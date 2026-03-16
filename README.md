@@ -1,70 +1,51 @@
-# Getting Started with Create React App
+# Omnya Portal - Environment Variables
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project requires several environment variables to function correctly. These variables are used for authentication, API integrations, and database connections.
 
-## Available Scripts
+## Supabase
 
-In the project directory, you can run:
+- `SUPABASE_URL`: The URL of your Supabase project (e.g., `https://your-project.supabase.co`).
+- `SUPABASE_ANON_KEY`: The anonymous public key from your Supabase project settings (Project Settings -> API).
+- `SUPABASE_SERVICE_ROLE_KEY`: (Optional for server-side functions) The service role key with elevated privileges. **Do not expose this in client-side code.**
 
-### `npm start`
+## Social Media APIs
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+To enable analytics fetching for creators, you need to set up developer apps for the respective platforms and obtain API keys/tokens.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- `TIKTOK_APP_KEY`: Your TikTok Developer App Key.
+- `TIKTOK_APP_SECRET`: Your TikTok Developer App Secret.
+- `INSTAGRAM_APP_KEY`: Your Instagram/Meta App Key.
+- `INSTAGRAM_APP_SECRET`: Your Instagram/Meta App Secret.
+- `YOUTUBE_API_KEY`: Your Google Cloud Console Project API Key (enabled for YouTube Data API v3).
+- `FACEBOOK_APP_KEY`: Your Facebook/Meta App Key.
+- `FACEBOOK_APP_SECRET`: Your Facebook/Meta App Secret.
 
-### `npm test`
+## Email (Resend)
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- `RESEND_API_KEY`: Your Resend API key for sending transactional emails.
 
-### `npm run build`
+## Anthropic (AI)
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- `ANTHROPIC_API_KEY`: Your Anthropic API key for AI features (Video Insights).
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+---
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Adding Variables to Vercel
 
-### `npm run eject`
+1.  Go to your project dashboard on [Vercel](https://vercel.com).
+2.  Select your project.
+3.  Go to **Settings** -> **Environment Variables**.
+4.  Add each variable with its corresponding value.
+5.  Ensure you add `SUPABASE_URL` and `SUPABASE_ANON_KEY` as **Production**, **Development**, and **Preview** variables so they are available in all environments.
+6.  For server-side functions (like `/api/analytics`), you may also need to add `SUPABASE_SERVICE_ROLE_KEY` and any other secret keys.
+7.  Redeploy your project (or push a new commit) to ensure the new environment variables are loaded.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Local Development
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Create a `.env.local` file in the root directory (if not already present) to store these variables locally:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+```bash
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+# Add other keys as needed
+```

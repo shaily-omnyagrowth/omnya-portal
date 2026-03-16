@@ -10,21 +10,31 @@ import { createClient } from "@supabase/supabase-js";
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
-  componentDidCatch(error, info) { console.error("Portal error:", error, info); }
+  componentDidCatch(error, info) { 
+    console.error("Portal error:", error, info); 
+    const errorStr = String(error);
+    // Check for Supabase auth errors
+    if (errorStr.includes("JWT") || errorStr.includes("token") || errorStr.includes("auth") || errorStr.includes("not authorized")) {
+      // Clear storage
+      localStorage.clear();
+      sessionStorage.clear();
+      // If callback provided, use it (usually to clear user state)
+      if (this.props.onAuthError) {
+        this.props.onAuthError();
+      }
+    }
+  }
   render() {
     if (this.state.hasError) {
       return (
         <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9fafb",flexDirection:"column",gap:16,padding:24,textAlign:"center"}}>
           <div style={{fontSize:48}}>⚠️</div>
-          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Something went wrong</div>
+          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Session Expired</div>
           <div style={{fontSize:14,color:"#6b7280",maxWidth:340}}>
-            {this.props.label ? `Error in ${this.props.label}.` : "An unexpected error occurred."} Try refreshing.
+            {this.props.label ? `Error in ${this.props.label}.` : "Your session has expired or you are not authorized."} Please log in again.
           </div>
-          <button onClick={()=>this.setState({hasError:false,error:null})} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
-            Try Again
-          </button>
-          <button onClick={()=>window.location.reload()} style={{padding:"8px 20px",background:"transparent",color:"#6b7280",border:"1px solid #e5e7eb",borderRadius:8,cursor:"pointer",fontSize:13}}>
-            Reload Page
+          <button onClick={() => window.location.href = '/login'} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
+            Go to Login
           </button>
         </div>
       );
@@ -39,8 +49,8 @@ class ErrorBoundary extends React.Component {
 // SUPABASE CLIENT
 // ============================================================
 
-const SUPABASE_URL = "https://aglikzyarmqbdmjvkvyj.supabase.co";
-const SUPABASE_KEY = "sb_publishable_2akywmOmsDE6liiU-RcC0A_q3ZvkbNn";
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || "https://aglikzyarmqbdmjvkvyj.supabase.co";
+const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || "sb_publishable_2akywmOmsDE6liiU-RcC0A_q3ZvkbNn";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ============================================================
@@ -1367,10 +1377,10 @@ function AMClientSummaryBar({ client, db }) {
 
 function AMDashboard({ user, db }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
-  const myCreators = am?db.creators.filter(c=>c.am_id===am.id):db.creators;
-  const myClients = am?db.clients.filter(c=>c.am_id===am.id):db.clients;
-  const pendingC = db.submissions.filter(s=>s.concept_status==="Pending").length;
-  const pendingF = db.submissions.filter(s=>s.final_status==="Pending").length;
+  const myCreators = am?db.creators.filter(c=>c.am_id===am.id):[];
+  const myClients = am?db.clients.filter(c=>c.am_id===am.id):[];
+  const pendingC = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.concept_status==="Pending").length;
+  const pendingF = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.final_status==="Pending").length;
   const approvedWeek = db.submissions.filter(s=>s.final_status==="Approved"&&new Date(s.approved_date)>new Date(Date.now()-7*86400000)).length;
   if(!am) return <div className="content"><div className="empty"><div className="empty-icon">⚙️</div><h3>Account not fully set up</h3><p>Your account manager profile isn't linked yet. Contact Shai to get assigned to clients and creators.</p></div></div>;
   return (
@@ -2272,7 +2282,17 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
   const create = async () => {
     if (!form.name) { setErr("Client name is required"); return; }
     setSaving(true);
-    const { error } = await supabase.from("clients").insert({...form,videos_per_month:Number(form.videos_per_month),budget:Number(form.budget)});
+    
+    // Auto-assign AM if user is an AM
+    let finalForm = { ...form };
+    if (!isOwner && user) {
+      const myAM = db.accountManagers.find(am => am.email === user.email);
+      if (myAM) {
+        finalForm.am_id = myAM.id;
+      }
+    }
+
+    const { error } = await supabase.from("clients").insert({...finalForm,videos_per_month:Number(finalForm.videos_per_month),budget:Number(finalForm.budget)});
     if (error) { setErr(error.message); setSaving(false); return; }
     await onRefresh(); setShowCreate(false); setSaving(false);
     setForm(emptyForm);
@@ -2534,7 +2554,7 @@ function Analytics({ db }) {
 // OWNER PAGES
 // ============================================================
 
-function OwnerDashboard({ db, onRefresh }) {
+function OwnerDashboard({ db, onRefresh, setUser }) {
   const [pendingUsers, setPendingUsers] = useState([]);
   const [approvingSaving, setApprovingSaving] = useState(false);
 
@@ -2563,6 +2583,19 @@ function OwnerDashboard({ db, onRefresh }) {
     setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
     setApprovingSaving(false);
     await onRefresh();
+    try {
+      await supabase.auth.refreshSession();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
+        if (profile) {
+          const { data: { user } } = await supabase.auth.getUser();
+          setUser({ ...user, ...profile });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to refresh session:", err);
+    }
   };
 
   const denyUser = async(userId) => {
@@ -3842,6 +3875,14 @@ export default function App() {
         setShowSQL(true);
         setDbLoading(false); return;
       }
+      
+      const rawRole = user?.role||"creator";
+      const role = rawRole === "account_manager" ? "am" : rawRole;
+      
+      // const filteredAMs = (role === "owner" || role === "am") 
+      //   ? am.data?.filter(a => a.user_id === user.id) 
+      //   : [];
+
       setDb({
         creators:c.data||[], clients:cl.data||[], campaigns:cam.data||[],
         submissions:sub.data||[], accountManagers:am.data||[], payments:pay.data||[],
@@ -3907,7 +3948,7 @@ export default function App() {
       if(page==="payments") return <ErrorBoundary label="Payments"><PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/></ErrorBoundary>;
     }
     if(role==="owner"){
-      if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser}/></ErrorBoundary>;
       if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user}/></ErrorBoundary>;
@@ -3927,11 +3968,9 @@ export default function App() {
   if(needsSetup) return <><style>{styles}</style><SetupScreen user={user} onComplete={handleSetupComplete}/></>;
   if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
   if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
-  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
-  if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
 
   return (
-    <>
+    <ErrorBoundary label="App" onAuthError={handleLogout}>
       <style>{styles}</style>
       <div className="app">
         <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} onLogout={handleLogout}/>
@@ -3950,6 +3989,6 @@ export default function App() {
         </div>
       </div>
       {showSQL&&<SQLSetupModal onClose={()=>setShowSQL(false)}/>}
-    </>
+    </ErrorBoundary>
   );
 }
