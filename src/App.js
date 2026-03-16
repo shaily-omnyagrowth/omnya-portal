@@ -3956,6 +3956,8 @@ function ResetPassword({ onComplete }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingStatus, setLoadingStatus] = useState("Initializing...");
+  const [showBypass, setShowBypass] = useState(false);
   const [page, setPage] = useState(() => localStorage.getItem("last_page") || "dashboard");
   const [showSQL, setShowSQL] = useState(false);
   const [db, setDb] = useState({
@@ -3974,24 +3976,38 @@ export default function App() {
   // Check auth on load
   useEffect(() => {
     let mounted = true;
-    const initAuth = async () => {
+    
+    // Safety timeout: after 5s show bypass button, after 10s force clear
+    const timer1 = setTimeout(() => { if(mounted) setShowBypass(true); }, 5000);
+    const timer2 = setTimeout(() => { 
+      if(mounted) {
+        console.warn("Auth initialization safety timeout reached.");
+        setLoading(false);
+      }
+    }, 10000);
+
+    const init = async () => {
       try {
-        setLoading(true);
+        setLoadingStatus("Checking session...");
         const { data: { session } } = await supabase.auth.getSession();
+        
         if (session && mounted) {
-          const { data: profile, error } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
-          if (profile) {
-            setUser({ ...session.user, ...profile });
-          } else {
-            const requestedRole = session.user.user_metadata?.requested_role || "creator";
-            const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
-              id: session.user.id, 
-              email: session.user.email, 
-              full_name: session.user.email.split("@")[0], 
-              role: "pending", 
-              requested_role: requestedRole 
-            }).select().single();
-            setUser({ ...session.user, ...(newProfile || { role: "pending" }) });
+          setLoadingStatus("Fetching profile...");
+          const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+          if (mounted) {
+            if (profile) {
+              setUser({ ...session.user, ...profile });
+            } else {
+              const requestedRole = session.user.user_metadata?.requested_role || "creator";
+              const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
+                id: session.user.id, 
+                email: session.user.email, 
+                full_name: session.user.email.split("@")[0], 
+                role: "pending", 
+                requested_role: requestedRole 
+              }).select().maybeSingle();
+              setUser({ ...session.user, ...(newProfile || { role: "pending" }) });
+            }
           }
         }
       } catch (e) {
@@ -4001,15 +4017,7 @@ export default function App() {
       }
     };
 
-    // Safety timeout: if auth takes more than 8 seconds, stop loading
-    const timer = setTimeout(() => {
-      if (mounted) {
-        console.warn("Auth initialization timed out.");
-        setLoading(false);
-      }
-    }, 8000);
-
-    initAuth();
+    init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_OUT") {
@@ -4021,16 +4029,21 @@ export default function App() {
         }
       } else if (event === "PASSWORD_RECOVERY") {
         if (mounted) setIsRecoveryMode(true);
-      } else if (session && mounted) {
-        const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
-        if (profile && mounted) setUser({ ...session.user, ...profile });
-        else if (mounted) setUser(session.user);
+      } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        if (session && mounted) {
+          const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+          if (mounted) {
+            if (profile) setUser({ ...session.user, ...profile });
+            else setUser(session.user);
+          }
+        }
       }
     });
 
     return () => {
       mounted = false;
-      clearTimeout(timer);
+      clearTimeout(timer1);
+      clearTimeout(timer2);
       subscription.unsubscribe();
     };
   }, []);
@@ -4183,7 +4196,17 @@ export default function App() {
     </>
   );
 
-  if(loading) return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0c0c14",color:"#fff"}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3,borderColor:"rgba(255,255,255,0.1)",borderTopColor:"#3b82f6"}}/></div>);
+  if(loading) return wrapContent(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0c0c14",color:"#fff",flexDirection:"column",gap:24}}>
+      <div className="ai-spinner" style={{width:40,height:40,borderWidth:3,borderColor:"rgba(255,255,255,0.1)",borderTopColor:"#3b82f6"}}/>
+      <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",letterSpacing:"1px"}}>{loadingStatus}</div>
+      {showBypass && (
+        <button className="btn btn-ghost btn-sm" onClick={() => setLoading(false)} style={{marginTop:16}}>
+          Continue Anyway
+        </button>
+      )}
+    </div>
+  );
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>);
   if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>);
