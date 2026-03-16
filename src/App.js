@@ -2570,35 +2570,31 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
 
   const approveUser = async(userId, role, name) => {
     setApprovingSaving(true);
-    const profile = pendingUsers.find(u=>u.id===userId);
-    const email = profile?.email || "";
-    await supabase.from("user_profiles").update({role, full_name:name}).eq("id",userId);
-    if(role==="account_manager") {
-      await supabase.from("account_managers").upsert({name, email, user_id:userId},{onConflict:"email"});
-    }
-    if(role==="creator") {
-      const {data:existing} = await supabase.from("creators").select("id").eq("email",email).single();
-      if(!existing) {
-        await supabase.from("creators").insert({name, email, user_id:userId, status:"Active"});
-      } else {
-        await supabase.from("creators").update({user_id:userId, name}).eq("email",email);
-      }
-    }
-    setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
-    setApprovingSaving(false);
-    await onRefresh();
     try {
-      await supabase.auth.refreshSession();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).single();
-        if (profile) {
-          const { data: user } = await supabase.auth.getUser();
-          setUser({ ...user, ...profile });
-        }
+      const profile = pendingUsers.find(u=>u.id===userId);
+      const email = profile?.email || "";
+      
+      // Update the user role in user_profiles
+      const { error: upError } = await supabase.from("user_profiles").update({role, full_name:name}).eq("id",userId);
+      if(upError) throw upError;
+
+      if(role==="account_manager" || role==="am") {
+        const { error: amError } = await supabase.from("account_managers").upsert({name, email, user_id:userId},{onConflict:"email"});
+        if(amError) throw amError;
       }
+      
+      if(role==="creator") {
+        const { error: cError } = await supabase.from("creators").upsert({name, email, user_id:userId, status:"Active"},{onConflict:"email"});
+        if(cError) throw cError;
+      }
+      
+      setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
+      await onRefresh();
     } catch (err) {
-      console.error("Failed to refresh session:", err);
+      console.error("Failed to approve user:", err);
+      alert("Error approving user: " + err.message);
+    } finally {
+      setApprovingSaving(false);
     }
   };
 
@@ -3521,6 +3517,8 @@ create table if not exists submissions (
 create table if not exists payments (
   id uuid primary key default gen_random_uuid(),
   creator_id uuid references creators,
+  campaign_id uuid references campaigns,
+  submission_id uuid references submissions,
   week_ending date,
   videos_approved integer default 0,
   amount_owed numeric default 0,
@@ -3530,7 +3528,19 @@ create table if not exists payments (
   created_at timestamptz default now()
 );
 
--- Enable Row Level Security (basic - allow all for now, tighten later)
+-- 8. Messages (Forum)
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid references campaigns,
+  user_id uuid,
+  sender_name text,
+  content text,
+  reactions jsonb default '{}',
+  is_pinned boolean default false,
+  created_at timestamptz default now()
+);
+
+-- Enable Row Level Security (allow all for development)
 alter table user_profiles enable row level security;
 alter table creators enable row level security;
 alter table clients enable row level security;
@@ -3538,15 +3548,17 @@ alter table campaigns enable row level security;
 alter table submissions enable row level security;
 alter table payments enable row level security;
 alter table account_managers enable row level security;
+alter table messages enable row level security;
 
--- Allow all authenticated users to read/write for now
+-- Policies
 create policy "Allow all" on user_profiles for all using (true) with check (true);
 create policy "Allow all" on creators for all using (true) with check (true);
 create policy "Allow all" on clients for all using (true) with check (true);
 create policy "Allow all" on campaigns for all using (true) with check (true);
 create policy "Allow all" on submissions for all using (true) with check (true);
 create policy "Allow all" on payments for all using (true) with check (true);
-create policy "Allow all" on account_managers for all using (true) with check (true);`;
+create policy "Allow all" on account_managers for all using (true) with check (true);
+create policy "Allow all" on messages for all using (true) with check (true);`;
 
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(sql); setCopied(true); setTimeout(()=>setCopied(false),2000); };
@@ -3607,17 +3619,27 @@ function PendingUsers({ onRefresh }) {
 
   const assignRole = async (userId, email, role) => {
     setSaving(userId);
-    const displayName = names[userId] || email.split("@")[0];
-    await supabase.from("user_profiles").update({ role, full_name: displayName }).eq("id", userId);
-    if (role === "am") {
-      await supabase.from("account_managers").upsert({ user_id: userId, email, name: displayName }, { onConflict: "user_id" });
+    try {
+      const displayName = names[userId] || email.split("@")[0];
+      const { error: upError } = await supabase.from("user_profiles").update({ role, full_name: displayName }).eq("id", userId);
+      if(upError) throw upError;
+
+      if (role === "am" || role === "account_manager") {
+        const { error: amError } = await supabase.from("account_managers").upsert({ user_id: userId, email, name: displayName }, { onConflict: "email" });
+        if(amError) throw amError;
+      }
+      if (role === "creator") {
+        const { error: cError } = await supabase.from("creators").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "email" });
+        if(cError) throw cError;
+      }
+      loadPending();
+      onRefresh();
+    } catch(err) {
+      console.error("Failed to assign role:", err);
+      alert("Error assigning role: " + err.message);
+    } finally {
+      setSaving(null);
     }
-    if (role === "creator") {
-      await supabase.from("creators").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "user_id" });
-    }
-    setSaving(null);
-    loadPending();
-    onRefresh();
   };
 
   const denyUser = async (userId) => {
@@ -3866,13 +3888,14 @@ export default function App() {
     if (!user) return;
     setDbLoading(true); setDbError("");
     try {
-      const [c,cl,cam,sub,am,pay] = await Promise.all([
+      const [c,cl,cam,sub,am,pay,up] = await Promise.all([
         supabase.from("creators").select("*"),
         supabase.from("clients").select("*"),
         supabase.from("campaigns").select("*"),
         supabase.from("submissions").select("*"),
         supabase.from("account_managers").select("*"),
         supabase.from("payments").select("*"),
+        supabase.from("user_profiles").select("*")
       ]);
       if (c.error||cl.error||cam.error) {
         setDbError("Tables not found. Please run the database setup SQL first.");
@@ -3880,19 +3903,16 @@ export default function App() {
         setDbLoading(false); return;
       }
       
-      const rawRole = user?.role||"creator";
-      const role = rawRole === "account_manager" ? "am" : rawRole;
-      
-      // const filteredAMs = (role === "owner" || role === "am") 
-      //   ? am.data?.filter(a => a.user_id === user.id) 
-      //   : [];
-
       setDb({
         creators:c.data||[], clients:cl.data||[], campaigns:cam.data||[],
         submissions:sub.data||[], accountManagers:am.data||[], payments:pay.data||[],
+        userProfiles:up.data||[],
         _currentUser: user
       });
-    } catch(e) { setDbError("Failed to load data. Check your connection."); }
+    } catch(e) { 
+      console.error("DB Load Error:", e);
+      setDbError("Failed to load data. Check your connection."); 
+    }
     setDbLoading(false);
   },[user]);
 
@@ -3967,10 +3987,30 @@ export default function App() {
     return <div className="content"><div className="empty"><div className="empty-icon">🚧</div><h3>Coming soon</h3></div></div>;
   };
 
+  useEffect(() => {
+    let interval;
+    if (user?.role === "pending") {
+      interval = setInterval(async () => {
+        const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", user.id).single();
+        if (profile && profile.role !== "pending") {
+          setUser({ ...user, ...profile });
+        }
+      }, 10000); // Poll every 10s
+    }
+    return () => interval && clearInterval(interval);
+  }, [user]);
+
+  const checkStatus = async () => {
+    setLoading(true);
+    const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", user.id).single();
+    if (profile) setUser({ ...user, ...profile });
+    setLoading(false);
+  };
+
   if(loading) return <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>;
   if(!user) return <><style>{styles}</style><Login onLogin={handleLogin}/></>;
   if(needsSetup) return <><style>{styles}</style><SetupScreen user={user} onComplete={handleSetupComplete}/></>;
-  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
+  if(user.role==="pending") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div></>;
   if(user.role==="denied") return <><style>{styles}</style><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div></>;
 
   return (
