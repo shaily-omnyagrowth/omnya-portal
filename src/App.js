@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
 import { createClient } from "@supabase/supabase-js";
+import Legal from "./Legal";
 
 // ============================================================
 // ERROR BOUNDARY
@@ -799,6 +800,7 @@ const navs = {
     {id:"submissions",icon:"📁",label:"My Submissions"},
     {id:"insights",icon:"✨",label:"Video Insights"},
     {id:"earnings",icon:"💰",label:"Earnings"},
+    {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
   am: [
     {id:"dashboard",icon:"🏠",label:"Dashboard"},
@@ -808,6 +810,7 @@ const navs = {
     {id:"clients",icon:"🏢",label:"My Clients"},
     {id:"content-library",icon:"🎬",label:"Content Library"},
     {id:"analytics",icon:"📊",label:"Analytics"},
+    {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
   owner: [
     {id:"dashboard",icon:"🏠",label:"Dashboard"},
@@ -820,6 +823,7 @@ const navs = {
     {id:"review-queue",icon:"✅",label:"Review Queue"},
     {id:"campaigns",icon:"📢",label:"All Campaigns"},
     {id:"content-library",icon:"🎬",label:"Content Library"},
+    {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
 };
 
@@ -4121,6 +4125,7 @@ export default function App() {
     clients:"My Clients","content-library":"Content Library",analytics:"Analytics",
     "clients-full":"Client Management",revenue:"Revenue Analytics",
     payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users","creators-manage":"Manage Creators",
+    legal: "Legal Center",
   };
 
   const renderPage = ()=>{
@@ -4137,6 +4142,7 @@ export default function App() {
       if(page==="submissions") return <ErrorBoundary label="My Submissions"><MySubmissions user={user} db={db}/></ErrorBoundary>;
       if(page==="insights") return <ErrorBoundary label="Video Insights"><CreatorInsights user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="earnings") return <ErrorBoundary label="Earnings"><CreatorEarnings user={user} db={db}/></ErrorBoundary>;
+      if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="am"||role==="account_manager"){
       if(page==="dashboard") return <ErrorBoundary label="AM Dashboard"><AMDashboard user={user} db={db}/></ErrorBoundary>;
@@ -4149,6 +4155,7 @@ export default function App() {
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={false}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={false} user={user}/></ErrorBoundary>;
       if(page==="payments") return <ErrorBoundary label="Payments"><PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/></ErrorBoundary>;
+      if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="owner"){
       if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser}/></ErrorBoundary>;
@@ -4162,6 +4169,7 @@ export default function App() {
       if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="campaigns") return <ErrorBoundary label="Campaigns"><CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={true}/></ErrorBoundary>;
       if(page==="content-library") return <ErrorBoundary label="Content Library"><ContentLibrary db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     return <div className="content"><div className="empty"><div className="empty-icon">🚧</div><h3>Coming soon</h3></div></div>;
   };
