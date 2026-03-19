@@ -574,7 +574,9 @@ const checkSupabaseHealth = async () => {
 
   try {
     const authStart = Date.now();
-    const authRes = await fetch(`${SUPABASE_URL}/auth/v1/health`);
+    const authRes = await fetch(`${SUPABASE_URL}/auth/v1/health`, {
+      headers: { 'apikey': SUPABASE_KEY }
+    });
     diagnostic.authHealth = authRes.ok ? `OK (${Date.now() - authStart}ms)` : `Error: ${authRes.status}`;
   } catch (e) {
     diagnostic.authHealth = `Failed: ${e.message}`;
@@ -820,8 +822,8 @@ function Login({ onLogin }) {
       console.log("Sign in result:", { data, error });
       
       if (error) { 
-        console.error("Sign in failed. Error code:", error.status, "Message:", error.message);
-        setErr(`Sign in failed: ${error.message} (Code: ${error.status || 'unknown'})`); 
+        console.error("Sign in failed. Status:", error.status, "Msg:", error.message);
+        setErr(`Sign in failed: ${error.message} (${error.status || '401?'})`); 
         setLoading(false); 
         return; 
       }
