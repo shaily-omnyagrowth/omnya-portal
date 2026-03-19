@@ -4453,14 +4453,7 @@ export default function App() {
 
   // Loading screen removed as per user request
   
-  if(isPublicLegal) return wrapContent(
-    <div style={{padding:"60px 24px",background:"var(--bg)",minHeight:"100vh"}}>
-      <div style={{maxWidth:800,margin:"0 auto"}}>
-        <button className="btn btn-ghost btn-sm" style={{marginBottom:24}} onClick={()=>setIsPublicLegal(false)}>← Back to Portal</button>
-        <Legal />
-      </div>
-    </div>
-  );
+  if(isPublicLegal) return <Legal onBack={() => setIsPublicLegal(false)} />;
 
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>, true);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>, true);
