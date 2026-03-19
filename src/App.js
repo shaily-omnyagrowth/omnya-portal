@@ -814,7 +814,7 @@ function Login({ onLogin }) {
       }
       console.log("Attempting sign in for:", email);
       
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out. This might be due to a slow network or poor connectivity.")), 15000));
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out (60s). This may happen if the database is waking up or you have a poor connection. Please try again.")), 60000));
       const { data, error } = await Promise.race([supabase.auth.signInWithPassword({ email, password }), timeoutPromise]);
       
       console.log("Sign in result:", { data, error });
@@ -4279,7 +4279,7 @@ export default function App() {
   const handleLogin = async(u) => {
     console.log("handleLogin started for", u.id);
     try {
-      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error("Database operation timed out.")), 15000));
+      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error("Database operation timed out (60s).")), 60000));
       
       const {data:profile, error:profErr} = await Promise.race([
         supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle(),
