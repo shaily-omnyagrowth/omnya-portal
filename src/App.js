@@ -483,6 +483,75 @@ const styles = `
   .link:hover { text-decoration: underline; }
   .submit-link-row { display: flex; gap: 8px; align-items: center; }
   .submit-link-row input { flex: 1; }
+
+  /* MOBILE RESPONSIVENESS */
+  .mobile-toggle {
+    display: none;
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: var(--ink);
+    padding: 4px;
+  }
+
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 95;
+    backdrop-filter: blur(2px);
+  }
+
+  @media (max-width: 1024px) {
+    .sidebar {
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .sidebar.open {
+      transform: translateX(0);
+    }
+    .main {
+      margin-left: 0;
+    }
+    .topbar {
+      padding: 14px 20px;
+    }
+    .mobile-toggle {
+      display: block;
+    }
+    .sidebar-open .sidebar-overlay {
+      display: block;
+    }
+    .desktop-only {
+      display: none;
+    }
+    .stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .content {
+      padding: 20px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+    .grid-2 {
+      grid-template-columns: 1fr;
+    }
+    .login-card {
+      padding: 32px 24px;
+    }
+    .modal {
+      padding: 24px 20px;
+    }
+    .metric-mini-val {
+      font-size: 14px;
+    }
+  }
 `;
 
 // ============================================================
@@ -710,7 +779,7 @@ function Login({ onLogin }) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) { setErr(error.message); setLoading(false); return; }
       // Fetch user profile
-      const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", data.user.id).single();
+      const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
       onLogin({ ...data.user, ...profile });
     } catch(e) { setErr("Something went wrong. Try again."); }
     setLoading(false);
@@ -827,12 +896,12 @@ const navs = {
   ],
 };
 
-function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
+function Sidebar({ user, page, setPage, pendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
   const rawRole = user.role || "creator";
   const role = rawRole === "account_manager" ? "am" : rawRole;
 
   return (
-    <div className="sidebar">
+    <div className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>
       <div className="sidebar-header">
         <div className="sidebar-logo">
           <img src={LOGO_MARK_URI} alt="Omnya" style={{height:36,width:"auto"}} />
@@ -845,7 +914,7 @@ function Sidebar({ user, page, setPage, pendingCount, onLogout }) {
       <div className="sidebar-nav">
         <div className="nav-section">
           {(navs[role]||[]).map(item => (
-            <div key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>setPage(item.id)}>
+            <div key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>{setPage(item.id); setMobileMenuOpen(false);}}>
               <span className="icon">{item.icon}</span>
               <span>{item.label}</span>
               {item.badge || (item.id === "review-queue" ? pendingCount : 0) > 0 && <span className="nav-badge">{item.badge || pendingCount}</span>}
@@ -3960,6 +4029,7 @@ function ResetPassword({ onComplete }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
   const [showBypass, setShowBypass] = useState(false);
   const [page, setPage] = useState(() => localStorage.getItem("last_page") || "dashboard");
@@ -4100,7 +4170,7 @@ export default function App() {
   useEffect(()=>{ if(user&&!needsSetup) loadDB(); },[user,needsSetup,loadDB]);
 
   const handleLogin = async(u) => {
-    const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",u.id).single();
+    const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle();
     if (profile) { setUser({...u,...profile}); setNeedsSetup(false); }
     else {
       // New user - create pending profile automatically
@@ -4204,17 +4274,8 @@ export default function App() {
     </>
   );
 
-  if(loading) return wrapContent(
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0c0c14",color:"#fff",flexDirection:"column",gap:24}}>
-      <div className="ai-spinner" style={{width:40,height:40,borderWidth:3,borderColor:"rgba(255,255,255,0.1)",borderTopColor:"#3b82f6"}}/>
-      <div style={{fontSize:14,color:"rgba(255,255,255,0.5)",letterSpacing:"1px"}}>{loadingStatus}</div>
-      {showBypass && (
-        <button className="btn btn-ghost btn-sm" onClick={() => setLoading(false)} style={{marginTop:16}}>
-          Continue Anyway
-        </button>
-      )}
-    </div>
-  );
+  if(loading && !user) return null; // Very fast: show nothing until session checked
+  
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>);
   if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>);
@@ -4223,17 +4284,23 @@ export default function App() {
 
   return wrapContent(
     <>
-      <div className="app">
-        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} onLogout={handleLogout}/>
+      <div className={`app ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
+        <div className="sidebar-overlay" onClick={() => setMobileMenuOpen(false)}></div>
+        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}/>
         <div className="main">
           <div className="topbar">
-            <div>
-              <div className="page-title">{pageTitles[page]||page}</div>
-              <div className="page-sub">Omnya Creator Portal</div>
+            <div className="flex-center gap-12">
+              <button className="mobile-toggle" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+                {mobileMenuOpen ? '✕' : '☰'}
+              </button>
+              <div>
+                <div className="page-title">{pageTitles[page]||page}</div>
+                <div className="page-sub">Omnya Creator Portal</div>
+              </div>
             </div>
             <div className="flex-center gap-8">
-              {role==="owner"&&<button className="btn btn-ghost btn-sm" onClick={()=>setShowSQL(true)}>🗄️ DB Setup</button>}
-              <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
+              {role==="owner"&&<button className="btn btn-ghost btn-sm desktop-only" onClick={()=>setShowSQL(true)}>🗄️ DB Setup</button>}
+              <button className="btn btn-ghost btn-sm desktop-only" onClick={handleLogout}>Sign out</button>
             </div>
           </div>
           {renderPage()}
