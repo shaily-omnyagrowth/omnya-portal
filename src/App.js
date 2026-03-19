@@ -54,6 +54,11 @@ const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || process.env.SUPABASE_
 const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnbGlrenlhcm1xYmRtanZrdnlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MjMwNDcsImV4cCI6MjA4NzI5OTA0N30.vYAk33Z_x5lWkKc6zUhTxhHiWo2cZgk3dYmO7c0I6GM";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+console.log("Supabase initialized with URL:", SUPABASE_URL);
+if (!SUPABASE_URL || SUPABASE_URL.includes("your-project")) {
+  console.error("CRITICAL: Supabase URL is not configured correctly!");
+}
+
 // ============================================================
 // LOGO
 // ============================================================
@@ -4075,23 +4080,36 @@ export default function App() {
 
     const init = async () => {
       try {
+        console.log("Auth init: Checking session...");
         setLoadingStatus("Checking session...");
-        const { data: { session } } = await supabase.auth.getSession();
+        const sessionRes = await supabase.auth.getSession();
+        const session = sessionRes.data?.session;
+        const sessionError = sessionRes.error;
+        
+        if (sessionError) console.error("Auth init: getSession error:", sessionError.message);
+        console.log("Auth init: Session found?", !!session);
         
         if (session && mounted) {
+          console.log("Auth init: Fetching profile for", session.user.id);
           setLoadingStatus("Fetching profile...");
-          const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+          const profRes = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+          const profile = profRes.data;
+          const profError = profRes.error;
+          
+          if (profError) console.error("Auth init: Profile fetch error:", profError.message);
+          
           if (mounted) {
             if (profile) {
+              console.log("Auth init: Profile loaded:", profile.role);
               setUser({ ...session.user, ...profile });
             } else {
-              const requestedRole = session.user.user_metadata?.requested_role || "creator";
+              console.log("Auth init: No profile found, creating pending...");
               const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
                 id: session.user.id, 
                 email: session.user.email, 
                 full_name: session.user.email.split("@")[0], 
                 role: "pending", 
-                requested_role: requestedRole 
+                requested_role: session.user.user_metadata?.requested_role || "creator"
               }).select().maybeSingle();
               setUser({ ...session.user, ...(newProfile || { role: "pending" }) });
             }
@@ -4123,6 +4141,9 @@ export default function App() {
           const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
           if (mounted) {
             console.log("Profile found:", profile?.role);
+            if (!session.user.email_confirmed_at) {
+              console.warn("User email is NOT confirmed. This may block some Supabase features.");
+            }
             if (profile) setUser({ ...session.user, ...profile });
             else setUser(session.user);
           }
@@ -4155,6 +4176,7 @@ export default function App() {
     if (!user) return;
     setDbLoading(true); setDbError("");
     try {
+      console.log("loadDB: Fetching tables...");
       const [c,cl,cam,sub,am,pay,up] = await Promise.all([
         supabase.from("creators").select("*"),
         supabase.from("clients").select("*"),
@@ -4290,7 +4312,21 @@ export default function App() {
     </>
   );
 
-  if(loading && !user) return null; // Very fast: show nothing until session checked
+  if(loading && !user) {
+    return (
+      <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0A0A0A",color:"white",flexDirection:"column",gap:20,fontFamily:"Barlow, sans-serif"}}>
+        <img src={LOGO_URI} alt="Omnya" style={{height:40,animation:"pulse 2s infinite"}}/>
+        <div style={{fontSize:14,opacity:0.7,letterSpacing:"1px"}}>{loadingStatus}...</div>
+        {showBypass && (
+          <div style={{marginTop:20,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
+            <div style={{fontSize:12,color:"#ff4444"}}>Supabase seems to be taking too long. Check your network or project settings.</div>
+            <button className="btn btn-primary" onClick={() => setLoading(false)}>Bypass Loading</button>
+          </div>
+        )}
+        <style>{`@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }`}</style>
+      </div>
+    );
+  }
   
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>);
