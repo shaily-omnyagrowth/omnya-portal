@@ -106,6 +106,29 @@ const styles = `
 
   h1,h2,h3,h4,h5 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.5px; }
 
+  .public-footer {
+    padding: 32px 24px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--ink3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    background: transparent;
+    width: 100%;
+    margin-top: auto;
+  }
+  .public-footer span {
+    cursor: pointer;
+    transition: color 0.2s;
+  }
+  .public-footer span:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+
   /* LOGIN */
   .login-wrap {
     min-height: 100vh;
@@ -4117,6 +4140,8 @@ function ResetPassword({ onComplete }) {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [isPublicLegal, setIsPublicLegal] = useState(false);
+  const [publicLegalTab, setPublicLegalTab] = useState("tos");
   const [loading, setLoading] = useState(false);
   const rawRole = user?.role || "creator";
   const role = rawRole === "account_manager" ? "am" : rawRole;
@@ -4409,22 +4434,39 @@ export default function App() {
   };
 
   // Main Render Helper
-  const wrapContent = (content) => (
+  const wrapContent = (content, showFooter = false) => (
     <>
       <style>{styles}</style>
       <ErrorBoundary label="Global" onAuthError={handleLogout}>
-        {content}
+        <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+          {content}
+          {showFooter && (
+            <div className="public-footer">
+              <span onClick={() => { setIsPublicLegal(true); setPublicLegalTab("tos"); }}>Terms of Service</span>
+              <span onClick={() => { setIsPublicLegal(true); setPublicLegalTab("pp"); }}>Privacy Policy</span>
+            </div>
+          )}
+        </div>
       </ErrorBoundary>
     </>
   );
 
   // Loading screen removed as per user request
   
-  if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>);
-  if(!user) return wrapContent(<Login onLogin={handleLogin}/>);
-  if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>);
-  if(user.role==="pending") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>);
-  if(user.role==="denied") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>);
+  if(isPublicLegal) return wrapContent(
+    <div style={{padding:"60px 24px",background:"var(--bg)",minHeight:"100vh"}}>
+      <div style={{maxWidth:800,margin:"0 auto"}}>
+        <button className="btn btn-ghost btn-sm" style={{marginBottom:24}} onClick={()=>setIsPublicLegal(false)}>← Back to Portal</button>
+        <Legal />
+      </div>
+    </div>
+  );
+
+  if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>, true);
+  if(!user) return wrapContent(<Login onLogin={handleLogin}/>, true);
+  if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>, true);
+  if(user.role==="pending") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>, true);
+  if(user.role==="denied") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>, true);
   const usersPendingCount = db.userProfiles?.filter(u => u.role === "pending").length || 0;
 
   return wrapContent(
