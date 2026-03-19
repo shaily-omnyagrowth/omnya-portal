@@ -973,7 +973,7 @@ const navs = {
   ],
 };
 
-function Sidebar({ user, page, setPage, pendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
+function Sidebar({ user, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
   const rawRole = user.role || "creator";
   const role = rawRole === "account_manager" ? "am" : rawRole;
 
@@ -994,7 +994,8 @@ function Sidebar({ user, page, setPage, pendingCount, onLogout, mobileMenuOpen, 
             <div key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>{setPage(item.id); setMobileMenuOpen(false);}}>
               <span className="icon">{item.icon}</span>
               <span>{item.label}</span>
-              {item.badge || (item.id === "review-queue" ? pendingCount : 0) > 0 && <span className="nav-badge">{item.badge || pendingCount}</span>}
+              {item.id === "review-queue" && reviewPendingCount > 0 && <span className="nav-badge">{reviewPendingCount}</span>}
+              {item.id === "pending-users" && usersPendingCount > 0 && <span className="nav-badge">{usersPendingCount}</span>}
             </div>
           ))}
         </div>
@@ -4107,7 +4108,8 @@ function ResetPassword({ onComplete }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(false);
-  const role = user?.role || "creator";
+  const rawRole = user?.role || "creator";
+  const role = rawRole === "account_manager" ? "am" : rawRole;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
   const [showBypass, setShowBypass] = useState(false);
@@ -4310,9 +4312,8 @@ export default function App() {
   const handleLogout = async()=>{ await supabase.auth.signOut(); setUser(null); setPage("dashboard"); };
   const handleSetupComplete = ()=>{ setNeedsSetup(false); loadDB(); };
 
-  const rawRole = user?.role||"creator";
-  const role = rawRole === "account_manager" ? "am" : rawRole;
-  const pendingCount = db.submissions.filter(s=>s.concept_status==="Pending"||s.final_status==="Pending").length;
+
+  const reviewPendingCount = db.submissions.filter(s=>s.concept_status==="Pending"||s.final_status==="Pending").length;
 
   const pageTitles = {
     dashboard:"Dashboard",jobs:"Available Jobs","active-jobs":"My Active Jobs",
@@ -4407,13 +4408,13 @@ export default function App() {
   if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>);
   if(user.role==="pending") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>);
   if(user.role==="denied") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>);
-  const pendingCount = db.userProfiles?.filter(u => u.role === "pending").length || 0;
+  const usersPendingCount = db.userProfiles?.filter(u => u.role === "pending").length || 0;
 
   return wrapContent(
     <>
       <div className={`app ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-overlay" onClick={() => setMobileMenuOpen(false)}></div>
-        <Sidebar user={user} page={page} setPage={setPage} pendingCount={pendingCount} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}/>
+        <Sidebar user={user} page={page} setPage={setPage} reviewPendingCount={reviewPendingCount} usersPendingCount={usersPendingCount} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}/>
         <div className="main">
           <div className="topbar">
             <div className="flex-center gap-12">
