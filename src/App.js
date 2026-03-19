@@ -814,7 +814,8 @@ function Login({ onLogin }) {
       }
       console.log("Attempting sign in for:", email);
       
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out. This might be due to a slow network or poor connectivity.")), 15000));
+      const { data, error } = await Promise.race([supabase.auth.signInWithPassword({ email, password }), timeoutPromise]);
       
       console.log("Sign in result:", { data, error });
       
@@ -830,7 +831,10 @@ function Login({ onLogin }) {
       setLoading(false); // Clear the email/pass loading state
       
       console.log("Fetching profile for user:", data.user.id);
-      const { data: profile, error: profError } = await supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
+      const { data: profile, error: profError } = await Promise.race([
+        supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle(),
+        timeoutPromise
+      ]);
       
       console.log("Profile fetch result:", { profile, profError });
       
@@ -4275,7 +4279,12 @@ export default function App() {
   const handleLogin = async(u) => {
     console.log("handleLogin started for", u.id);
     try {
-      const {data:profile, error:profErr} = await supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle();
+      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error("Database operation timed out.")), 15000));
+      
+      const {data:profile, error:profErr} = await Promise.race([
+        supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle(),
+        timeoutPromise
+      ]);
       
       if (profErr) {
         console.error("handleLogin search error:", profErr.message);
@@ -4292,10 +4301,12 @@ export default function App() {
         const requestedRole = u.user_metadata?.requested_role || "pending";
         console.log("No profile found, creating with role:", requestedRole);
         
-        const { data: newProfile, error: upsertErr } = await supabase.from("user_profiles").upsert({ 
+        const upsertPromise = supabase.from("user_profiles").upsert({ 
           id: u.id, email: u.email, full_name: u.email.split("@")[0], 
           role: "pending", requested_role: requestedRole 
         }).select().maybeSingle();
+        
+        const { data: newProfile, error: upsertErr } = await Promise.race([upsertPromise, timeoutPromise]);
         
         if (upsertErr) console.error("Profile upsert failed:", upsertErr.message);
         
