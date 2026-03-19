@@ -776,12 +776,25 @@ function Login({ onLogin }) {
         setErr("Password reset link sent! Check your email.");
         setLoading(false); return;
       }
+      console.log("Attempting sign in for:", email);
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { setErr(error.message); setLoading(false); return; }
+      if (error) { 
+        console.error("Sign in error:", error.message);
+        setErr(error.message); 
+        setLoading(false); 
+        return; 
+      }
+      
+      console.log("User signed in:", data.user.id);
       // Fetch user profile
-      const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
+      const { data: profile, error: profError } = await supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
+      if (profError) console.warn("Profile fetch error:", profError.message);
+      
       onLogin({ ...data.user, ...profile });
-    } catch(e) { setErr("Something went wrong. Try again."); }
+    } catch(e) { 
+      console.error("Unexpected login error:", e);
+      setErr("Something went wrong. Try again."); 
+    }
     setLoading(false);
   };
 
@@ -4094,6 +4107,7 @@ export default function App() {
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth event:", event, session?.user?.id);
       if (event === "SIGNED_OUT") {
         if (mounted) {
           setUser(null);
@@ -4105,8 +4119,10 @@ export default function App() {
         if (mounted) setIsRecoveryMode(true);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         if (session && mounted) {
+          console.log("Fetching profile for signed in user...");
           const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
           if (mounted) {
+            console.log("Profile found:", profile?.role);
             if (profile) setUser({ ...session.user, ...profile });
             else setUser(session.user);
           }
