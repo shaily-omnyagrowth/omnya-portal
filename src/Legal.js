@@ -4,6 +4,8 @@ const Legal = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState('tos');
 
   const styles = `
+    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&display=swap');
+
     .legal-page {
       min-height: 100vh;
       background: #f7f5f4;
@@ -26,8 +28,8 @@ const Legal = ({ onBack }) => {
     }
     .legal-nav-logo {
       font-family: 'Bebas Neue', sans-serif;
-      font-size: 24px;
-      letter-spacing: 1px;
+      font-size: 26px;
+      letter-spacing: 0px;
     }
     .legal-nav-right {
       display: flex;
@@ -43,14 +45,14 @@ const Legal = ({ onBack }) => {
       text-transform: uppercase;
     }
     .legal-nav-btn {
-      background: #0a0a0a;
+      background: #1a1a1a;
       color: #fff;
       border: none;
       padding: 10px 24px;
       border-radius: 6px;
       font-family: 'Bebas Neue', sans-serif;
       font-size: 16px;
-      letter-spacing: 1px;
+      letter-spacing: 0.5px;
       cursor: pointer;
       transition: opacity 0.2s;
     }
@@ -75,10 +77,12 @@ const Legal = ({ onBack }) => {
     }
     .legal-hero-title {
       font-family: 'Bebas Neue', sans-serif;
-      font-size: 64px;
-      letter-spacing: 2px;
+      font-size: 80px;
+      letter-spacing: 0px;
+      font-weight: 400;
       line-height: 1;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
+      text-transform: uppercase;
     }
     .legal-hero-sub {
       font-size: 14px;
@@ -154,7 +158,7 @@ const Legal = ({ onBack }) => {
     .legal-section-title {
       font-family: 'Bebas Neue', sans-serif;
       font-size: 24px;
-      letter-spacing: 1px;
+      letter-spacing: 0.5px;
     }
     .legal-text {
       font-size: 15px;
