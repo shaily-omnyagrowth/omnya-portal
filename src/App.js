@@ -768,8 +768,19 @@ function Login({ onLogin }) {
     setLoading(true); setErr("");
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { requested_role: requestedRole } } });
-        if (error) { setErr(error.message); setLoading(false); return; }
+        console.log("Attempting signup for:", email);
+        const { data, error } = await supabase.auth.signUp({ 
+          email, 
+          password, 
+          options: { data: { requested_role: requestedRole } } 
+        });
+        if (error) { 
+          console.error("Signup error:", error.message, error.status);
+          setErr(error.message); 
+          setLoading(false); 
+          return; 
+        }
+        console.log("Signup success! Confirmation mail should be sent.");
         setErr("Check your email to confirm your account, then sign in.");
         setMode("login"); setLoading(false); return;
       }
@@ -782,7 +793,13 @@ function Login({ onLogin }) {
         setLoading(false); return;
       }
       console.log("Attempting sign in for:", email);
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      
+      // Use Promise.race to add a 15-second timeout to sign in
+      const loginPromise = supabase.auth.signInWithPassword({ email, password });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out. Please check your network connectivity.")), 15000));
+      
+      const { data, error } = await Promise.race([loginPromise, timeoutPromise]);
+      
       if (error) { 
         console.error("Sign in error:", error.message);
         setErr(error.message); 
@@ -791,16 +808,21 @@ function Login({ onLogin }) {
       }
       
       console.log("User signed in:", data.user.id);
-      // Fetch user profile
-      const { data: profile, error: profError } = await supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
+      
+      // Similarly for profile
+      setLoadingStatus("Fetching profile...");
+      const profilePromise = supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
+      const { data: profile, error: profError } = await Promise.race([profilePromise, timeoutPromise]);
+      
       if (profError) console.warn("Profile fetch error:", profError.message);
       
       onLogin({ ...data.user, ...profile });
     } catch(e) { 
       console.error("Unexpected login error:", e);
-      setErr("Something went wrong. Try again."); 
+      setErr(e.message || "Something went wrong. Try again."); 
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -4208,14 +4230,47 @@ export default function App() {
   useEffect(()=>{ if(user&&!needsSetup) loadDB(); },[user,needsSetup,loadDB]);
 
   const handleLogin = async(u) => {
-    const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle();
-    if (profile) { setUser({...u,...profile}); setNeedsSetup(false); }
-    else {
-      // New user - create pending profile automatically
-      const requestedRole = u.user_metadata?.requested_role || "pending";
-      await supabase.from("user_profiles").upsert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: "pending", requested_role: requestedRole });
-      setUser({...u, role:"pending"});
-      setNeedsSetup(false);
+    console.log("handleLogin started for", u.id);
+    try {
+      const timeout = 15000;
+      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error("Database operation timed out.")), timeout));
+      
+      const {data:profile, error:profErr} = await Promise.race([
+        supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle(),
+        timeoutPromise
+      ]);
+      
+      if (profErr) {
+        console.error("handleLogin search error:", profErr.message);
+        // Fallback to minimal user if search fails due to schema issues
+        setUser({...u, role: "pending"});
+        return;
+      }
+      
+      if (profile) { 
+        setUser({...u,...profile}); 
+        setNeedsSetup(false); 
+      } else {
+        // New user - create pending profile automatically
+        const requestedRole = u.user_metadata?.requested_role || "pending";
+        console.log("No profile found, creating with role:", requestedRole);
+        
+        const upsertPromise = supabase.from("user_profiles").upsert({ 
+          id: u.id, email: u.email, full_name: u.email.split("@")[0], 
+          role: "pending", requested_role: requestedRole 
+        }).select().maybeSingle();
+        
+        const { data: newProfile, error: upsertErr } = await Promise.race([upsertPromise, timeoutPromise]);
+        
+        if (upsertErr) console.error("Profile upsert failed:", upsertErr.message);
+        
+        setUser({...u, role: "pending", ...(newProfile || {})});
+        setNeedsSetup(false);
+      }
+    } catch(e) {
+      console.error("handleLogin fatal error:", e);
+      // Last resort fallback
+      setUser({...u, role: "pending"});
     }
   };
 
