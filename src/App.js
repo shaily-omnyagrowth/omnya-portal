@@ -13,29 +13,18 @@ class ErrorBoundary extends React.Component {
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
   componentDidCatch(error, info) { 
     console.error("Portal error:", error, info); 
-    const errorStr = String(error);
-    // Check for Supabase auth errors
-    if (errorStr.includes("JWT") || errorStr.includes("token") || errorStr.includes("auth") || errorStr.includes("not authorized")) {
-      // Clear storage
-      localStorage.clear();
-      sessionStorage.clear();
-      // If callback provided, use it (usually to clear user state)
-      if (this.props.onAuthError) {
-        this.props.onAuthError();
-      }
-    }
   }
   render() {
     if (this.state.hasError) {
       return (
         <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9fafb",flexDirection:"column",gap:16,padding:24,textAlign:"center"}}>
-          <div style={{fontSize:48}}>⚠️</div>
-          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Session Expired</div>
+          <div style={{fontSize:48}}>🛠️</div>
+          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Something went wrong</div>
           <div style={{fontSize:14,color:"#6b7280",maxWidth:340}}>
-            {this.props.label ? `Error in ${this.props.label}.` : "Your session has expired or you are not authorized."} Please log in again.
+            An unexpected error occurred. This might be due to a slow connection or a temporary issue.
           </div>
-          <button onClick={() => window.location.href = '/login'} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
-            Go to Login
+          <button onClick={() => window.location.reload()} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
+            Reload Page
           </button>
         </div>
       );
@@ -50,8 +39,8 @@ class ErrorBoundary extends React.Component {
 // SUPABASE CLIENT
 // ============================================================
 
-const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || process.env.SUPABASE_URL || "https://aglikzyarmqbdmjvkvyj.supabase.co";
-const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnbGlrenlhcm1xYmRtanZrdnlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MjMwNDcsImV4cCI6MjA4NzI5OTA0N30.vYAk33Z_x5lWkKc6zUhTxhHiWo2cZgk3dYmO7c0I6GM";
+const SUPABASE_URL = "https://aglikzyarmqbdmjvkvyj.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnbGlrenlhcm1xYmRtanZrdnlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MjMwNDcsImV4cCI6MjA4NzI5OTA0N30.vYAk33Z_x5lWkKc6zUhTxhHiWo2cZgk3dYmO7c0I6GM";
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 console.log("Supabase initialized with URL:", SUPABASE_URL);
@@ -563,6 +552,37 @@ const styles = `
 // HELPERS
 // ============================================================
 
+const checkSupabaseHealth = async () => {
+  const diagnostic = {
+    url: SUPABASE_URL,
+    origin: window.location.origin,
+    apiHealth: "Testing...",
+    authHealth: "Testing...",
+    details: ""
+  };
+  
+  try {
+    const apiStart = Date.now();
+    const apiRes = await fetch(`${SUPABASE_URL}/rest/v1/`, { 
+      method: 'HEAD',
+      headers: { 'apikey': SUPABASE_KEY }
+    });
+    diagnostic.apiHealth = apiRes.ok ? `OK (${Date.now() - apiStart}ms)` : `Error: ${apiRes.status}`;
+  } catch (e) {
+    diagnostic.apiHealth = `Failed: ${e.message}`;
+  }
+
+  try {
+    const authStart = Date.now();
+    const authRes = await fetch(`${SUPABASE_URL}/auth/v1/health`);
+    diagnostic.authHealth = authRes.ok ? `OK (${Date.now() - authStart}ms)` : `Error: ${authRes.status}`;
+  } catch (e) {
+    diagnostic.authHealth = `Failed: ${e.message}`;
+  }
+
+  return diagnostic;
+};
+
 const avatarColors = ["av-blue","av-green","av-gold","av-orange","av-red"];
 const getAvatarColor = (name) => avatarColors[(name||"?").charCodeAt(0) % avatarColors.length];
 const getInitials = (name) => (name||"?").split(" ").map(n=>n[0]).join("").toUpperCase().slice(0,2);
@@ -794,32 +814,35 @@ function Login({ onLogin }) {
       }
       console.log("Attempting sign in for:", email);
       
-      // Use Promise.race to add a 15-second timeout to sign in
-      const loginPromise = supabase.auth.signInWithPassword({ email, password });
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out. Please check your network connectivity.")), 15000));
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       
-      const { data, error } = await Promise.race([loginPromise, timeoutPromise]);
+      console.log("Sign in result:", { data, error });
       
       if (error) { 
-        console.error("Sign in error:", error.message);
-        setErr(error.message); 
+        console.error("Sign in failed. Error code:", error.status, "Message:", error.message);
+        setErr(`Sign in failed: ${error.message} (Code: ${error.status || 'unknown'})`); 
         setLoading(false); 
         return; 
       }
       
-      console.log("User signed in:", data.user.id);
+      console.log("User signed in successfully. ID:", data.user.id);
       
-      // Similarly for profile
-      setLoadingStatus("Fetching profile...");
-      const profilePromise = supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
-      const { data: profile, error: profError } = await Promise.race([profilePromise, timeoutPromise]);
+      setLoading(false); // Clear the email/pass loading state
       
-      if (profError) console.warn("Profile fetch error:", profError.message);
+      console.log("Fetching profile for user:", data.user.id);
+      const { data: profile, error: profError } = await supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle();
+      
+      console.log("Profile fetch result:", { profile, profError });
+      
+      if (profError) {
+        console.warn("Profile fetch error:", profError.message);
+        setErr(`Warning: Profile fetch error (${profError.message}). Logging in with limited access.`);
+      }
       
       onLogin({ ...data.user, ...profile });
     } catch(e) { 
-      console.error("Unexpected login error:", e);
-      setErr(e.message || "Something went wrong. Try again."); 
+      console.error("Unexpected login error caught:", e);
+      setErr(`Error: ${e.message || "Something went wrong"}. Check console for details.`); 
     } finally {
       setLoading(false);
     }
@@ -884,7 +907,21 @@ function Login({ onLogin }) {
           )}
         </div>
         <div className="demo-hints" style={{marginTop:20}}>
-          <p>First time setup</p>
+          <div className="flex-between">
+            <p>Connection Status</p>
+            <button 
+              className="btn btn-ghost" 
+              style={{fontSize:10, padding:"2px 8px"}}
+              onClick={async () => {
+                setErr("Running diagnostics...");
+                const results = await checkSupabaseHealth();
+                console.log("Diagnostic results:", results);
+                setErr(`API: ${results.apiHealth} | Auth: ${results.authHealth}`);
+              }}
+            >
+              Test Connection
+            </button>
+          </div>
           <div style={{fontSize:12,color:"var(--ink3)",lineHeight:1.7}}>
             After signing up, an admin will assign your role (Creator / AM / Owner). Contact your admin to get access.
           </div>
@@ -3712,14 +3749,15 @@ begin
   drop policy if exists "Allow all" on messages;
 end $$;
 
-create policy "Allow all" on user_profiles for all using (true) with check (true);
-create policy "Allow all" on creators for all using (true) with check (true);
-create policy "Allow all" on clients for all using (true) with check (true);
-create policy "Allow all" on campaigns for all using (true) with check (true);
-create policy "Allow all" on submissions for all using (true) with check (true);
-create policy "Allow all" on payments for all using (true) with check (true);
-create policy "Allow all" on account_managers for all using (true) with check (true);
-create policy "Allow all" on messages for all using (true) with check (true);`;
+create policy "Allow all" on messages for all using (true) with check (true);
+
+-- Performance Indexes
+create index if not exists idx_user_profiles_role on user_profiles(role);
+create index if not exists idx_creators_user_id on creators(user_id);
+create index if not exists idx_submissions_creator_id on submissions(creator_id);
+create index if not exists idx_submissions_campaign_id on submissions(campaign_id);
+create index if not exists idx_campaigns_status on campaigns(status);
+create index if not exists idx_payments_status on payments(status);`;
 
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(sql); setCopied(true); setTimeout(()=>setCopied(false),2000); };
@@ -4068,7 +4106,8 @@ function ResetPassword({ onComplete }) {
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const role = user?.role || "creator";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
   const [showBypass, setShowBypass] = useState(false);
@@ -4091,63 +4130,50 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     
-    // Safety timeout: after 5s show bypass button, after 10s force clear
-    const timer1 = setTimeout(() => { if(mounted) setShowBypass(true); }, 5000);
-    const timer2 = setTimeout(() => { 
-      if(mounted) {
-        console.warn("Auth initialization safety timeout reached.");
-        setLoading(false);
-      }
-    }, 10000);
-
+    // Auth init
     const init = async () => {
+      console.log("App: Starting auth init...");
       try {
-        console.log("Auth init: Checking session...");
-        setLoadingStatus("Checking session...");
-        const sessionRes = await supabase.auth.getSession();
-        const session = sessionRes.data?.session;
-        const sessionError = sessionRes.error;
+        const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+        console.log("App: getSession result:", { hasSession: !!session, sessionErr });
         
-        if (sessionError) console.error("Auth init: getSession error:", sessionError.message);
-        console.log("Auth init: Session found?", !!session);
-        
+        if (sessionErr) console.error("App: getSession error:", sessionErr.message);
+
         if (session && mounted) {
-          console.log("Auth init: Fetching profile for", session.user.id);
-          setLoadingStatus("Fetching profile...");
-          const profRes = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
-          const profile = profRes.data;
-          const profError = profRes.error;
-          
-          if (profError) console.error("Auth init: Profile fetch error:", profError.message);
-          
+          console.log("App: Session found for user:", session.user.id);
+          const { data: profile, error: profErr } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+          console.log("App: Initial profile fetch:", { profile, profErr });
+
           if (mounted) {
             if (profile) {
-              console.log("Auth init: Profile loaded:", profile.role);
+              console.log("App: Profile found, setting user state.");
               setUser({ ...session.user, ...profile });
             } else {
-              console.log("Auth init: No profile found, creating pending...");
-              const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
+              console.log("App: No profile found, creating pending profile...");
+              const { data: newProfile, error: upsertErr } = await supabase.from("user_profiles").upsert({ 
                 id: session.user.id, 
                 email: session.user.email, 
                 full_name: session.user.email.split("@")[0], 
-                role: "pending", 
-                requested_role: session.user.user_metadata?.requested_role || "creator"
+                role: "pending"
               }).select().maybeSingle();
+              
+              if (upsertErr) console.error("App: Profile upsert error:", upsertErr.message);
+              console.log("App: New profile result:", newProfile);
+              
               setUser({ ...session.user, ...(newProfile || { role: "pending" }) });
             }
           }
+        } else if (!session) {
+          console.log("App: No active session found.");
         }
       } catch (e) {
-        console.error("Auth init error:", e);
-      } finally {
-        if (mounted) setLoading(false);
+        console.error("App: Auth init fatal error:", e);
       }
     };
 
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth event:", event, session?.user?.id);
       if (event === "SIGNED_OUT") {
         if (mounted) {
           setUser(null);
@@ -4159,13 +4185,8 @@ export default function App() {
         if (mounted) setIsRecoveryMode(true);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         if (session && mounted) {
-          console.log("Fetching profile for signed in user...");
           const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
           if (mounted) {
-            console.log("Profile found:", profile?.role);
-            if (!session.user.email_confirmed_at) {
-              console.warn("User email is NOT confirmed. This may block some Supabase features.");
-            }
             if (profile) setUser({ ...session.user, ...profile });
             else setUser(session.user);
           }
@@ -4175,8 +4196,6 @@ export default function App() {
 
     return () => {
       mounted = false;
-      clearTimeout(timer1);
-      clearTimeout(timer2);
       subscription.unsubscribe();
     };
   }, []);
@@ -4199,25 +4218,47 @@ export default function App() {
     setDbLoading(true); setDbError("");
     try {
       console.log("loadDB: Fetching tables...");
-      const [c,cl,cam,sub,am,pay,up] = await Promise.all([
-        supabase.from("creators").select("*"),
-        supabase.from("clients").select("*"),
-        supabase.from("campaigns").select("*"),
-        supabase.from("submissions").select("*"),
-        supabase.from("account_managers").select("*"),
-        supabase.from("payments").select("*"),
-        supabase.from("user_profiles").select("*")
-      ]);
-      if (c.error||cl.error||cam.error) {
-        setDbError("Tables not found. Please run the database setup SQL first.");
-        setShowSQL(true);
-        setDbLoading(false); return;
+      
+      const tables = [
+        { key: 'creators', name: 'creators' },
+        { key: 'clients', name: 'clients' },
+        { key: 'campaigns', name: 'campaigns' },
+        { key: 'submissions', name: 'submissions' },
+        { key: 'accountManagers', name: 'account_managers' },
+        { key: 'payments', name: 'payments' },
+        { key: 'userProfiles', name: 'user_profiles' }
+      ];
+
+      const results = {};
+      const errors = [];
+
+      await Promise.all(tables.map(async (t) => {
+        const { data, error } = await supabase.from(t.name).select("*");
+        if (error) {
+          console.error(`Error loading ${t.name}:`, error.message);
+          errors.push(t.name);
+        } else {
+          results[t.key] = data || [];
+        }
+      }));
+
+      if (errors.length > 0) {
+        if (errors.includes("creators") || errors.includes("user_profiles")) {
+          setDbError(`Core tables (${errors.join(", ")}) not found. Please run the SQL setup.`);
+          setShowSQL(true);
+        } else {
+          console.warn("Some secondary tables missing:", errors);
+        }
       }
       
       setDb({
-        creators:c.data||[], clients:cl.data||[], campaigns:cam.data||[],
-        submissions:sub.data||[], accountManagers:am.data||[], payments:pay.data||[],
-        userProfiles:up.data||[],
+        creators: results.creators || [],
+        clients: results.clients || [],
+        campaigns: results.campaigns || [],
+        submissions: results.submissions || [],
+        accountManagers: results.accountManagers || [],
+        payments: results.payments || [],
+        userProfiles: results.userProfiles || [],
         _currentUser: user
       });
     } catch(e) { 
@@ -4232,13 +4273,7 @@ export default function App() {
   const handleLogin = async(u) => {
     console.log("handleLogin started for", u.id);
     try {
-      const timeout = 15000;
-      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error("Database operation timed out.")), timeout));
-      
-      const {data:profile, error:profErr} = await Promise.race([
-        supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle(),
-        timeoutPromise
-      ]);
+      const {data:profile, error:profErr} = await supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle();
       
       if (profErr) {
         console.error("handleLogin search error:", profErr.message);
@@ -4255,12 +4290,10 @@ export default function App() {
         const requestedRole = u.user_metadata?.requested_role || "pending";
         console.log("No profile found, creating with role:", requestedRole);
         
-        const upsertPromise = supabase.from("user_profiles").upsert({ 
+        const { data: newProfile, error: upsertErr } = await supabase.from("user_profiles").upsert({ 
           id: u.id, email: u.email, full_name: u.email.split("@")[0], 
           role: "pending", requested_role: requestedRole 
         }).select().maybeSingle();
-        
-        const { data: newProfile, error: upsertErr } = await Promise.race([upsertPromise, timeoutPromise]);
         
         if (upsertErr) console.error("Profile upsert failed:", upsertErr.message);
         
@@ -4367,27 +4400,14 @@ export default function App() {
     </>
   );
 
-  if(loading && !user) {
-    return (
-      <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0A0A0A",color:"white",flexDirection:"column",gap:20,fontFamily:"Barlow, sans-serif"}}>
-        <img src={LOGO_URI} alt="Omnya" style={{height:40,animation:"pulse 2s infinite"}}/>
-        <div style={{fontSize:14,opacity:0.7,letterSpacing:"1px"}}>{loadingStatus}...</div>
-        {showBypass && (
-          <div style={{marginTop:20,display:"flex",flexDirection:"column",alignItems:"center",gap:10}}>
-            <div style={{fontSize:12,color:"#ff4444"}}>Supabase seems to be taking too long. Check your network or project settings.</div>
-            <button className="btn btn-primary" onClick={() => setLoading(false)}>Bypass Loading</button>
-          </div>
-        )}
-        <style>{`@keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }`}</style>
-      </div>
-    );
-  }
+  // Loading screen removed as per user request
   
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>);
   if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>);
   if(user.role==="pending") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>);
   if(user.role==="denied") return wrapContent(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>);
+  const pendingCount = db.userProfiles?.filter(u => u.role === "pending").length || 0;
 
   return wrapContent(
     <>
