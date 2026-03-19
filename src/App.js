@@ -912,6 +912,10 @@ function Login({ onLogin }) {
             <>Already have an account? <span style={{color:"var(--blue)",cursor:"pointer",fontWeight:600}} onClick={()=>{setMode("login");setErr("");}}>Sign in</span></>
           )}
         </div>
+
+        <div style={{textAlign:"center",marginTop:24,fontSize:10,color:"var(--ink4)",opacity:0.5}}>
+          v1.0.5
+        </div>
         <div className="demo-hints" style={{marginTop:20}}>
           <div className="flex-between">
             <p>Connection Status</p>
