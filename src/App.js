@@ -991,8 +991,11 @@ const navs = {
 };
 
 function Sidebar({ user, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
-  const rawRole = user.role || "creator";
-  const role = rawRole === "account_manager" ? "am" : rawRole;
+  const SUPER_ADMINS = ['shaily@omnya.com', 'shaily@omnyagrowth.com'];
+  const userEmail = (user?.email || "").toLowerCase().trim();
+  let rawRole = user?.role || "creator";
+  if (SUPER_ADMINS.includes(userEmail)) rawRole = "owner";
+  let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
 
   return (
     <div className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>
@@ -4127,12 +4130,12 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
-  const [loading, setLoading] = useState(false);
-  let rawRole = user?.role || "pending";
+  const [loading, setLoading] = useState(true); // Start as true for initial session check
+  const SUPER_ADMINS = ['shaily@omnya.com', 'shaily@omnyagrowth.com'];
   const userEmail = (user?.email || "").toLowerCase().trim();
-  if (userEmail === 'shaily@omnya.com') rawRole = "owner";
-  let role = rawRole === "account_manager" ? "am" : rawRole;
-  if (role === "admin") role = "owner";
+  let rawRole = user?.role || "pending";
+  if (SUPER_ADMINS.includes(userEmail)) rawRole = "owner";
+  let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
   const [showBypass, setShowBypass] = useState(false);
@@ -4190,9 +4193,11 @@ export default function App() {
           }
         } else if (!session) {
           console.log("App: No active session found.");
+          setLoading(false);
         }
       } catch (e) {
         console.error("App: Auth init fatal error:", e);
+        setLoading(false);
       }
     };
 
@@ -4228,15 +4233,18 @@ export default function App() {
   // Sync page validation
   useEffect(() => {
     if (user) {
+      const SUPER_ADMINS = ['shaily@omnya.com', 'shaily@omnyagrowth.com'];
+      const userEmail = (user?.email || "").toLowerCase().trim();
       let rawRole = user?.role || "creator";
-      if (user?.email?.toLowerCase() === 'shaily@omnya.com') rawRole = "owner";
-      let role = rawRole === "account_manager" ? "am" : rawRole;
-      if (role === "admin") role = "owner";
-      const currentNavs = navs[role] || [];
+      if (SUPER_ADMINS.includes(userEmail)) rawRole = "owner";
+      let checkRole = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
+      
+      const currentNavs = navs[checkRole] || [];
       const isPageValid = currentNavs.some(n => n.id === page);
       if (!isPageValid && page !== "dashboard") {
         setPage("dashboard");
       }
+      setLoading(false); // Ensure loading is cleared once user is validated
     }
   }, [user, page]);
 
@@ -4437,6 +4445,9 @@ export default function App() {
   // Loading screen removed as per user request
   
   if(isPublicLegal) return <Legal onBack={() => { if(path === '/termsofservice' || path === '/privacypolicy') window.location.href = '/'; else setIsPublicLegal(false); }} initialTab={publicLegalTab} />;
+
+  // Display initialization spinner while checking session
+  if (loading && !user) return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><Spinner/><div style={{fontSize:14,color:"var(--ink3)"}}>Restoring session...</div></div>, false);
 
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>, true);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>, true);
