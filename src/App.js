@@ -852,23 +852,7 @@ function Login({ onLogin }) {
       }
       
       console.log("User signed in successfully. ID:", data.user.id);
-      
-      setLoading(false); // Clear the email/pass loading state
-      
-      console.log("Fetching profile for user:", data.user.id);
-      const { data: profile, error: profError } = await Promise.race([
-        supabase.from("user_profiles").select("*").eq("id", data.user.id).maybeSingle(),
-        timeoutPromise
-      ]);
-      
-      console.log("Profile fetch result:", { profile, profError });
-      
-      if (profError) {
-        console.warn("Profile fetch error:", profError.message);
-        setErr(`Warning: Profile fetch error (${profError.message}). Logging in with limited access.`);
-      }
-      
-      onLogin({ ...data.user, ...profile });
+      onLogin(data.user);
     } catch(e) { 
       console.error("Unexpected login error caught:", e);
       setErr(`Error: ${e.message || "Something went wrong"}. Check console for details.`); 
@@ -4314,46 +4298,25 @@ export default function App() {
   useEffect(()=>{ if(user&&!needsSetup) loadDB(); },[user,needsSetup,loadDB]);
 
   const handleLogin = async(u) => {
-    console.log("handleLogin started for", u.id);
+    console.log("handleLogin: instant login for", u.id);
+    setUser(u); // Set user immediately for UI response
+    setNeedsSetup(false);
+    
+    // Background profile fetch/sync
     try {
-      const timeoutPromise = new Promise((_, rej) => setTimeout(() => rej(new Error("Database operation timed out (60s).")), 60000));
-      
-      const {data:profile, error:profErr} = await Promise.race([
-        supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle(),
-        timeoutPromise
-      ]);
-      
-      if (profErr) {
-        console.error("handleLogin search error:", profErr.message);
-        // Fallback to minimal user if search fails due to schema issues
-        setUser({...u, role: "pending"});
-        return;
-      }
-      
+      const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle();
       if (profile) { 
-        setUser({...u,...profile}); 
-        setNeedsSetup(false); 
+        setUser(prev => ({...prev, ...profile})); 
       } else {
-        // New user - create pending profile automatically
-        const requestedRole = u.user_metadata?.requested_role || "pending";
-        console.log("No profile found, creating with role:", requestedRole);
-        
-        const upsertPromise = supabase.from("user_profiles").upsert({ 
+        const requestedRole = u.user_metadata?.requested_role || "creator";
+        const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
           id: u.id, email: u.email, full_name: u.email.split("@")[0], 
-          role: "pending", requested_role: requestedRole 
+          role: "creator", requested_role: requestedRole 
         }).select().maybeSingle();
-        
-        const { data: newProfile, error: upsertErr } = await Promise.race([upsertPromise, timeoutPromise]);
-        
-        if (upsertErr) console.error("Profile upsert failed:", upsertErr.message);
-        
-        setUser({...u, role: "pending", ...(newProfile || {})});
-        setNeedsSetup(false);
+        if (newProfile) setUser(prev => ({...prev, ...newProfile}));
       }
     } catch(e) {
-      console.error("handleLogin fatal error:", e);
-      // Last resort fallback
-      setUser({...u, role: "pending"});
+      console.warn("Background profile sync failed:", e.message);
     }
   };
 
