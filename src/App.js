@@ -4161,6 +4161,15 @@ export default function App() {
     // Auth init
     const init = async () => {
       console.log("App: Starting auth init...");
+      // Timeout safety: if auth takes more than 5s, something is hung—clear loading state
+      const safetyTimeout = setTimeout(() => {
+        if (mounted) {
+          console.warn("App: Auth init safety timeout triggered.");
+          setLoading(false);
+          setLoadingStatus("");
+        }
+      }, 5000);
+
       try {
         const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
         console.log("App: getSession result:", { hasSession: !!session, sessionErr });
@@ -4173,6 +4182,7 @@ export default function App() {
           console.log("App: Initial profile fetch:", { profile, profErr });
 
           if (mounted) {
+            clearTimeout(safetyTimeout);
             if (profile) {
               console.log("App: Profile found, setting user state.");
               setUser({ ...session.user, ...profile });
@@ -4193,10 +4203,12 @@ export default function App() {
           }
         } else if (!session) {
           console.log("App: No active session found.");
+          clearTimeout(safetyTimeout);
           setLoading(false);
         }
       } catch (e) {
         console.error("App: Auth init fatal error:", e);
+        clearTimeout(safetyTimeout);
         setLoading(false);
       }
     };
@@ -4221,6 +4233,7 @@ export default function App() {
             else setUser(session.user);
           }
         }
+        if (mounted) setLoading(false);
       }
     });
 
