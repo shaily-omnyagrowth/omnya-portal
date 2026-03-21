@@ -4139,9 +4139,10 @@ function ResetPassword({ onComplete }) {
 }
 
 export default function App() {
+  const path = window.location.pathname.toLowerCase();
   const [user, setUser] = useState(null);
-  const [isPublicLegal, setIsPublicLegal] = useState(false);
-  const [publicLegalTab, setPublicLegalTab] = useState("tos");
+  const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
+  const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(false);
   const rawRole = user?.role || "creator";
   const role = rawRole === "account_manager" ? "am" : rawRole;
@@ -4442,8 +4443,8 @@ export default function App() {
           {content}
           {showFooter && (
             <div className="public-footer">
-              <span onClick={() => { setIsPublicLegal(true); setPublicLegalTab("tos"); }}>Terms of Service</span>
-              <span onClick={() => { setIsPublicLegal(true); setPublicLegalTab("pp"); }}>Privacy Policy</span>
+              <a href="/termsofservice" style={{textDecoration: 'none', color: 'inherit'}}>Terms of Service</a>
+              <a href="/privacypolicy" style={{textDecoration: 'none', color: 'inherit'}}>Privacy Policy</a>
             </div>
           )}
         </div>
@@ -4453,7 +4454,7 @@ export default function App() {
 
   // Loading screen removed as per user request
   
-  if(isPublicLegal) return <Legal onBack={() => setIsPublicLegal(false)} />;
+  if(isPublicLegal) return <Legal onBack={() => { if(path === '/termsofservice' || path === '/privacypolicy') window.location.href = '/'; else setIsPublicLegal(false); }} initialTab={publicLegalTab} />;
 
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>, true);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>, true);

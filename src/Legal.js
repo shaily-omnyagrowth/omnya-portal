@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
-const Legal = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState('tos');
+const Legal = ({ onBack, initialTab = 'tos' }) => {
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;700&display=swap');
@@ -250,13 +250,13 @@ const Legal = ({ onBack }) => {
         <div className="legal-tabs">
           <div 
             className={`legal-tab ${activeTab === 'tos' ? 'active' : ''}`}
-            onClick={() => setActiveTab('tos')}
+            onClick={() => { setActiveTab('tos'); window.history.pushState(null, '', '/termsofservice'); }}
           >
             Terms of Service
           </div>
           <div 
             className={`legal-tab ${activeTab === 'pp' ? 'active' : ''}`}
-            onClick={() => setActiveTab('pp')}
+            onClick={() => { setActiveTab('pp'); window.history.pushState(null, '', '/privacypolicy'); }}
           >
             Privacy Policy
           </div>
