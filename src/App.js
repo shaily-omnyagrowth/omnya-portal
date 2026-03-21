@@ -4144,8 +4144,10 @@ export default function App() {
   const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(false);
-  const rawRole = user?.role || "creator";
-  const role = rawRole === "account_manager" ? "am" : rawRole;
+  let rawRole = user?.role || "creator";
+  if (user?.email?.toLowerCase() === 'shaily@omnya.com') rawRole = "owner";
+  let role = rawRole === "account_manager" ? "am" : rawRole;
+  if (role === "admin") role = "owner";
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
   const [showBypass, setShowBypass] = useState(false);
@@ -4241,8 +4243,10 @@ export default function App() {
   // Sync page validation
   useEffect(() => {
     if (user) {
-      const rawRole = user?.role || "creator";
-      const role = rawRole === "account_manager" ? "am" : rawRole;
+      let rawRole = user?.role || "creator";
+      if (user?.email?.toLowerCase() === 'shaily@omnya.com') rawRole = "owner";
+      let role = rawRole === "account_manager" ? "am" : rawRole;
+      if (role === "admin") role = "owner";
       const currentNavs = navs[role] || [];
       const isPageValid = currentNavs.some(n => n.id === page);
       if (!isPageValid && page !== "dashboard") {
@@ -4459,8 +4463,8 @@ export default function App() {
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>, true);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>, true);
   if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>, true);
-  if(user.role==="pending") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>, true);
-  if(user.role==="denied") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>, true);
+  if(rawRole==="pending") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus}>Check Status</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>, true);
+  if(rawRole==="denied") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>, true);
   const usersPendingCount = db.userProfiles?.filter(u => u.role === "pending").length || 0;
 
   return wrapContent(
