@@ -226,7 +226,7 @@ const Legal = ({ onBack, initialTab = 'tos' }) => {
       { id: '03', title: 'THIRD-PARTY SHARING', text: 'Information may be shared with brand partners only as necessary to fulfill specific campaign requirements.' },
       { id: '04', title: 'SECURITY', text: 'We implement industry-standard security measures to protect your data. However, no method of transmission over the internet is 100% secure.' },
       { id: '05', title: 'YOUR RIGHTS', text: 'You have the right to request access to or deletion of your personal data at any time by contacting our support team.' },
-      { id: '06', title: 'VERIFICATION', text: 'tiktok-developers-site-verification=Q226FSYAo6ElRxPxLYg6H9jbwNOHkAd9' }
+      { id: '06', title: 'VERIFICATION', text: 'tiktok-developers-site-verification=bHGO5moTndtQNl5u2WIG21Gf3t2J3SnI' }
     ]
   };
 
