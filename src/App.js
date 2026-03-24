@@ -4126,7 +4126,7 @@ function ResetPassword({ onComplete }) {
 }
 
 export default function App() {
-  const path = window.location.pathname.toLowerCase();
+  const path = window.location.pathname.toLowerCase().replace(/\/+$/, "") || "/";
   const [user, setUser] = useState(null);
   const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
