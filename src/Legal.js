@@ -217,7 +217,8 @@ const Legal = ({ onBack, initialTab = 'tos' }) => {
       { id: '06', title: 'CONFIDENTIALITY', text: 'Both parties agree to keep confidential any proprietary information shared during the engagement, including but not limited to campaign strategies, pricing, and business operations.' },
       { id: '07', title: 'LIMITATION OF LIABILITY', text: 'Omnya Growth is not liable for indirect, incidental, or consequential damages arising from the use of our services. Our total liability shall not exceed the amount paid by you in the 30 days preceding the claim.' },
       { id: '08', title: 'TERMINATION', text: 'Either party may terminate the engagement with written notice as specified in your agreement. Upon termination, all outstanding payments become immediately due.' },
-      { id: '09', title: 'GOVERNING LAW', text: 'These terms are governed by the laws of the United States. Any disputes shall be resolved through binding arbitration.' }
+      { id: '09', title: 'GOVERNING LAW', text: 'These terms are governed by the laws of the United States. Any disputes shall be resolved through binding arbitration.' },
+      { id: '10', title: 'VERIFICATION', text: 'tiktok-developers-site-verification=qonrZcPu4hmwzTrTyUhOss4Ovk6U5ryo' }
     ],
     pp: [
       { id: '01', title: 'INFORMATION COLLECTION', text: 'We collect information you provide directly to us, including your name, email, payment details, and social media profiles needed for campaign fulfillment.' },
