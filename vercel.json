@@ -1,14 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/tiktokqonrZcPu4hmwzTrTyUhOss4Ovk6U5ryo.txt",
-      "destination": "/termsofservice/tiktokqonrZcPu4hmwzTrTyUhOss4Ovk6U5ryo.txt"
-    },
-    {
-      "source": "/tiktokbHGO5moTndtQNl5u2WIG21Gf3t2J3SnI.txt",
-      "destination": "/privacypolicy/tiktokbHGO5moTndtQNl5u2WIG21Gf3t2J3SnI.txt"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
