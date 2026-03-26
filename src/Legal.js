@@ -218,7 +218,7 @@ const Legal = ({ onBack, initialTab = 'tos' }) => {
       { id: '07', title: 'LIMITATION OF LIABILITY', text: 'Omnya Growth is not liable for indirect, incidental, or consequential damages arising from the use of our services. Our total liability shall not exceed the amount paid by you in the 30 days preceding the claim.' },
       { id: '08', title: 'TERMINATION', text: 'Either party may terminate the engagement with written notice as specified in your agreement. Upon termination, all outstanding payments become immediately due.' },
       { id: '09', title: 'GOVERNING LAW', text: 'These terms are governed by the laws of the United States. Any disputes shall be resolved through binding arbitration.' },
-      { id: '10', title: 'VERIFICATION', text: 'tiktok-developers-site-verification=qonrZcPu4hmwzTrTyUhOss4Ovk6U5ryo' }
+      { id: '10', title: 'VERIFICATION', text: 'tiktok-developers-site-verification=XcaN82BdlRpeiVi4OCgeEdpqtjPkiYKP' }
     ],
     pp: [
       { id: '01', title: 'INFORMATION COLLECTION', text: 'We collect information you provide directly to us, including your name, email, payment details, and social media profiles needed for campaign fulfillment.' },
