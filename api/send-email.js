@@ -156,13 +156,24 @@ module.exports = async (req, res) => {
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   if (!RESEND_API_KEY) {
-    // Gracefully no-op if key not set — don't break the app
     console.warn('RESEND_API_KEY not set — email skipped');
     return res.status(200).json({ skipped: true, reason: 'RESEND_API_KEY not configured' });
   }
 
+  // FROM address: use verified domain sender if set, otherwise fall back to
+  // Resend's built-in test address (works immediately, no DNS verification needed).
+  // Once omnyagrowth.com is verified in Resend, add to Vercel env vars:
+  //   RESEND_FROM_EMAIL=Omnya Growth <noreply@mail.omnyagrowth.com>
+  const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Omnya Growth <onboarding@resend.dev>';
+
   try {
-    const { type, data } = req.body;
+    // Vercel may or may not pre-parse the body — handle both cases
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch (_) {}
+    }
+
+    const { type, data } = body || {};
     if (!type || !data) return res.status(400).json({ error: 'Missing type or data' });
 
     const email = buildEmail(type, data);
@@ -170,7 +181,7 @@ module.exports = async (req, res) => {
     if (!email.to) return res.status(400).json({ error: 'No recipient email provided' });
 
     const payload = {
-      from: 'Omnya Growth <noreply@mail.omnyagrowth.com>',
+      from: FROM_EMAIL,
       to: [email.to],
       subject: email.subject,
       html: email.html,
@@ -188,13 +199,16 @@ module.exports = async (req, res) => {
     const result = await sendRes.json();
 
     if (!sendRes.ok) {
-      console.error('Resend error:', result);
-      return res.status(sendRes.status).json({ error: result.message || 'Resend API error' });
+      console.error(`Resend error [${type}]:`, result);
+      // Return 200 to the client so email failures don't surface as portal errors
+      return res.status(200).json({ skipped: true, reason: result.message || 'Resend API error' });
     }
 
+    console.log(`Email sent [${type}] → ${email.to} (id: ${result.id})`);
     return res.status(200).json({ success: true, id: result.id });
   } catch (err) {
     console.error('send-email error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    // Always return 200 — email errors must never break portal actions
+    return res.status(200).json({ skipped: true, reason: 'Internal error' });
   }
 };
