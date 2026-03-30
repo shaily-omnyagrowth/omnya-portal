@@ -636,6 +636,18 @@ const statusBadge = (status) => {
 const scoreColor = (s) => s>=90?"#1A7A4A":s>=70?"#9A7A00":s>=50?"#C25A00":"#C0392B";
 
 // ============================================================
+// EMAIL HELPER — fire-and-forget via /api/send-email
+// Never throws; silently skips if key not configured.
+// ============================================================
+const sendEmail = (type, data) => {
+  fetch("/api/send-email", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type, data }),
+  }).catch(e => console.warn("Email send failed (non-critical):", e.message));
+};
+
+// ============================================================
 // LOADING + ERROR COMPONENTS
 // ============================================================
 
@@ -1281,6 +1293,24 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
 
     const { error } = await supabase.from("submissions").insert(newSub);
     if (error) { setErr(error.message); setSubmitting(false); setUploadProgress(0); return; }
+
+    // Email: notify AM about new submission
+    try {
+      const campaign = db.campaigns.find(c => c.id === form.campaign_id);
+      const client = campaign ? db.clients.find(c => c.id === campaign.client_id) : null;
+      const am = client ? db.accountManagers.find(a => a.id === client.am_id) : null;
+      if (am?.email) {
+        sendEmail("new_submission", {
+          amEmail: am.email,
+          creatorName: creator.name,
+          campaignName: campaign?.name || "Unknown campaign",
+          submissionType: form.type,
+          platform: form.platform,
+          notes: form.comment,
+        });
+      }
+    } catch(_) {}
+
     setFile(null);
     setUploadProgress(0);
     setSubmitting(false);
@@ -1685,11 +1715,13 @@ function ReviewQueue({ db, onRefresh }) {
   const action = async (subId, field, value) => {
     setSaving(true);
     const updates = { [field]: value, feedback, reviewed_at: new Date().toISOString() };
+    const sub = db.submissions.find(s=>s.id===subId);
+    const campaign = db.campaigns.find(c=>c.id===sub?.campaign_id);
+    const creator = db.creators.find(c=>c.id===sub?.creator_id);
+
     if (value === "Approved" && field === "final_status") {
       updates.approved_date = new Date().toISOString().split("T")[0];
       // Auto-generate payment record
-      const sub = db.submissions.find(s=>s.id===subId);
-      const campaign = db.campaigns.find(c=>c.id===sub?.campaign_id);
       if (sub && campaign) {
         const existingPayment = db.payments.find(p=>p.submission_id===subId);
         if (!existingPayment) {
@@ -1705,7 +1737,30 @@ function ReviewQueue({ db, onRefresh }) {
           });
         }
       }
+      // Email: notify creator their final was approved
+      if (creator?.email) {
+        sendEmail("final_approved", {
+          creatorEmail: creator.email,
+          creatorName: creator.name,
+          campaignName: campaign?.name || "your campaign",
+          amount: campaign?.pay_per_video,
+        });
+      }
     }
+
+    // Email: revision requested on concept or final
+    if ((field === "concept_status" || field === "final_status") && value === "Revisions Needed") {
+      if (creator?.email && feedback) {
+        sendEmail("revision_requested", {
+          creatorEmail: creator.email,
+          creatorName: creator.name,
+          campaignName: campaign?.name || "your campaign",
+          amName: "Your Account Manager",
+          feedback,
+        });
+      }
+    }
+
     await supabase.from("submissions").update(updates).eq("id", subId);
     await onRefresh();
     setModal(null); setFeedback(""); setSaving(false);
@@ -2912,14 +2967,45 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
 
   const markPaid = async (paymentId) => {
     setSaving(true);
+    const p = allPayments.find(x => x.id === paymentId);
     await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",paymentId);
+    // Email: notify creator of payment
+    if (p) {
+      const creator = db.creators.find(c => c.id === p.creator_id);
+      const campaign = db.campaigns.find(c => c.id === p.campaign_id);
+      if (creator?.email) {
+        sendEmail("payment_sent", {
+          creatorEmail: creator.email,
+          creatorName: creator.name,
+          amount: p.amount_owed,
+          method: p.payment_method || "Venmo",
+          campaignName: campaign?.name || "your campaign",
+          videosApproved: p.videos_approved,
+        });
+      }
+    }
     await onRefresh(); setSaving(false);
   };
 
   const markSelectedPaid = async () => {
     setSaving(true);
     for (const id of selected) {
+      const p = allPayments.find(x => x.id === id);
       await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",id);
+      if (p) {
+        const creator = db.creators.find(c => c.id === p.creator_id);
+        const campaign = db.campaigns.find(c => c.id === p.campaign_id);
+        if (creator?.email) {
+          sendEmail("payment_sent", {
+            creatorEmail: creator.email,
+            creatorName: creator.name,
+            amount: p.amount_owed,
+            method: p.payment_method || "Venmo",
+            campaignName: campaign?.name || "your campaign",
+            videosApproved: p.videos_approved,
+          });
+        }
+      }
     }
     await onRefresh(); setSelected([]); setSaving(false);
   };
@@ -2928,6 +3014,18 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
     setSaving(true);
     for (const p of pending) {
       await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",p.id);
+      const creator = db.creators.find(c => c.id === p.creator_id);
+      const campaign = db.campaigns.find(c => c.id === p.campaign_id);
+      if (creator?.email) {
+        sendEmail("payment_sent", {
+          creatorEmail: creator.email,
+          creatorName: creator.name,
+          amount: p.amount_owed,
+          method: p.payment_method || "Venmo",
+          campaignName: campaign?.name || "your campaign",
+          videosApproved: p.videos_approved,
+        });
+      }
     }
     await onRefresh(); setSaving(false);
   };
@@ -3865,6 +3963,14 @@ function PendingUsers({ onRefresh }) {
         const { error: cError } = await supabase.from("creators").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "email" });
         if(cError) throw cError;
       }
+
+      // Email: welcome the newly approved user
+      sendEmail("user_approved", {
+        userEmail: email,
+        displayName,
+        role,
+      });
+
       loadPending();
       onRefresh();
     } catch(err) {
