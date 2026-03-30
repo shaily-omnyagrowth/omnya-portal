@@ -11,8 +11,21 @@ import Legal from "./Legal";
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
-  componentDidCatch(error, info) { 
-    console.error("Portal error:", error, info); 
+  componentDidCatch(error, info) {
+    console.error("Portal error:", error, info);
+    // If it's an auth/session error, clear stale storage and force a clean reload to login
+    const msg = (error?.message || "").toLowerCase();
+    if (
+      msg.includes("jwt") || msg.includes("session") ||
+      msg.includes("unauthorized") || msg.includes("auth") ||
+      msg.includes("token")
+    ) {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch(_) {}
+      setTimeout(() => window.location.replace("/"), 1500);
+    }
   }
   render() {
     if (this.state.hasError) {
@@ -23,7 +36,7 @@ class ErrorBoundary extends React.Component {
           <div style={{fontSize:14,color:"#6b7280",maxWidth:340}}>
             An unexpected error occurred. This might be due to a slow connection or a temporary issue.
           </div>
-          <button onClick={() => window.location.reload()} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
+          <button onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.replace("/"); }} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
             Reload Page
           </button>
         </div>
@@ -4227,10 +4240,29 @@ export default function App() {
         if (mounted) setIsRecoveryMode(true);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         if (session && mounted) {
-          const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+          // Always re-fetch the profile fresh — this ensures that if an owner just
+          // approved this user's role, the next auth event picks up the new role
+          // instead of using the stale role from the previous session snapshot.
+          const { data: profile } = await supabase
+            .from("user_profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .maybeSingle();
           if (mounted) {
-            if (profile) setUser({ ...session.user, ...profile });
-            else setUser(session.user);
+            if (profile) {
+              // If role changed since last session, reset page to dashboard so
+              // the user is never dropped into a page they no longer have access to.
+              setUser(prev => {
+                const prevRole = prev?.role;
+                const newRole = profile.role;
+                if (prevRole && prevRole !== newRole) {
+                  localStorage.removeItem("last_page");
+                }
+                return { ...session.user, ...profile };
+              });
+            } else {
+              setUser(session.user);
+            }
           }
         }
         if (mounted) setLoading(false);
@@ -4409,7 +4441,11 @@ export default function App() {
       interval = setInterval(async () => {
         const { data: profile } = await supabase.from("user_profiles").select("*").eq("id", user.id).single();
         if (profile && profile.role !== "pending") {
-          setUser({ ...user, ...profile });
+          // Role has been assigned by owner — clear any stale page target so the
+          // user always lands on their role-appropriate dashboard, never an owner page.
+          localStorage.removeItem("last_page");
+          setPage("dashboard");
+          setUser(prev => ({ ...prev, ...profile }));
         }
       }, 10000); // Poll every 10s
     }
