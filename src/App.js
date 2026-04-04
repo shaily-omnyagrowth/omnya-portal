@@ -842,45 +842,46 @@ function Login({ onLogin }) {
         const { data, error } = await supabase.auth.signUp({ 
           email, 
           password, 
-          options: { data: { requested_role: requestedRole } } 
+          options: { 
+            data: { requested_role: requestedRole },
+            emailRedirectTo: `${window.location.origin}/`
+          } 
         });
-        if (error) { 
-          console.error("Signup error:", error.message, error.status);
-          setErr(error.message); 
-          setLoading(false); 
-          return; 
+        
+        if (error) throw error;
+        
+        if (data.user && !data.session) {
+          setErr("Account created! Please check your email to verify your account.");
+          setMode("login"); 
+        } else if (data.session) {
+          onLogin(data.user);
         }
-        console.log("Signup success! Confirmation mail should be sent.");
-        setErr("Check your email to confirm your account, then sign in.");
-        setMode("login"); setLoading(false); return;
+        return;
       }
+
       if (mode === "forgot") {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: window.location.origin,
         });
-        if (error) { setErr(error.message); setLoading(false); return; }
+        if (error) throw error;
         setErr("Password reset link sent! Check your email.");
-        setLoading(false); return;
+        return;
       }
+
       console.log("Attempting sign in for:", email);
       
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out (60s). This may happen if the database is waking up or you have a poor connection. Please try again.")), 60000));
+      // Shorten timeout to 15s to fail faster if DB is cold
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out. If the server is waking up, please wait 30 seconds and try again.")), 15000));
       const { data, error } = await Promise.race([supabase.auth.signInWithPassword({ email, password }), timeoutPromise]);
       
-      console.log("Sign in result:", { data, error });
-      
-      if (error) { 
-        console.error("Sign in failed. Status:", error.status, "Msg:", error.message);
-        setErr(`Sign in failed: ${error.message} (${error.status || '401?'})`); 
-        setLoading(false); 
-        return; 
-      }
+      if (error) throw error;
+      if (!data.session) throw new Error("Could not retrieve session. Please verify your email.");
       
       console.log("User signed in successfully. ID:", data.user.id);
       onLogin(data.user);
     } catch(e) { 
-      console.error("Unexpected login error caught:", e);
-      setErr(`Error: ${e.message || "Something went wrong"}. Check console for details.`); 
+      console.error("Login Error:", e);
+      setErr(`Error: ${e.message}`); 
     } finally {
       setLoading(false);
     }
@@ -4280,7 +4281,8 @@ export default function App() {
     // Auth init
     const init = async () => {
       console.log("App: Starting auth init...");
-      // Timeout safety: if auth takes more than 5s, something is hung—clear loading state
+      
+      // Safety timeout: Never block app load forever
       const safetyTimeout = setTimeout(() => {
         if (mounted) {
           console.warn("App: Auth init safety timeout triggered.");
@@ -4291,87 +4293,65 @@ export default function App() {
 
       try {
         const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
-        console.log("App: getSession result:", { hasSession: !!session, sessionErr });
         
-        if (sessionErr) console.error("App: getSession error:", sessionErr.message);
+        if (sessionErr) throw sessionErr;
 
         if (session && mounted) {
-          console.log("App: Session found for user:", session.user.id);
-          const { data: profile, error: profErr } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
-          console.log("App: Initial profile fetch:", { profile, profErr });
-
-          if (mounted) {
+          // If we have a session, fetch profile with timeout to prevent hangs
+          const profilePromise = supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+          const pTimeout = new Promise((_, r) => setTimeout(() => r(new Error("Profile timeout")), 4000));
+          
+          try {
+            const { data: profile } = await Promise.race([profilePromise, pTimeout]);
+            
             clearTimeout(safetyTimeout);
-            if (profile) {
-              console.log("App: Profile found, setting user state.");
-              setUser({ ...session.user, ...profile });
-            } else {
-              console.log("App: No profile found, creating pending profile...");
-              const { data: newProfile, error: upsertErr } = await supabase.from("user_profiles").upsert({ 
-                id: session.user.id, 
-                email: session.user.email, 
-                full_name: session.user.email.split("@")[0], 
-                role: "pending"
-              }).select().maybeSingle();
-              
-              if (upsertErr) console.error("App: Profile upsert error:", upsertErr.message);
-              console.log("App: New profile result:", newProfile);
-              
-              setUser({ ...session.user, ...(newProfile || { role: "pending" }) });
+            if (mounted) {
+              if (profile) {
+                setUser({ ...session.user, ...profile });
+              } else {
+                // If profile is missing, shell it out but do NOT upsert right away on load, it can cause duplicate conflicts
+                setUser({ ...session.user, role: "creator" });
+              }
             }
+          } catch(err) {
+            console.warn("Profile fetch took too long, yielding to stale cache.");
+            setUser(session.user);
           }
-        } else if (!session) {
-          console.log("App: No active session found.");
+        } 
+      } catch (e) {
+        console.error("App: Stale session detected, wiping cache:", e);
+        try { localStorage.removeItem('supabase.auth.token'); } catch(_){}
+      } finally {
+        if (mounted) {
           clearTimeout(safetyTimeout);
           setLoading(false);
         }
-      } catch (e) {
-        console.error("App: Auth init fatal error:", e);
-        clearTimeout(safetyTimeout);
-        setLoading(false);
       }
     };
 
     init();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_OUT") {
+      console.log("Auth Event:", event);
+      if (event === "SIGNED_OUT" || event === "USER_DELETED") {
         if (mounted) {
           setUser(null);
           setNeedsSetup(false);
           setIsRecoveryMode(false);
+          setDbLoading(false); // Stop db loop
           localStorage.removeItem("last_page");
         }
       } else if (event === "PASSWORD_RECOVERY") {
         if (mounted) setIsRecoveryMode(true);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        // Leave the DB fetching loop to the global useEffect to avoid race condition!
+        // We only append the raw user object immediately.
         if (session && mounted) {
-          // Always re-fetch the profile fresh — this ensures that if an owner just
-          // approved this user's role, the next auth event picks up the new role
-          // instead of using the stale role from the previous session snapshot.
-          const { data: profile } = await supabase
-            .from("user_profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .maybeSingle();
-          if (mounted) {
-            if (profile) {
-              // If role changed since last session, reset page to dashboard so
-              // the user is never dropped into a page they no longer have access to.
-              setUser(prev => {
-                const prevRole = prev?.role;
-                const newRole = profile.role;
-                if (prevRole && prevRole !== newRole) {
-                  localStorage.removeItem("last_page");
-                }
-                return { ...session.user, ...profile };
-              });
-            } else {
-              setUser(session.user);
-            }
-          }
+          setUser(prevUser => {
+            // Merge in new auth info, preserving existing profile state if possible
+            return { ...prevUser, ...session.user };
+          });
         }
-        if (mounted) setLoading(false);
       }
     });
 
@@ -4458,25 +4438,34 @@ export default function App() {
 
   const handleLogin = async(u) => {
     console.log("handleLogin: instant login for", u.id);
-    setUser(u); // Set user immediately for UI response
+    // Setting user unmounts <Login> immediately, which is great.
+    setUser(u); 
     setNeedsSetup(false);
     
-    // Background profile fetch/sync
-    try {
-      const {data:profile} = await supabase.from("user_profiles").select("*").eq("id",u.id).maybeSingle();
-      if (profile) { 
-        setUser(prev => ({...prev, ...profile})); 
-      } else {
-        const requestedRole = u.user_metadata?.requested_role || "creator";
-        const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
-          id: u.id, email: u.email, full_name: u.email.split("@")[0], 
-          role: "creator", requested_role: requestedRole 
-        }).select().maybeSingle();
-        if (newProfile) setUser(prev => ({...prev, ...newProfile}));
+    // Fire-and-forget sync wrapper
+    const syncProfile = async () => {
+      try {
+        const profilePromise = supabase.from("user_profiles").select("*").eq("id", u.id).maybeSingle();
+        const pTimeout = new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 10000));
+        
+        const { data: profile } = await Promise.race([profilePromise, pTimeout]);
+        
+        if (profile) { 
+          setUser(prev => ({...prev, ...profile})); 
+        } else {
+          const requestedRole = u.user_metadata?.requested_role || "creator";
+          const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
+            id: u.id, email: u.email, full_name: u.email.split("@")[0], 
+            role: "pending", requested_role: requestedRole 
+          }).select().maybeSingle();
+          if (newProfile) setUser(prev => ({...prev, ...newProfile}));
+        }
+      } catch(e) {
+        console.warn("Background profile sync failed:", e.message);
       }
-    } catch(e) {
-      console.warn("Background profile sync failed:", e.message);
-    }
+    };
+    
+    syncProfile();
   };
 
   const handleLogout = async()=>{ await supabase.auth.signOut(); setUser(null); setPage("dashboard"); };
