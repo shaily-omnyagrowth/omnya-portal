@@ -1,4 +1,5 @@
 {
+  "cleanUrls": true,
   "rewrites": [
     {
       "source": "/termsofservice/tiktokXcaN82BdlRpeiVi4OCgeEdpqtjPkiYKP.txt",
@@ -7,6 +8,14 @@
     {
       "source": "/privacypolicy/tiktokbHGO5moTndtQNl5u2WIG21Gf3t2J3SnI.txt",
       "destination": "/privacypolicy/tiktokbHGO5moTndtQNl5u2WIG21Gf3t2J3SnI.txt"
+    },
+    {
+      "source": "/termsofservice",
+      "destination": "/termsofservice.html"
+    },
+    {
+      "source": "/privacypolicy",
+      "destination": "/privacypolicy.html"
     },
     {
       "source": "/(.*)",
