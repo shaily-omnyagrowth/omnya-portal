@@ -2882,47 +2882,124 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
   const creatorCost = db.creators.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.weekly_rate||0)*4,0);
   const profit = totalRevenue - creatorCost;
   const margin = totalRevenue>0?Math.round((profit/totalRevenue)*100):0;
-  return (
-    <div className="content">
-      <div className="mb-16"><span className="owner-badge">👑 Owner View</span></div>
+  const pendingReviews = db.submissions.filter(s => s.concept_status === "Pending" || s.final_status === "Pending");
+  const activeCampaigns = db.campaigns.filter(c => c.status === "Active" || c.status === "Draft");
 
-      {/* Pending Users */}
-      {pendingUsers.length>0&&(
-        <div className="card" style={{marginBottom:20,border:"2px solid var(--orange)"}}>
-          <div className="flex-between mb-16">
-            <div className="card-title" style={{marginBottom:0}}>🔔 Pending Approvals</div>
-            <span className="badge badge-orange">{pendingUsers.length} waiting</span>
-          </div>
-          {pendingUsers.map(u=>(
-            <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid var(--border2)"}}>
-              <div className={`creator-avatar ${getAvatarColor(u.full_name||u.email)}`} style={{width:36,height:36,fontSize:13}}>{getInitials(u.full_name||u.email)}</div>
-              <div style={{flex:1}}>
-                <div className="fw-600 fs-13">{u.full_name||u.email}</div>
-                <div style={{fontSize:11,color:"var(--ink3)"}}>{u.email} · Requested: {u.requested_role||"—"}</div>
-              </div>
-              <div style={{display:"flex",gap:6}}>
-                <button className="btn btn-green btn-sm" disabled={approvingSaving} onClick={()=>approveUser(u.id,"account_manager",u.full_name||u.email.split("@")[0])}>✓ AM</button>
-                <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff"}} disabled={approvingSaving} onClick={()=>approveUser(u.id,"creator",u.full_name||u.email.split("@")[0])}>✓ Creator</button>
-                <button className="btn btn-red btn-sm" disabled={approvingSaving} onClick={()=>denyUser(u.id)}>✕ Deny</button>
-              </div>
-            </div>
-          ))}
+  return (
+    <div className="content admin-dash-wrap">
+      <div className="mb-24 flex-between">
+        <div>
+          <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "var(--ink)" }}>Overview</h2>
+          <p style={{ color: "var(--ink2)", marginTop: 4, fontSize: 14 }}>Here is what's happening across the agency today.</p>
         </div>
-      )}
-      <div className="stats-grid">
-        <div className="stat-card stat-highlight"><div className="stat-label">Monthly Revenue</div><div className="stat-value">{fmtMoney(totalRevenue)}</div></div>
-        <div className="stat-card"><div className="stat-label">Active Clients</div><div className="stat-value">{db.clients.filter(c=>c.status==="Active").length}</div></div>
-        <div className="stat-card"><div className="stat-label">Active Creators</div><div className="stat-value">{db.creators.filter(c=>c.status==="Active").length}</div></div>
-        <div className="stat-card"><div className="stat-label">Profit Margin</div><div className="stat-value">{margin}%</div></div>
+        <span className="owner-badge">👑 Owner View</span>
       </div>
+
+      {/* Pulse Cards */}
+      <div className="stats-grid" style={{ marginBottom: 32 }}>
+        <div className="stat-card">
+           <div className="stat-label">Reviews Pending</div>
+           <div className="stat-value" style={{ color: pendingReviews.length ? "var(--orange)" : "var(--ink)" }}>{pendingReviews.length}</div>
+        </div>
+        <div className="stat-card">
+           <div className="stat-label">Users to Approve</div>
+           <div className="stat-value" style={{ color: pendingUsers.length ? "var(--blue)" : "var(--ink)" }}>{pendingUsers.length}</div>
+        </div>
+        <div className="stat-card stat-highlight">
+           <div className="stat-label">Active Campaigns</div>
+           <div className="stat-value">{activeCampaigns.length}</div>
+        </div>
+        <div className="stat-card">
+           <div className="stat-label">Monthly Revenue</div>
+           <div className="stat-value text-green">{fmtMoney(totalRevenue)}</div>
+        </div>
+      </div>
+
+      {/* The Inbox Grid - Urgent actions sorted to top */}
+      <div className="grid-2" style={{ marginBottom: 32 }}>
+        
+        {/* Left: Action Required Reviews */}
+        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="flex-between mb-16">
+            <div className="card-title mb-0" style={{ fontSize: 16 }}>🚀 Action Required: Reviews</div>
+            {pendingReviews.length > 0 && <span className="badge badge-orange">{pendingReviews.length} left</span>}
+          </div>
+          
+          {pendingReviews.length === 0 ? (
+            <div className="empty" style={{ padding: 32, background: "var(--bg2)", borderRadius: 12, flex: 1 }}>
+              <div className="empty-icon">✨</div>
+              <p style={{ marginTop: 12, fontWeight: 600, color: "var(--ink)" }}>All caught up!</p>
+              <p style={{ fontSize: 13, color: "var(--ink3)", marginTop: 4 }}>No submissions waiting for review right now.</p>
+            </div>
+          ) : (
+            <div className="list-stack" style={{ flex: 1 }}>
+              {pendingReviews.slice(0, 5).map(sub => (
+                <div key={sub.id} className="list-item flex-between" style={{ padding: "14px 0", borderBottom: "1px solid var(--border2)" }}>
+                  <div>
+                    <div className="fw-600 fs-14">{sub.creator_name || "Creator"}</div>
+                    <div style={{ fontSize: 12, color: "var(--ink3)", marginTop: 2 }}>
+                      {sub.campaign_name || "Unknown Campaign"} • <span style={{color:"var(--orange)", fontWeight:500}}>{sub.concept_status === 'Pending' ? 'Concept Pending' : 'Final Video Pending'}</span>
+                    </div>
+                  </div>
+                  <div className="badge" style={{background:"var(--bg2)", color:"var(--ink2)"}}>Requires Review</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right: Pending Users Onboarding */}
+        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="flex-between mb-16">
+            <div className="card-title mb-0" style={{ fontSize: 16 }}>🤝 Action Required: Onboarding</div>
+            {pendingUsers.length > 0 && <span className="badge badge-blue">{pendingUsers.length} waiting</span>}
+          </div>
+          
+          {pendingUsers.length === 0 ? (
+            <div className="empty" style={{ padding: 32, background: "var(--bg2)", borderRadius: 12, flex: 1 }}>
+              <div className="empty-icon">✓</div>
+              <p style={{ marginTop: 12, fontWeight: 600, color: "var(--ink)" }}>Onboarding clear.</p>
+              <p style={{ fontSize: 13, color: "var(--ink3)", marginTop: 4 }}>No new users waiting for role assignments.</p>
+            </div>
+          ) : (
+             <div className="list-stack" style={{ flex: 1 }}>
+              {pendingUsers.map(u => (
+                <div key={u.id} className="list-item flex-between" style={{ padding: "12px 0", borderBottom: "1px solid var(--border2)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div className={`creator-avatar ${getAvatarColor(u.full_name||u.email)}`} style={{width:36,height:36,fontSize:13}}>{getInitials(u.full_name||u.email)}</div>
+                    <div>
+                      <div className="fw-600 fs-14">{u.full_name || u.email}</div>
+                      <div style={{ fontSize: 12, color: "var(--ink3)" }}>Req: {u.requested_role || "Creator"}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex", gap:6}}>
+                    <button className="btn btn-green btn-sm" disabled={approvingSaving} onClick={()=>approveUser(u.id,"account_manager",u.full_name||u.email.split("@")[0])} style={{padding:"4px 8px"}}>✓ AM</button>
+                    <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff",padding:"4px 8px"}} disabled={approvingSaving} onClick={()=>approveUser(u.id,"creator",u.full_name||u.email.split("@")[0])}>✓ Creator</button>
+                    <button className="btn btn-red btn-sm" disabled={approvingSaving} onClick={()=>denyUser(u.id)} style={{padding:"4px 8px"}}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Existing Operational Snapshot */}
+      <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Network Directory</h3>
       <div className="grid-2">
         <div className="card">
           <div className="card-title">Client Overview</div>
-          <div className="table-wrap"><table><thead><tr><th>Client</th><th>Budget</th><th>Status</th></tr></thead><tbody>
-            {db.clients.map(c=><tr key={c.id}><td className="fw-600">{c.name}</td><td className="text-green fw-600">{fmtMoney(c.budget)}</td><td>{statusBadge(c.status)}</td></tr>)}
-          </tbody></table></div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Client</th><th>Budget</th><th>Status</th></tr></thead>
+              <tbody>
+                {db.clients.map(c=><tr key={c.id}><td className="fw-600">{c.name}</td><td className="text-green fw-600">{fmtMoney(c.budget)}</td><td>{statusBadge(c.status)}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
           {db.clients.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">🏢</div><h3>No clients yet</h3></div>}
         </div>
+        
         <div className="card">
           <div className="card-title">Team</div>
           {db.accountManagers.map(am=>{
@@ -2935,7 +3012,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
               </div>
             );
           })}
-          {db.accountManagers.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">👥</div><h3>No AMs yet</h3></div>}
+          {db.accountManagers.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">👥</div><h3>No Team Members</h3></div>}
         </div>
       </div>
     </div>
