@@ -2,6 +2,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
 import { createClient } from "@supabase/supabase-js";
+import CreatorConnections from "./CreatorConnections";
+import AnalyticsDashboard from "./AnalyticsDashboard";
+import PayoutManager from "./PayoutManager";
 import Legal from "./Legal";
 
 // ============================================================
@@ -987,8 +990,11 @@ const navs = {
     {id:"active-jobs",icon:"🎯",label:"My Active Jobs"},
     {id:"submit",icon:"📤",label:"Submit Content"},
     {id:"submissions",icon:"📁",label:"My Submissions"},
+    {id:"social-connections",icon:"🔗",label:"Social Connections"},
+    {id:"campaign-analytics",icon:"📊",label:"Campaign Analytics"},
     {id:"insights",icon:"✨",label:"Video Insights"},
     {id:"earnings",icon:"💰",label:"Earnings"},
+    {id:"payout-manager",icon:"💳",label:"Payment Hub"},
     {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
   am: [
@@ -1007,7 +1013,7 @@ const navs = {
     {id:"clients-full",icon:"🏢",label:"Client Management"},
     {id:"creators-manage",icon:"🎬",label:"Manage Creators"},
     {id:"revenue",icon:"📈",label:"Revenue Analytics"},
-    {id:"payments",icon:"💸",label:"Payment Management"},
+    {id:"payout-manager",icon:"💸",label:"Payment Management"},
     {id:"team",icon:"👥",label:"Team Performance"},
     {id:"review-queue",icon:"✅",label:"Review Queue"},
     {id:"campaigns",icon:"📢",label:"All Campaigns"},
@@ -4559,6 +4565,9 @@ export default function App() {
     "clients-full":"Client Management",revenue:"Revenue Analytics",
     payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users","creators-manage":"Manage Creators",
     legal: "Legal Center",
+    "social-connections": "Social Connections",
+    "campaign-analytics": "Campaign Analytics",
+    "payout-manager": "Payout Manager",
   };
 
   const renderPage = ()=>{
@@ -4573,6 +4582,9 @@ export default function App() {
       if(page==="active-jobs") return <ErrorBoundary label="Active Jobs"><CreatorActiveJobs user={user} db={db} onNavigate={setPage}/></ErrorBoundary>;
       if(page==="submit") return <ErrorBoundary label="Submit Content"><SubmitContent user={user} db={db} onRefresh={loadDB} setPage={setPage}/></ErrorBoundary>;
       if(page==="submissions") return <ErrorBoundary label="My Submissions"><MySubmissions user={user} db={db}/></ErrorBoundary>;
+      if(page==="social-connections") return <ErrorBoundary label="Social Connections"><CreatorConnections currentUser={user} /></ErrorBoundary>;
+      if(page==="campaign-analytics") return <ErrorBoundary label="Campaign Analytics"><AnalyticsDashboard /></ErrorBoundary>;
+      if(page==="payout-manager") return <ErrorBoundary label="Payout Manager"><PayoutManager /></ErrorBoundary>;
       if(page==="insights") return <ErrorBoundary label="Video Insights"><CreatorInsights user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="earnings") return <ErrorBoundary label="Earnings"><CreatorEarnings user={user} db={db}/></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
@@ -4587,7 +4599,7 @@ export default function App() {
       if(page==="analytics") return <ErrorBoundary label="Analytics"><Analytics db={db}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={false}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={false} user={user}/></ErrorBoundary>;
-      if(page==="payments") return <ErrorBoundary label="Payments"><PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={false}/></ErrorBoundary>;
+      if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="owner"){
@@ -4595,7 +4607,7 @@ export default function App() {
       if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user}/></ErrorBoundary>;
-      if(page==="payments") return <ErrorBoundary label="Payments"><PaymentManagement db={db} onRefresh={loadDB} user={user} isOwner={role==="owner"}/></ErrorBoundary>;
+      if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="team") return <ErrorBoundary label="Team Performance"><TeamPerformance db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="pending-users") return <ErrorBoundary label="Pending Users"><PendingUsers onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="creators-manage") return <ErrorBoundary label="Manage Creators"><CreatorsManage db={db} onRefresh={loadDB}/></ErrorBoundary>;
