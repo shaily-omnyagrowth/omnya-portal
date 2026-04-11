@@ -171,7 +171,10 @@ function ConnectionCard({ title, platform, data, disabled, onConnect, onDisconne
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
         <div style={{width:40, height:40, borderRadius:8, background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20}}>
-            {platform === 'tiktok' ? '📱' : platform === 'meta' ? '📸' : '🎥'}
+            {platform === 'tiktok' && '📱'}
+            {platform === 'instagram' && '📸'}
+            {platform === 'facebook' && '👤'}
+            {platform === 'youtube' && '🎥'}
         </div>
         <div>
           <h3 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>{title}</h3>
@@ -193,20 +196,20 @@ function ConnectionCard({ title, platform, data, disabled, onConnect, onDisconne
         {disabled ? (
            <button disabled style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e7eb', background: '#f9fafb', color: '#9ca3af' }}>Coming Soon</button>
         ) : isConnected ? (
-           <div style={{ display: 'flex', gap: '8px' }}>
-             <button onClick={onConnect} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}>
-               Reconnect
-             </button>
+           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+             <div style={{ padding: '8px 16px', borderRadius: '6px', background: '#ecfdf5', color: '#10b981', fontWeight: 600, fontSize: '14px', border: '1px solid #10b981' }}>
+                Connected
+             </div>
              <button 
                onClick={onDisconnect} 
                disabled={isDisconnecting}
-               style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#fee2e2', color: '#dc2626', cursor: isDisconnecting ? 'wait' : 'pointer' }}
+               style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#fee2e2', color: '#dc2626', cursor: isDisconnecting ? 'wait' : 'pointer', fontSize: '14px' }}
              >
-               {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+               {isDisconnecting ? '...' : 'Disconnect'}
              </button>
            </div>
         ) : (
-           <button onClick={onConnect} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#000', color: '#fff', cursor: 'pointer', fontWeight: 500 }}>
+           <button onClick={onConnect} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#000', color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '14px' }}>
              Connect Account
            </button>
         )}
