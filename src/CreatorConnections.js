@@ -124,20 +124,32 @@ export default function CreatorConnections({ currentUser }) {
         />
 
         <ConnectionCard 
-          title="Instagram (via Meta)" 
+          title="Instagram" 
           platform="meta"
+          subtitle="Via Meta Business Suite"
           data={connections.meta}
           onConnect={() => handleConnect('meta')}
           onDisconnect={() => handleDisconnect('meta')}
           isDisconnecting={disconnecting === 'meta'}
         />
 
-        <div style={{ opacity: 0.5 }}>
-          <ConnectionCard title="YouTube" platform="youtube" data={null} disabled={true} />
-        </div>
-        <div style={{ opacity: 0.5 }}>
-          <ConnectionCard title="Facebook" platform="facebook" data={null} disabled={true} />
-        </div>
+        <ConnectionCard 
+          title="Facebook" 
+          platform="meta" // They use the same token/flow
+          subtitle="Pages & Insights"
+          data={connections.meta}
+          onConnect={() => handleConnect('meta')}
+          onDisconnect={() => handleDisconnect('meta')}
+          isDisconnecting={disconnecting === 'meta'}
+        />
+
+        <ConnectionCard 
+          title="YouTube" 
+          platform="youtube" 
+          subtitle="Channel Analytics"
+          disabled={false} 
+          onConnect={() => handleConnect('youtube')} 
+        />
       </div>
     </div>
   );
@@ -155,24 +167,25 @@ function ConnectionCard({ title, platform, data, disabled, onConnect, onDisconne
       justifyContent: 'space-between',
       padding: '20px',
       border: `1px solid ${isConnected ? '#10b981' : '#e5e7eb'}`,
-      borderRadius: '8px',
-      backgroundColor: '#fff'
+      borderRadius: '12px',
+      backgroundColor: '#fff',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{width:40, height:40, borderRadius:8, background:'#f3f4f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20}}>
+            {platform === 'tiktok' ? '📱' : platform === 'meta' ? '📸' : '🎥'}
+        </div>
         <div>
-          <h3 style={{ fontSize: '18px', fontWeight: '600', margin: 0, textTransform: 'capitalize' }}>{title}</h3>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>{title}</h3>
           {isConnected ? (
             <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
               <span style={{ color: '#10b981', fontWeight: 500 }}>● Connected</span>
               <span style={{ margin: '0 8px' }}>|</span>
-              Last synced: {new Date(data.updated_at).toLocaleDateString()}
-              {isExpiringSoon && (
-                <span style={{ color: '#d97706', marginLeft: '8px' }}>⚠️ Expires soon</span>
-              )}
+              {data.account_name || 'Active'}
             </div>
           ) : (
              <div style={{ fontSize: '13px', color: '#6b7280', marginTop: '4px' }}>
-                 {disabled ? 'Coming soon' : 'Not connected'}
+                 {disabled ? 'Coming soon' : 'Ready to sync'}
              </div>
           )}
         </div>
