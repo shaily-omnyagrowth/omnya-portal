@@ -987,14 +987,9 @@ const navs = {
   creator: [
     {id:"dashboard",icon:"🏠",label:"Dashboard"},
     {id:"jobs",icon:"💼",label:"Available Jobs"},
-    {id:"active-jobs",icon:"🎯",label:"My Active Jobs"},
-    {id:"submit",icon:"📤",label:"Submit Content"},
-    {id:"submissions",icon:"📁",label:"My Submissions"},
-    {id:"social-connections",icon:"🔗",label:"Social Connections"},
-    {id:"campaign-analytics",icon:"📊",label:"Campaign Analytics"},
-    {id:"insights",icon:"✨",label:"Video Insights"},
-    {id:"earnings",icon:"💰",label:"Earnings"},
-    {id:"payout-manager",icon:"💳",label:"Payment Hub"},
+    {id:"active-jobs",icon:"🎯",label:"Active Projects"},
+    {id:"social-connections",icon:"🔗",label:"Social Channels"},
+    {id:"payout-manager",icon:"💳",label:"Payments"},
     {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
   am: [
