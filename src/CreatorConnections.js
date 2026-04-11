@@ -60,17 +60,10 @@ export default function CreatorConnections({ currentUser }) {
 
   // 3. Handlers
   const handleConnect = (platform) => {
-    let targetPlatform = platform;
-    let queryParams = `?userId=${currentUser.id}`;
+    const queryParams = `?userId=${currentUser.id}`;
     
-    // Unified Meta handling for Instagram and Facebook
-    if (platform === 'instagram' || platform === 'facebook') {
-      targetPlatform = 'meta';
-      queryParams += `&type=${platform}`;
-    }
-
-    // Direct redirect - snappy and professional
-    window.location.href = `/api/auth/${targetPlatform}/start${queryParams}`;
+    // Snappy, direct redirection to platform-specific branded login
+    window.location.href = `/api/auth/${platform}/start${queryParams}`;
   };
 
   const handleDisconnect = async (platform) => {
