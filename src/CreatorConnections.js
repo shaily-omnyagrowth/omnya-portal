@@ -30,11 +30,11 @@ export default function CreatorConnections({ currentUser }) {
   // 2. Load existing connections from Supabase
   useEffect(() => {
     async function loadConnections() {
-      if (!currentUser || !currentUser.user_id) return;
+      if (!currentUser || !currentUser.id) return;
       try {
         setLoading(true);
         // We look up the creator table first to get the creator UUID
-        const { data: creator } = await supabase.from('creators').select('id').eq('user_id', currentUser.user_id).single();
+        const { data: creator } = await supabase.from('creators').select('id').eq('user_id', currentUser.id).single();
         if (!creator) return;
 
         const { data, error } = await supabase
@@ -61,7 +61,7 @@ export default function CreatorConnections({ currentUser }) {
   // 3. Handlers
   const handleConnect = (platform) => {
     // Hard redirect to Vercel OAuth proxy
-    window.location.href = `/api/auth/${platform}/start?userId=${currentUser.user_id}`;
+    window.location.href = `/api/auth/${platform}/start?userId=${currentUser.id}`;
   };
 
   const handleDisconnect = async (platform) => {

@@ -986,9 +986,10 @@ const roleLabel = { creator: "Creator Portal", am: "Account Manager", account_ma
 const navs = {
   creator: [
     {id:"dashboard",icon:"🏠",label:"Dashboard"},
-    {id:"jobs",icon:"💼",label:"Available Jobs"},
-    {id:"active-jobs",icon:"🎯",label:"Active Projects"},
     {id:"social-connections",icon:"🔗",label:"Social Channels"},
+    {id:"active-jobs",icon:"🎯",label:"Active Projects"},
+    {id:"submissions",icon:"🎬",label:"My Submissions"},
+    {id:"insights",icon:"📊",label:"Video Insights"},
     {id:"payout-manager",icon:"💳",label:"Payments"},
     {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
@@ -1095,8 +1096,23 @@ function SetupScreen({ user, onComplete }) {
 // CREATOR PAGES
 // ============================================================
 
-function CreatorDashboard({ user, db }) {
+function CreatorDashboard({ user, db, onNavigate }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
+  const [connections, setConnections] = useState({ tiktok: false, meta: false });
+
+  useEffect(() => {
+    async function checkConns() {
+        if (!user?.id) return;
+        const { data: creatorRec } = await supabase.from('creators').select('id').eq('user_id', user.id).single();
+        if (!creatorRec) return;
+        const { data } = await supabase.from('creator_tokens').select('platform').eq('creator_id', creatorRec.id);
+        const mapped = { tiktok: false, meta: false };
+        data?.forEach(t => mapped[t.platform] = true);
+        setConnections(mapped);
+    }
+    checkConns();
+  }, [user]);
+
   if (!creator) return <div className="content"><div className="empty"><div className="empty-icon">👋</div><h3>Profile being set up</h3><p>Your account manager will activate your profile shortly.</p></div></div>;
   
   const mySubs = db.submissions.filter(s=>s.creator_id===creator.id);
@@ -1111,6 +1127,27 @@ function CreatorDashboard({ user, db }) {
 
   return (
     <div className="content">
+      <div className="flex-between mb-24" style={{background:"#fff", padding:"16px 24px", borderRadius:12, border:"1px solid var(--border1)"}}>
+        <div>
+            <div className="fw-600 fs-16">Integration Pulse</div>
+            <div className="fs-12 text-muted">Verification Ready Status</div>
+        </div>
+        <div className="flex-center gap-16">
+            <div className="flex-center gap-8">
+                <div style={{width:8, height:8, borderRadius:"50%", background: connections.tiktok ? "#10b981" : "#e5e7eb"}}></div>
+                <span className="fs-13 fw-500" style={{color: connections.tiktok ? "#10b981" : "#9ca3af"}}>TikTok {connections.tiktok ? "Connected" : "Not Linked"}</span>
+            </div>
+            <div className="flex-center gap-8">
+                <div style={{width:8, height:8, borderRadius:"50%", background: connections.meta ? "#10b981" : "#e5e7eb"}}></div>
+                <span className="fs-13 fw-500" style={{color: connections.meta ? "#10b981" : "#9ca3af"}}>Meta/IG {connections.meta ? "Connected" : "Not Linked"}</span>
+            </div>
+            {(!connections.tiktok || !connections.meta) && (
+                <button className="btn btn-sm" style={{border:"1px solid var(--border2)", background:"#fff"}} onClick={() => onNavigate('social-connections')}>
+                   Setup Integration
+                </button>
+            )}
+        </div>
+      </div>
       <div className="stats-grid">
         <div className="stat-card"><div className="stat-label">Submitted This Week</div><div className="stat-value">{thisWeek}</div></div>
         <div className="stat-card"><div className="stat-label">Total Approved</div><div className="stat-value">{mySubs.filter(s=>s.final_status==="Approved").length}</div></div>
@@ -4379,7 +4416,24 @@ export default function App() {
             clearTimeout(safetyTimeout);
             if (mounted) {
               if (profile) {
-                setUser({ ...session.user, ...profile });
+                const fullUser = { ...session.user, ...profile };
+                setUser(fullUser);
+                
+                // Ensure creator profile existence for integrations
+                if (profile.role === 'creator') {
+                  const { data: creator } = await supabase.from('creators').select('id').eq('user_id', session.user.id).maybeSingle();
+                  if (!creator) {
+                    console.log("App: Provisioning missing creator record...");
+                    await supabase.from('creators').insert({
+                      id: session.user.id,
+                      user_id: session.user.id,
+                      name: profile.full_name || 'Creator',
+                      email: session.user.email,
+                      niche: 'Lifestyle',
+                      bio: 'New Omnya Creator'
+                    });
+                  }
+                }
               } else {
                 // If profile is missing, shell it out but do NOT upsert right away on load, it can cause duplicate conflicts
                 setUser({ ...session.user, role: "creator" });
@@ -4563,7 +4617,7 @@ export default function App() {
     // Validation is now handled in useEffect
 
     if(role==="creator"){
-      if(page==="dashboard") return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db}/></ErrorBoundary>;
+      if(page==="dashboard") return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db} onNavigate={setPage}/></ErrorBoundary>;
       if(page==="jobs") return <ErrorBoundary label="Job Board"><JobBoard user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="active-jobs") return <ErrorBoundary label="Active Jobs"><CreatorActiveJobs user={user} db={db} onNavigate={setPage}/></ErrorBoundary>;
       if(page==="submit") return <ErrorBoundary label="Submit Content"><SubmitContent user={user} db={db} onRefresh={loadDB} setPage={setPage}/></ErrorBoundary>;
