@@ -1098,7 +1098,7 @@ function SetupScreen({ user, onComplete }) {
 
 function CreatorDashboard({ user, db, onNavigate }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
-  const [connections, setConnections] = useState({ tiktok: false, meta: false });
+  const [connections, setConnections] = useState({ tiktok: false, instagram: false, facebook: false });
 
   useEffect(() => {
     async function checkConns() {
@@ -1106,8 +1106,11 @@ function CreatorDashboard({ user, db, onNavigate }) {
         const { data: creatorRec } = await supabase.from('creators').select('id').eq('user_id', user.id).single();
         if (!creatorRec) return;
         const { data } = await supabase.from('creator_tokens').select('platform').eq('creator_id', creatorRec.id);
-        const mapped = { tiktok: false, meta: false };
-        data?.forEach(t => mapped[t.platform] = true);
+        const mapped = { tiktok: false, instagram: false, facebook: false };
+        data?.forEach(t => {
+          if (t.platform === 'meta') { mapped.instagram = true; mapped.facebook = true; }
+          else mapped[t.platform] = true;
+        });
         setConnections(mapped);
     }
     checkConns();
@@ -1126,26 +1129,31 @@ function CreatorDashboard({ user, db, onNavigate }) {
   ].slice(0,4);
 
   return (
-    <div className="content">
-      <div className="flex-between mb-24" style={{background:"#fff", padding:"16px 24px", borderRadius:12, border:"1px solid var(--border1)", cursor: 'pointer'}} onClick={() => onNavigate('social-connections')}>
-        <div>
-            <div className="fw-600 fs-16">Integration Pulse</div>
-            <div className="fs-12 text-muted">Verification Ready Status</div>
-        </div>
-        <div className="flex-center gap-16">
-            <div className="flex-center gap-8" style={{cursor: 'pointer'}} onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
-                <div style={{width:8, height:8, borderRadius:"50%", background: connections.tiktok ? "#10b981" : "#e5e7eb"}}></div>
-                <span className="fs-13 fw-500" style={{color: connections.tiktok ? "#10b981" : "#9ca3af"}}>TikTok {connections.tiktok ? "Connected" : "Not Linked"}</span>
-            </div>
-            <div className="flex-center gap-8" style={{cursor: 'pointer'}} onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
-                <div style={{width:8, height:8, borderRadius:"50%", background: connections.meta ? "#10b981" : "#e5e7eb"}}></div>
-                <span className="fs-13 fw-500" style={{color: connections.meta ? "#10b981" : "#9ca3af"}}>Meta/IG {connections.meta ? "Connected" : "Not Linked"}</span>
-            </div>
-            {(!connections.tiktok || !connections.meta) && (
-                <button className="btn btn-sm" style={{border:"1px solid var(--border2)", background:"#fff"}} onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
-                   Setup Integration
-                </button>
-            )}
+      <div className="premium-card mb-24" style={{cursor: 'pointer'}} onClick={() => onNavigate('social-connections')}>
+        <div className="flex-between">
+          <div>
+              <div className="heading-md">Integration Pulse</div>
+              <div className="fs-12 text-muted">Verification Status: { (connections.tiktok && (connections.instagram || connections.facebook)) ? "Ready" : "Action Required" }</div>
+          </div>
+          <div className="flex-center gap-16">
+              <div className="flex-center gap-8">
+                  <div className={`dot ${connections.tiktok ? 'dot-green' : ''}`} style={{background: connections.tiktok ? '#10b981' : '#e5e7eb'}}></div>
+                  <span className="fs-13 fw-500" style={{color: connections.tiktok ? '#10b981' : '#9ca3af'}}>TikTok</span>
+              </div>
+              <div className="flex-center gap-8">
+                  <div className={`dot ${connections.instagram ? 'dot-green' : ''}`} style={{background: connections.instagram ? '#10b981' : '#e5e7eb'}}></div>
+                  <span className="fs-13 fw-500" style={{color: connections.instagram ? '#10b981' : '#9ca3af'}}>Instagram</span>
+              </div>
+              <div className="flex-center gap-8">
+                  <div className={`dot ${connections.facebook ? 'dot-green' : ''}`} style={{background: connections.facebook ? '#10b981' : '#e5e7eb'}}></div>
+                  <span className="fs-13 fw-500" style={{color: connections.facebook ? '#10b981' : '#9ca3af'}}>Facebook</span>
+              </div>
+              {(!connections.tiktok || !connections.instagram || !connections.facebook) && (
+                  <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
+                     Manage
+                  </button>
+              )}
+          </div>
         </div>
       </div>
       <div className="stats-grid">
