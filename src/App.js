@@ -1127,22 +1127,22 @@ function CreatorDashboard({ user, db, onNavigate }) {
 
   return (
     <div className="content">
-      <div className="flex-between mb-24" style={{background:"#fff", padding:"16px 24px", borderRadius:12, border:"1px solid var(--border1)"}}>
+      <div className="flex-between mb-24" style={{background:"#fff", padding:"16px 24px", borderRadius:12, border:"1px solid var(--border1)", cursor: 'pointer'}} onClick={() => onNavigate('social-connections')}>
         <div>
             <div className="fw-600 fs-16">Integration Pulse</div>
             <div className="fs-12 text-muted">Verification Ready Status</div>
         </div>
         <div className="flex-center gap-16">
-            <div className="flex-center gap-8">
+            <div className="flex-center gap-8" style={{cursor: 'pointer'}} onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
                 <div style={{width:8, height:8, borderRadius:"50%", background: connections.tiktok ? "#10b981" : "#e5e7eb"}}></div>
                 <span className="fs-13 fw-500" style={{color: connections.tiktok ? "#10b981" : "#9ca3af"}}>TikTok {connections.tiktok ? "Connected" : "Not Linked"}</span>
             </div>
-            <div className="flex-center gap-8">
+            <div className="flex-center gap-8" style={{cursor: 'pointer'}} onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
                 <div style={{width:8, height:8, borderRadius:"50%", background: connections.meta ? "#10b981" : "#e5e7eb"}}></div>
                 <span className="fs-13 fw-500" style={{color: connections.meta ? "#10b981" : "#9ca3af"}}>Meta/IG {connections.meta ? "Connected" : "Not Linked"}</span>
             </div>
             {(!connections.tiktok || !connections.meta) && (
-                <button className="btn btn-sm" style={{border:"1px solid var(--border2)", background:"#fff"}} onClick={() => onNavigate('social-connections')}>
+                <button className="btn btn-sm" style={{border:"1px solid var(--border2)", background:"#fff"}} onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
                    Setup Integration
                 </button>
             )}
@@ -4380,6 +4380,27 @@ export default function App() {
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
 
   useEffect(() => {
+    // 1. Initialize from URL on load
+    const params = new URLSearchParams(window.location.search);
+    const urlPage = params.get('page');
+    if (urlPage && urlPage !== page) {
+      setPage(urlPage);
+    }
+
+    // 2. Handle browser Back/Forward buttons
+    const handlePopState = () => {
+      const p = new URLSearchParams(window.location.search).get('page') || 'dashboard';
+      setPage(p);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  useEffect(() => {
+    // Sync state to URL without refreshing
+    const url = new URL(window.location);
+    url.searchParams.set('page', page);
+    window.history.pushState({}, '', url);
     localStorage.setItem("last_page", page);
   }, [page]);
 
@@ -4656,7 +4677,27 @@ export default function App() {
       if(page==="content-library") return <ErrorBoundary label="Content Library"><ContentLibrary db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
-    return <div className="content"><div className="empty"><div className="empty-icon">🚧</div><h3>Coming soon</h3></div></div>;
+    if (loading) {
+      return (
+        <div className="content">
+          <div className="empty">
+            <div className="loading-spinner" style={{ fontSize: '3rem', marginBottom: '1rem' }}>⌛</div>
+            <h3>Syncing workspace...</h3>
+            <p>Gathering your latest data from the platform.</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="content">
+        <div className="empty">
+          <div className="empty-icon">🏠</div>
+          <h3>Dashboard Pending</h3>
+          <p>Please select a tab from the sidebar to continue.</p>
+        </div>
+      </div>
+    );
   };
 
   useEffect(() => {

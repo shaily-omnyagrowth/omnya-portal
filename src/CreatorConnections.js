@@ -67,13 +67,10 @@ export default function CreatorConnections({ currentUser }) {
     if (platform === 'instagram' || platform === 'facebook') {
       targetPlatform = 'meta';
       queryParams += `&type=${platform}`;
-      setMessage({ type: 'success', text: `Redirecting to Meta Gateway for ${platform} permissions...` });
     }
 
-    // Timeout to let the user read the message before redirection
-    setTimeout(() => {
-        window.location.href = `/api/auth/${targetPlatform}/start${queryParams}`;
-    }, 800);
+    // Direct redirect - snappy and professional
+    window.location.href = `/api/auth/${targetPlatform}/start${queryParams}`;
   };
 
   const handleDisconnect = async (platform) => {
