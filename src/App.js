@@ -4334,10 +4334,7 @@ export default function App() {
   const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(true); // Start as true for initial session check
-  const SUPER_ADMINS = ['shaily@omnya.com', 'shaily@omnyagrowth.com'];
-  const userEmail = (user?.email || "").toLowerCase().trim();
   let rawRole = user?.role || "pending";
-  if (SUPER_ADMINS.includes(userEmail)) rawRole = "owner";
   let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
@@ -4447,10 +4444,7 @@ export default function App() {
   // Sync page validation
   useEffect(() => {
     if (user) {
-      const SUPER_ADMINS = ['shaily@omnya.com', 'shaily@omnyagrowth.com'];
-      const userEmail = (user?.email || "").toLowerCase().trim();
       let rawRole = user?.role || "creator";
-      if (SUPER_ADMINS.includes(userEmail)) rawRole = "owner";
       let checkRole = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
       
       const currentNavs = navs[checkRole] || [];
