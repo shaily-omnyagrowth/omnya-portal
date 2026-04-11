@@ -1018,10 +1018,7 @@ const navs = {
 };
 
 function Sidebar({ user, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
-  const SUPER_ADMINS = ['shaily@omnya.com', 'shaily@omnyagrowth.com'];
-  const userEmail = (user?.email || "").toLowerCase().trim();
-  let rawRole = user?.role || "creator";
-  if (SUPER_ADMINS.includes(userEmail)) rawRole = "owner";
+  let rawRole = (user?.role || "creator").toLowerCase();
   let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
 
   return (
