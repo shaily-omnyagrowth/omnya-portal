@@ -39,12 +39,12 @@ export default function CreatorConnections({ currentUser }) {
 
         const { data, error } = await supabase
           .from('creator_tokens')
-          .select('platform, updated_at, expires_at')
+          .select('platform, updated_at, expires_at, account_name')
           .eq('creator_id', creator.id);
 
         if (error) throw error;
         
-        const mapped = { tiktok: null, meta: null };
+        const mapped = { tiktok: null, instagram: null, facebook: null };
         data?.forEach(token => {
           mapped[token.platform] = token;
         });
@@ -60,12 +60,19 @@ export default function CreatorConnections({ currentUser }) {
 
   // 3. Handlers
   const handleConnect = (platform) => {
-    if (platform === 'meta') {
-      setMessage({ type: 'success', text: 'Redirecting to Meta Gateway for Instagram/Facebook permissions...' });
+    let targetPlatform = platform;
+    let queryParams = `?userId=${currentUser.id}`;
+    
+    // Unified Meta handling for Instagram and Facebook
+    if (platform === 'instagram' || platform === 'facebook') {
+      targetPlatform = 'meta';
+      queryParams += `&type=${platform}`;
+      setMessage({ type: 'success', text: `Redirecting to Meta Gateway for ${platform} permissions...` });
     }
+
     // Timeout to let the user read the message before redirection
     setTimeout(() => {
-        window.location.href = `/api/auth/${platform}/start?userId=${currentUser.id}`;
+        window.location.href = `/api/auth/${targetPlatform}/start${queryParams}`;
     }, 800);
   };
 
@@ -130,22 +137,22 @@ export default function CreatorConnections({ currentUser }) {
 
         <ConnectionCard 
           title="Instagram" 
-          platform="meta"
-          subtitle="Analytics via Meta Business"
-          data={connections.meta}
-          onConnect={() => handleConnect('meta')}
-          onDisconnect={() => handleDisconnect('meta')}
-          isDisconnecting={disconnecting === 'meta'}
+          platform="instagram"
+          subtitle="Analytics & Insights"
+          data={connections.instagram}
+          onConnect={() => handleConnect('instagram')}
+          onDisconnect={() => handleDisconnect('instagram')}
+          isDisconnecting={disconnecting === 'instagram'}
         />
 
         <ConnectionCard 
           title="Facebook" 
-          platform="meta"
-          subtitle="Pages & Insights"
-          data={connections.meta}
-          onConnect={() => handleConnect('meta')}
-          onDisconnect={() => handleDisconnect('meta')}
-          isDisconnecting={disconnecting === 'meta'}
+          platform="facebook"
+          subtitle="Pages & Feed"
+          data={connections.facebook}
+          onConnect={() => handleConnect('facebook')}
+          onDisconnect={() => handleDisconnect('facebook')}
+          isDisconnecting={disconnecting === 'facebook'}
         />
 
         <div style={{ opacity: 0.5 }}>

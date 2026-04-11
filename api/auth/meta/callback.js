@@ -7,10 +7,11 @@ module.exports = async (req, res) => {
     return res.redirect(302, '/dashboard?error=' + encodeURIComponent(error || 'No code provided'));
   }
 
-  let userId;
+  let userId, platformType;
   try {
     const decoded = JSON.parse(Buffer.from(state, 'base64').toString('ascii'));
     userId = decoded.userId;
+    platformType = decoded.type || 'meta';
   } catch (err) {
     return res.status(400).send('Invalid state payload');
   }
@@ -74,7 +75,7 @@ module.exports = async (req, res) => {
     
     await supabase.from('creator_tokens').upsert({
       creator_id: creator.id,
-      platform: 'meta',
+      platform: platformType,
       access_token: longAccessToken,
       account_id: igAccountId,
       account_name: igUsername,
@@ -83,7 +84,7 @@ module.exports = async (req, res) => {
       updated_at: new Date().toISOString()
     }, { onConflict: 'creator_id, platform' });
     
-    res.redirect(302, '/dashboard?success=instagram_connected');
+    res.redirect(302, `/dashboard?success=${platformType}_connected`);
   } catch (err) {
     console.error('Meta Callback Error:', err);
     res.redirect(302, '/dashboard?error=auth_failed');
