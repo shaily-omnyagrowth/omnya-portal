@@ -60,8 +60,13 @@ export default function CreatorConnections({ currentUser }) {
 
   // 3. Handlers
   const handleConnect = (platform) => {
-    // Hard redirect to Vercel OAuth proxy
-    window.location.href = `/api/auth/${platform}/start?userId=${currentUser.id}`;
+    if (platform === 'meta') {
+      setMessage({ type: 'success', text: 'Redirecting to Meta Gateway for Instagram/Facebook permissions...' });
+    }
+    // Timeout to let the user read the message before redirection
+    setTimeout(() => {
+        window.location.href = `/api/auth/${platform}/start?userId=${currentUser.id}`;
+    }, 800);
   };
 
   const handleDisconnect = async (platform) => {
@@ -126,7 +131,7 @@ export default function CreatorConnections({ currentUser }) {
         <ConnectionCard 
           title="Instagram" 
           platform="meta"
-          subtitle="Via Meta Business Suite"
+          subtitle="Analytics via Meta Business"
           data={connections.meta}
           onConnect={() => handleConnect('meta')}
           onDisconnect={() => handleDisconnect('meta')}
@@ -135,7 +140,7 @@ export default function CreatorConnections({ currentUser }) {
 
         <ConnectionCard 
           title="Facebook" 
-          platform="meta" // They use the same token/flow
+          platform="meta"
           subtitle="Pages & Insights"
           data={connections.meta}
           onConnect={() => handleConnect('meta')}
@@ -143,13 +148,9 @@ export default function CreatorConnections({ currentUser }) {
           isDisconnecting={disconnecting === 'meta'}
         />
 
-        <ConnectionCard 
-          title="YouTube" 
-          platform="youtube" 
-          subtitle="Channel Analytics"
-          disabled={false} 
-          onConnect={() => handleConnect('youtube')} 
-        />
+        <div style={{ opacity: 0.5 }}>
+          <ConnectionCard title="YouTube" platform="youtube" data={null} disabled={true} />
+        </div>
       </div>
     </div>
   );
