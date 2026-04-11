@@ -4334,7 +4334,7 @@ export default function App() {
   const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(true); // Start as true for initial session check
-  let rawRole = user?.role || "pending";
+  let rawRole = (user?.role || "pending").toLowerCase();
   let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
@@ -4444,7 +4444,7 @@ export default function App() {
   // Sync page validation
   useEffect(() => {
     if (user) {
-      let rawRole = user?.role || "creator";
+      let rawRole = (user?.role || "creator").toLowerCase();
       let checkRole = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
       
       const currentNavs = navs[checkRole] || [];
