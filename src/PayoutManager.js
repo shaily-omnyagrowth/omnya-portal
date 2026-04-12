@@ -40,9 +40,12 @@ export default function PayoutManager() {
     setWorking(true);
     setMessage({ text: '', type: '' });
     try {
-      // Hits the server-side API to enforce idempotency and secure ledger writes
-      // /api/payouts/generate doesn't exist natively on client, it hits Vercel Proxy
-      const res = await fetch('/api/payouts/generate', { method: 'POST' });
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const res = await fetch('/api/payouts/generate', { 
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token || ''}` }
+      });
       const data = await res.json();
       
       if (!res.ok) throw new Error(data.error || 'Failed to generate batch');
@@ -59,10 +62,13 @@ export default function PayoutManager() {
   // Export CSV Action
   const handleExportCSV = async (batchId) => {
     try {
-      const res = await fetch(`/api/payouts/export?batch_id=${batchId}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      const res = await fetch(`/api/payouts/export?batch_id=${batchId}`, {
+        headers: { 'Authorization': `Bearer ${session?.access_token || ''}` }
+      });
       if (!res.ok) throw new Error('Export failed');
       
-      // Prompt standard file download trigger
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -82,9 +88,14 @@ export default function PayoutManager() {
     
     setWorking(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
       const res = await fetch(`/api/payouts/mark-paid`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || ''}`
+        },
         body: JSON.stringify({ batch_id: batchId })
       });
       if (!res.ok) throw new Error('Failed to update status');

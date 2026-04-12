@@ -17,13 +17,22 @@ export default function CreatorConnections({ currentUser }) {
   // 1. Check URL parameters on mount for OAuth redirect alerts
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    let shouldReplace = false;
     if (params.get('success')) {
       setMessage({ type: 'success', text: `Successfully connected ${params.get('success').split('_')[0]}!` });
-      window.history.replaceState({}, document.title, window.location.pathname);
+      params.delete('success');
+      shouldReplace = true;
     }
     if (params.get('error')) {
       setMessage({ type: 'error', text: `Connection failed: ${params.get('error')}` });
-      window.history.replaceState({}, document.title, window.location.pathname);
+      params.delete('error');
+      shouldReplace = true;
+    }
+    
+    if (shouldReplace) {
+      const url = new URL(window.location);
+      url.search = params.toString();
+      window.history.replaceState({}, document.title, url);
     }
   }, []);
 

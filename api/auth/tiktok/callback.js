@@ -4,9 +4,9 @@ module.exports = async (req, res) => {
   const { code, state, error } = req.query;
   
   if (error === 'access_denied') {
-    return res.redirect(302, '/dashboard?error=access_denied');
+    return res.redirect(302, '/?page=social-connections&error=access_denied');
   } else if (error || !code) {
-    return res.redirect(302, '/dashboard?error=' + encodeURIComponent(error || 'No code provided'));
+    return res.redirect(302, '/?page=social-connections&error=' + encodeURIComponent(error || 'No code provided'));
   }
 
   let userId;
@@ -55,9 +55,9 @@ module.exports = async (req, res) => {
       updated_at: new Date().toISOString()
     }, { onConflict: 'creator_id, platform' });
     
-    res.redirect(302, '/dashboard?success=tiktok_connected');
+    res.redirect(302, '/?page=social-connections&success=tiktok_connected');
   } catch (err) {
     console.error('TikTok Callback Error:', err);
-    res.redirect(302, '/dashboard?error=auth_failed');
+    res.redirect(302, '/?page=social-connections&error=auth_failed');
   }
 };

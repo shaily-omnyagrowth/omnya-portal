@@ -1164,7 +1164,7 @@ function CreatorDashboard({ user, db, onNavigate }) {
         <div className="stat-card"><div className="stat-label">Pending Earnings</div><div className="stat-value">{fmtMoney(earnings)}</div></div>
       </div>
       <div className="grid-2">
-        <div className="card">
+        <div className="premium-card">
           <div className="card-title">Notifications</div>
           {notifs.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">🔔</div><h3>All caught up!</h3></div>}
           {notifs.map((n,i)=>(
@@ -1174,7 +1174,7 @@ function CreatorDashboard({ user, db, onNavigate }) {
             </div>
           ))}
         </div>
-        <div className="card">
+        <div className="premium-card">
           <div className="card-title">Active Jobs</div>
           {myJobs.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">💼</div><h3>No active jobs</h3></div>}
           {myJobs.map(job=>{
@@ -1407,9 +1407,21 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
   );
 
   return (
-    <div className="content" style={{maxWidth:600}}>
-      <div className="card">
-        <div className="card-title">New Content Submission</div>
+    <div className="content" style={{maxWidth:640, margin: "0 auto"}}>
+      <div className="premium-card">
+        <div style={{
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginBottom: '24px',
+          paddingBottom: '16px',
+          borderBottom: '1px solid var(--border2)'
+        }}>
+          <div>
+            <h2 style={{fontFamily: "'Bebas Neue', sans-serif", fontSize: '28px', color: 'var(--ink)', letterSpacing: '1px', marginBottom: '4px'}}>New Content Submission</h2>
+            <div style={{fontSize: '13px', color: 'var(--ink3)'}}>Submit your video content for review and delivery.</div>
+          </div>
+        </div>
 
         <div className="form-group">
           <label className="form-label">Campaign</label>
@@ -1699,7 +1711,7 @@ function AMDashboard({ user, db }) {
         <div className="stat-card"><div className="stat-label">My Clients</div><div className="stat-value">{myClients.length}</div></div>
       </div>
       <div className="grid-2">
-        <div className="card">
+        <div className="premium-card">
           <div className="card-title">Creator Performance</div>
           {myCreators.map(c=>{
             const subs=db.submissions.filter(s=>s.creator_id===c.id);
@@ -1714,7 +1726,7 @@ function AMDashboard({ user, db }) {
           })}
           {myCreators.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">👥</div><h3>No creators yet</h3></div>}
         </div>
-        <div className="card">
+        <div className="premium-card">
           <div className="card-title">My Clients</div>
           {myClients.map(cl=>{
             const campaigns = db.campaigns.filter(c=>c.client_id===cl.id);
@@ -1963,9 +1975,9 @@ function MyCreators({ user, db }) {
   return (
     <div className="content">
       {creators.length===0&&<div className="empty"><div className="empty-icon">👥</div><h3>No creators assigned yet</h3></div>}
-      <div className="card">
+      <div className="premium-card">
         <div className="table-wrap">
-          <table>
+          <table className="premium-table">
             <thead><tr><th>Creator</th><th>TikTok</th><th>Status</th><th>Approval Rate</th><th>Approved</th><th>Payment</th></tr></thead>
             <tbody>
               {creators.map(c=>{
@@ -2029,9 +2041,9 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
         <button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ New Campaign</button>
       </div>
       {campaigns.length===0&&<div className="empty"><div className="empty-icon">📢</div><h3>No campaigns yet</h3></div>}
-      <div className="card">
+      <div className="premium-card">
         <div className="table-wrap">
-          <table>
+          <table className="premium-table">
             <thead><tr><th>Campaign</th><th>Client</th><th>AM</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
             <tbody>
               {campaigns.map(c=>{
@@ -2672,9 +2684,9 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
         {isOwner&&<span className="owner-badge">👑 Owner View — All client data visible</span>}
         {isOwner&&<button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ Add Client</button>}
       </div>
-      <div className="card">
+      <div className="premium-card">
         <div className="table-wrap">
-          <table>
+          <table className="premium-table">
             <thead>
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
@@ -2803,9 +2815,9 @@ function ContentLibrary({ db, onRefresh }) {
   return (
     <div className="content">
       <div className="mb-16" style={{fontSize:13,color:"var(--ink3)"}}>{approved.length} approved videos · Click any row for AI insights</div>
-      <div className="card">
+      <div className="premium-card">
         <div className="table-wrap">
-          <table>
+          <table className="premium-table">
             <thead><tr><th>Creator</th><th>Campaign</th><th>Client</th><th>Platform</th><th>Approved</th><th>Views</th><th>Likes</th><th>Saves</th><th>AI Score</th><th>Payment</th></tr></thead>
             <tbody>
               {approved.map(s=>{
@@ -2861,7 +2873,7 @@ function Analytics({ db }) {
         <div className="stat-card stat-highlight"><div className="stat-label">Pending Review</div><div className="stat-value">{db.submissions.filter(s=>s.concept_status==="Pending"||s.final_status==="Pending").length}</div></div>
         <div className="stat-card"><div className="stat-label">Active Creators</div><div className="stat-value">{db.creators.filter(c=>c.status==="Active").length}</div></div>
       </div>
-      <div className="card">
+      <div className="premium-card">
         <div className="card-title">Creator Leaderboard</div>
         {creators.map((c,i)=>{
           const subs=db.submissions.filter(s=>s.creator_id===c.id);
@@ -2975,7 +2987,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
       <div className="grid-2" style={{ marginBottom: 32 }}>
         
         {/* Left: Action Required Reviews */}
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+        <div className="premium-card" style={{ display: "flex", flexDirection: "column" }}>
           <div className="flex-between mb-16">
             <div className="card-title mb-0" style={{ fontSize: 16 }}>🚀 Action Required: Reviews</div>
             {pendingReviews.length > 0 && <span className="badge badge-orange">{pendingReviews.length} left</span>}
@@ -3005,7 +3017,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
         </div>
 
         {/* Right: Pending Users Onboarding */}
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+        <div className="premium-card" style={{ display: "flex", flexDirection: "column" }}>
           <div className="flex-between mb-16">
             <div className="card-title mb-0" style={{ fontSize: 16 }}>🤝 Action Required: Onboarding</div>
             {pendingUsers.length > 0 && <span className="badge badge-blue">{pendingUsers.length} waiting</span>}
@@ -3043,10 +3055,10 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
       {/* Existing Operational Snapshot */}
       <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Network Directory</h3>
       <div className="grid-2">
-        <div className="card">
+        <div className="premium-card">
           <div className="card-title">Client Overview</div>
           <div className="table-wrap">
-            <table>
+            <table className="premium-table">
               <thead><tr><th>Client</th><th>Budget</th><th>Status</th></tr></thead>
               <tbody>
                 {db.clients.map(c=><tr key={c.id}><td className="fw-600">{c.name}</td><td className="text-green fw-600">{fmtMoney(c.budget)}</td><td>{statusBadge(c.status)}</td></tr>)}
@@ -3056,7 +3068,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
           {db.clients.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">🏢</div><h3>No clients yet</h3></div>}
         </div>
         
-        <div className="card">
+        <div className="premium-card">
           <div className="card-title">Team</div>
           {db.accountManagers.map(am=>{
             const amCreators=db.creators.filter(c=>c.am_id===am.id);
@@ -3273,9 +3285,9 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
       </div>
 
       {/* Payments table */}
-      <div className="card">
+      <div className="premium-card">
         <div className="table-wrap">
-          <table>
+          <table className="premium-table">
             <thead>
               <tr>
                 {isOwner&&tab==="pending"&&<th style={{width:32}}></th>}
@@ -3506,9 +3518,9 @@ function CreatorPerformance({ db, isOwner, user }) {
         ))}
       </div>
 
-      <div className="card">
+      <div className="premium-card">
         <div className="table-wrap">
-          <table>
+          <table className="premium-table">
             <thead>
               <tr>
                 <th>Creator</th>
@@ -3615,10 +3627,10 @@ function RevenueAnalytics({ db, user, isOwner }) {
       </div>
 
       {/* Per Client Profitability */}
-      <div className="card">
+      <div className="premium-card">
         <div className="card-title">Campaign Profitability by Client</div>
         <div className="table-wrap">
-          <table>
+          <table className="premium-table">
             <thead>
               <tr>
                 <th>Client</th>
@@ -3673,7 +3685,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
 
       {/* Client Retention Predictor */}
       {clientData.length>0&&(
-        <div className="card" style={{marginBottom:16}}>
+        <div className="premium-card" style={{marginBottom:16}}>
           <div className="card-title">🔮 Client Retention Predictor</div>
           <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
             {clientData.map(({client})=>{
@@ -3691,14 +3703,14 @@ function RevenueAnalytics({ db, user, isOwner }) {
       )}
 
       {/* Revenue Trend Chart */}
-      <div className="card" style={{marginTop:16}}>
+      <div className="premium-card" style={{marginTop:16}}>
         <div className="card-title">📈 Revenue Trend (Last 6 Months)</div>
         <RevenueTrendChart db={db} clientData={clientData}/>
       </div>
 
       {/* Key Insights */}
       {clientData.length>0&&(
-        <div className="card" style={{marginTop:16}}>
+        <div className="premium-card" style={{marginTop:16}}>
           <div className="card-title">💡 Key Insights</div>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             {clientData.sort((a,b)=>b.margin-a.margin).slice(0,1).map(d=>(
@@ -3779,7 +3791,7 @@ function TeamPerformance({ db, onRefresh }) {
           const totalApproved = db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&s.final_status==="Approved";}).length;
 
           return (
-            <div key={am.id} className="card">
+            <div key={am.id} className="premium-card">
               {/* AM Header */}
               <div className="flex-between mb-16">
                 <div className="flex-center gap-12">
@@ -4216,9 +4228,9 @@ function CreatorsManage({ db, onRefresh }) {
       </div>
 
       {tab==="creators"&&(
-        <div className="card">
+        <div className="premium-card">
           <div className="table-wrap">
-            <table>
+            <table className="premium-table">
               <thead><tr><th>Name</th><th>Email</th><th>Handles</th><th>Rate</th><th>AM</th><th>Status</th><th>Edit</th></tr></thead>
               <tbody>
                 {db.creators.map(c=>{
@@ -4243,9 +4255,9 @@ function CreatorsManage({ db, onRefresh }) {
       )}
 
       {tab==="ams"&&(
-        <div className="card">
+        <div className="premium-card">
           <div className="table-wrap">
-            <table>
+            <table className="premium-table">
               <thead><tr><th>Name</th><th>Email</th><th>Creators</th><th>Edit</th></tr></thead>
               <tbody>
                 {db.accountManagers.map(am=>{
@@ -4405,23 +4417,27 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const urlPage = params.get('page');
     if (urlPage && urlPage !== page) {
-      setPage(urlPage);
+      setPage(urlPage.toLowerCase());
     }
 
     // 2. Handle browser Back/Forward buttons
     const handlePopState = () => {
       const p = new URLSearchParams(window.location.search).get('page') || 'dashboard';
-      setPage(p);
+      setPage(p.toLowerCase());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   useEffect(() => {
-    // Sync state to URL without refreshing
+    // Sync state to URL safely without infinitely pushing history
     const url = new URL(window.location);
-    url.searchParams.set('page', page);
-    window.history.pushState({}, '', url);
+    const currentUrlPage = url.searchParams.get('page');
+    
+    if (currentUrlPage !== page) {
+      url.searchParams.set('page', page);
+      window.history.pushState({}, '', url);
+    }
     localStorage.setItem("last_page", page);
   }, [page]);
 

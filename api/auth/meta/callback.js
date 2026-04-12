@@ -102,9 +102,9 @@ module.exports = async (req, res) => {
       }, { onConflict: 'creator_id, platform' });
     }
     
-    res.redirect(302, `/dashboard?success=${platformType}_connected`);
+    res.redirect(302, `/?page=social-connections&success=${platformType}_connected`);
   } catch (err) {
     console.error('Callback Error:', err);
-    res.redirect(302, '/dashboard?error=auth_failed');
+    res.redirect(302, '/?page=social-connections&error=auth_failed');
   }
 };
