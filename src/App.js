@@ -1129,6 +1129,7 @@ function CreatorDashboard({ user, db, onNavigate }) {
   ].slice(0,4);
 
   return (
+    <div className="content">
       <div className="premium-card mb-24" style={{cursor: 'pointer'}} onClick={() => onNavigate('social-connections')}>
         <div className="flex-between">
           <div>
