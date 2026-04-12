@@ -42,9 +42,20 @@ export default function PayoutManager() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
+      const now = new Date();
+      const payload = {
+        periodStart: new Date(0).toISOString(),
+        periodEnd: now.toISOString(),
+        periodType: 'Rolling'
+      };
+
       const res = await fetch('/api/payouts/generate', { 
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${session?.access_token || ''}` }
+        headers: { 
+          'Authorization': `Bearer ${session?.access_token || ''}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       
