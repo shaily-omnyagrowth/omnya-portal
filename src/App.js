@@ -1567,7 +1567,7 @@ function MySubmissions({ user, db }) {
           <div key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</div>
         ))}
       </div>
-      {filtered.length===0&&<div className="empty"><div className="empty-icon">📁</div><h3>No submissions found</h3></div>}
+      {filtered.length===0&&<div className="empty" style={{padding:48, marginTop:24}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>📝</div><h3 style={{fontSize:18,marginBottom:8}}>No submissions yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>{tab==="all" ? "You haven't uploaded any videos yet. Go to the Submit tab to add your content." : "No videos match this status filter."}</p></div>}
       {filtered.length>0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
           {filtered.map(s => {
@@ -2130,7 +2130,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
         <div style={{fontSize:13,color:"var(--ink3)"}}>{campaigns.length} campaign{campaigns.length!==1?"s":""}</div>
         <button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ New Campaign</button>
       </div>
-      {campaigns.length===0&&<div className="empty"><div className="empty-icon">📢</div><h3>No campaigns yet</h3></div>}
+      {campaigns.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>📢</div><h3 style={{fontSize:18,marginBottom:8}}>No campaigns yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Create your first campaign to get creatives rolling.</p>{isOwner&&<button className="btn btn-primary" onClick={()=>setShowCreate(true)}>+ Create Campaign</button>}</div>}
       <div className="premium-card">
         <div className="table-wrap">
           <table className="premium-table">
@@ -3155,7 +3155,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
               </tbody>
             </table>
           </div>
-          {db.clients.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">🏢</div><h3>No clients yet</h3></div>}
+            {db.clients.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🏢</div><h3 style={{fontSize:18,marginBottom:8}}>No clients yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Add your first client to start creating campaigns.</p>{isOwner&&<button className="btn btn-primary" onClick={()=>setShowCreate(true)}>+ Add Client</button>}</div>}
         </div>
         
         <div className="premium-card">
@@ -3170,7 +3170,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
               </div>
             );
           })}
-          {db.accountManagers.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">👥</div><h3>No Team Members</h3></div>}
+          {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Have Account Managers sign up using this URL, and assign their role in the 'Team/Roles' tab.</p></div>}
         </div>
       </div>
     </div>
@@ -3967,7 +3967,7 @@ function TeamPerformance({ db, onRefresh }) {
             </div>
           );
         })}
-        {db.accountManagers.length===0&&<div className="empty"><div className="empty-icon">👥</div><h3>No account managers yet</h3></div>}
+        {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Have Account Managers sign up using this URL, and assign their role in the 'Team/Roles' tab.</p></div>}
       </div>
     </div>
   );
@@ -4317,6 +4317,14 @@ function CreatorsManage({ db, onRefresh }) {
         ))}
       </div>
 
+      <div style={{ padding: '16px', background: 'var(--bg2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', marginBottom: '24px' }}>
+        <div className="flex-between">
+          <div style={{ fontSize: '13px', color: 'var(--ink2)' }}>
+            <strong>How to add users:</strong> Have your Creators or Account Managers create an account using this portal's URL. Once they sign up, they will appear in the <strong>Team / Roles</strong> tab where you can officially assign their status.
+          </div>
+        </div>
+      </div>
+
       {tab==="creators"&&(
         <div className="premium-card">
           <div className="table-wrap">
@@ -4340,7 +4348,7 @@ function CreatorsManage({ db, onRefresh }) {
               </tbody>
             </table>
           </div>
-          {db.creators.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">🎬</div><h3>No creators yet</h3></div>}
+          {db.creators.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🎬</div><h3 style={{fontSize:18,marginBottom:8}}>No creators yet</h3><p style={{color:"var(--ink3)"}}>Invite creators using your portal URL.</p></div>}
         </div>
       )}
 
@@ -4364,7 +4372,7 @@ function CreatorsManage({ db, onRefresh }) {
               </tbody>
             </table>
           </div>
-          {db.accountManagers.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">👥</div><h3>No AMs yet</h3></div>}
+          {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)"}}>Invite account managers using your portal URL.</p></div>}
         </div>
       )}
 
