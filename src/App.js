@@ -1221,25 +1221,26 @@ function JobBoard({ user, db, onRefresh }) {
         const client=db.clients.find(c=>c.id===job.client_id);
         const applied=(job.assigned_creators||[]).includes(creator.id);
         return (
-          <div key={job.id} className="card mb-16">
-            <div className="flex-between mb-8">
+          <div key={job.id} className="premium-card mb-24 fade-in">
+            <div className="flex-between mb-16">
               <div>
-                <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18,marginBottom:4}}>{job.name}</div>
-                <div className="flex-center gap-8" style={{fontSize:12}}>
-                  <span className="text-muted">{client?.name}</span><span className="text-muted">·</span>
-                  <span className="badge badge-blue">{job.format}</span>
+                <div className="status-pill status-pill-blue mb-8">{job.format}</div>
+                <div className="heading-lg" style={{marginBottom: 4}}>{job.name}</div>
+                <div className="flex-center gap-8" style={{fontSize:13, color:'var(--ink3)', fontWeight: 500}}>
+                  <span>{client?.name}</span>
                 </div>
               </div>
               <div style={{textAlign:"right"}}>
-                <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:22,color:"var(--green)"}}>{fmtMoney(job.pay_per_video)}<span style={{fontSize:12,color:"var(--ink3)",fontFamily:"DM Sans, sans-serif"}}>/video</span></div>
-                <div style={{fontSize:11,color:"var(--ink3)"}}>Due {fmtDate(job.deadline)}</div>
+                <div className="heading-xl" style={{color:"var(--green)"}}>{fmtMoney(job.pay_per_video)}<span style={{fontSize:14,color:"var(--ink3)",fontFamily:"'Space Grotesk', sans-serif"}}>/vid</span></div>
+                <div style={{fontSize:12,color:"var(--ink3)", fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5}}>Due {fmtDate(job.deadline)}</div>
               </div>
             </div>
-            <div className="divider" style={{margin:"12px 0"}}/>
-            <p style={{fontSize:13,color:"var(--ink2)",marginBottom:12}}>{job.description}</p>
-            <div className="flex-between">
-              <div style={{fontSize:12,color:"var(--ink3)"}}>{job.videos_needed} videos needed</div>
-              {applied?<span className="badge badge-green">✓ Applied</span>:<button className="btn btn-primary btn-sm" onClick={()=>setApplying(job)}>Apply Now</button>}
+            <p style={{fontSize:14,color:"var(--ink2)",marginBottom:24, lineHeight: 1.6}}>{job.description}</p>
+            <div className="flex-between border-top" style={{paddingTop: 16, borderTop: '1px solid var(--border)'}}>
+              <div className="flex-center gap-8" style={{fontSize:13,color:"var(--ink3)", fontWeight: 600}}>
+                <div className="dot dot-orange"></div> {job.videos_needed} spots left
+              </div>
+              {applied?<span className="status-pill status-pill-green">✓ Application Received</span>:<button className="btn btn-primary" onClick={()=>setApplying(job)}>Apply for Campaign →</button>}
             </div>
           </div>
         );
@@ -1510,34 +1511,40 @@ function MySubmissions({ user, db }) {
 
   return (
     <div className="content">
-      <div className="tabs">
+      <div className="tabs mb-24">
         {["All","Pending","Approved","Revisions","Denied"].map(t=>(
           <div key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</div>
         ))}
       </div>
       {filtered.length===0&&<div className="empty"><div className="empty-icon">📁</div><h3>No submissions found</h3></div>}
-      <div className="card">
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Campaign</th><th>Type</th><th>Concept</th><th>Final</th><th>Submitted</th><th>Feedback</th></tr></thead>
-            <tbody>
-              {filtered.map(s=>{
-                const camp=db.campaigns.find(c=>c.id===s.campaign_id);
-                return (
-                  <tr key={s.id}>
-                    <td className="fw-600">{camp?.name||"—"}</td>
-                    <td>{s.submission_type}</td>
-                    <td>{statusBadge(s.concept_status)}</td>
-                    <td>{s.final_status?statusBadge(s.final_status):<span className="text-muted">—</span>}</td>
-                    <td className="text-muted">{fmtDate(s.created_at)}</td>
-                    <td style={{maxWidth:200,fontSize:12,color:"var(--ink3)"}}>{s.feedback||"—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {filtered.length>0 && (
+        <div className="premium-card">
+          <div className="table-wrap" style={{marginTop: 0}}>
+            <table className="premium-table">
+              <thead><tr><th>Campaign</th><th>Type</th><th>Concept Status</th><th>Final Status</th><th>Submitted</th><th>Feedback</th></tr></thead>
+              <tbody>
+                {filtered.map(s=>{
+                  const camp=db.campaigns.find(c=>c.id===s.campaign_id);
+                  return (
+                    <tr key={s.id} className="fade-in">
+                      <td><div className="fw-600 fs-14">{camp?.name||"—"}</div><div className="fs-12 text-muted">{s.submission_type}</div></td>
+                      <td>
+                        <span className={`status-pill ${s.submission_type==='Concept'?'status-pill-blue':'status-pill-orange'}`}>
+                          {s.submission_type}
+                        </span>
+                      </td>
+                      <td>{statusBadge(s.concept_status)}</td>
+                      <td>{s.final_status?statusBadge(s.final_status):<span className="text-muted">—</span>}</td>
+                      <td className="text-muted"><div className="fs-12">{fmtDate(s.created_at)}</div></td>
+                      <td style={{maxWidth:200,fontSize:13,color:"var(--ink2)"}}>{s.feedback || <span className="text-muted">—</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -1549,29 +1556,34 @@ function CreatorEarnings({ user, db }) {
   const totalPending = myPayments.filter(p=>p.status==="Pending").reduce((a,b)=>a+Number(b.amount_owed),0);
   return (
     <div className="content">
-      <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
-        <div className="stat-card"><div className="stat-label">Total Earned</div><div className="stat-value">{fmtMoney(totalEarned)}</div></div>
+      <div className="stats-grid mb-24" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
+        <div className="stat-card"><div className="stat-label">Total Earned</div><div className="stat-value text-green">{fmtMoney(totalEarned)}</div></div>
         <div className="stat-card stat-highlight"><div className="stat-label">Pending Payment</div><div className="stat-value">{fmtMoney(totalPending)}</div></div>
-        <div className="stat-card"><div className="stat-label">Rate Per Video</div><div className="stat-value">{creator?fmtMoney(creator.weekly_rate/creator.videos_per_week):"—"}</div></div>
+        <div className="stat-card"><div className="stat-label">Rate Per Video</div><div className="stat-value">{creator ? fmtMoney(creator.weekly_rate/Math.max(1, creator.videos_per_week)) : "—"}</div></div>
       </div>
-      <div className="card">
-        <div className="card-title">Payment History</div>
-        {myPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💰</div><h3>No payments yet</h3></div>}
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Week Ending</th><th>Videos</th><th>Amount</th><th>Status</th><th>Paid Date</th></tr></thead>
-            <tbody>
-              {myPayments.map(p=>(
-                <tr key={p.id}>
-                  <td>{fmtDate(p.week_ending)}</td><td>{p.videos_approved}</td>
-                  <td className="fw-600 text-green">{fmtMoney(p.amount_owed)}</td>
-                  <td>{statusBadge(p.status)}</td>
-                  <td className="text-muted">{p.paid_date?fmtDate(p.paid_date):"—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="premium-card">
+        <div className="flex-between mb-16">
+          <div className="heading-md">Payment History</div>
         </div>
+        {myPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💰</div><h3>No payments yet</h3></div>}
+        {myPayments.length>0 && (
+          <div className="table-wrap" style={{marginTop: 0}}>
+            <table className="premium-table">
+              <thead><tr><th>Week Ending</th><th>Videos</th><th>Amount</th><th>Status</th><th>Paid Date</th></tr></thead>
+              <tbody>
+                {myPayments.map(p=>(
+                  <tr key={p.id} className="fade-in">
+                    <td className="fw-600 fs-14">{fmtDate(p.week_ending)}</td>
+                    <td>{p.videos_approved}</td>
+                    <td className="fw-600 text-green fs-14">{fmtMoney(p.amount_owed)}</td>
+                    <td>{statusBadge(p.status)}</td>
+                    <td className="text-muted"><div className="fs-13">{p.paid_date?fmtDate(p.paid_date):"—"}</div></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
