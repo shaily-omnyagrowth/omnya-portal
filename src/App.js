@@ -6,8 +6,8 @@ import CreatorConnections from "./CreatorConnections";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 import PayoutManager from "./PayoutManager";
 import Legal from "./Legal";
-
-// ============================================================
+import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor } from "./utils";
+import CreatorDashboard from "./pages/CreatorDashboard";// ============================================================
 // ERROR BOUNDARY
 // ============================================================
 
@@ -624,20 +624,6 @@ const checkSupabaseHealth = async () => {
   return diagnostic;
 };
 
-const avatarColors = ["av-blue","av-green","av-gold","av-orange","av-red"];
-const getAvatarColor = (name) => avatarColors[(name||"?").charCodeAt(0) % avatarColors.length];
-const getInitials = (name) => (name||"?").split(" ").map(n=>n[0]).join("").toUpperCase().slice(0,2);
-const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—";
-const fmtMoney = (n) => n != null ? `$${Number(n).toLocaleString()}` : "—";
-const fmtNum = (n) => n != null ? Number(n).toLocaleString() : "—";
-
-const statusBadge = (status) => {
-  const map = {Active:"badge-green",Paused:"badge-gray",Offboarded:"badge-red",Open:"badge-blue","In Progress":"badge-orange",Completed:"badge-green",Cancelled:"badge-red",Pending:"badge-orange",Approved:"badge-green",Denied:"badge-red","Revisions Needed":"badge-gold",Current:"badge-green",Overdue:"badge-red",Paid:"badge-green",Unpaid:"badge-orange",Trial:"badge-gold","Monthly Retainer":"badge-blue","One-Off":"badge-gray"};
-  return <span className={`badge ${map[status]||"badge-gray"}`}>{status}</span>;
-};
-
-const scoreColor = (s) => s>=90?"#1A7A4A":s>=70?"#9A7A00":s>=50?"#C25A00":"#C0392B";
-
 // ============================================================
 // EMAIL HELPER — fire-and-forget via /api/send-email
 // Never throws; silently skips if key not configured.
@@ -1127,104 +1113,7 @@ function SetupScreen({ user, onComplete }) {
 // CREATOR PAGES
 // ============================================================
 
-function CreatorDashboard({ user, db, onNavigate }) {
-  const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
-  const [connections, setConnections] = useState({ tiktok: false, instagram: false, facebook: false });
 
-  useEffect(() => {
-    async function checkConns() {
-        if (!user?.id) return;
-        const { data: creatorRec } = await supabase.from('creators').select('id').eq('user_id', user.id).single();
-        if (!creatorRec) return;
-        const { data } = await supabase.from('creator_tokens').select('platform').eq('creator_id', creatorRec.id);
-        const mapped = { tiktok: false, instagram: false, facebook: false };
-        data?.forEach(t => {
-          if (t.platform === 'meta') { mapped.instagram = true; mapped.facebook = true; }
-          else mapped[t.platform] = true;
-        });
-        setConnections(mapped);
-    }
-    checkConns();
-  }, [user]);
-
-  if (!creator) return <div className="content"><div className="empty"><div className="empty-icon">👋</div><h3>Profile being set up</h3><p>Your account manager will activate your profile shortly.</p></div></div>;
-  
-  const mySubs = db.submissions.filter(s=>s.creator_id===creator.id);
-  const thisWeek = mySubs.filter(s=>new Date(s.created_at)>new Date(Date.now()-7*86400000)).length;
-  const earnings = mySubs.filter(s=>s.final_status==="Approved"&&s.payment_status==="Unpaid").length*(creator.weekly_rate/creator.videos_per_week||10);
-  const myJobs = db.campaigns.filter(c=>c.assigned_creators?.includes(creator.id)&&c.status!=="Completed");
-  const notifs = [
-    ...mySubs.filter(s=>s.concept_status==="Approved").slice(0,2).map(s=>({type:"green",text:<>Concept approved: <strong>{db.campaigns.find(c=>c.id===s.campaign_id)?.name}</strong></>,time:"Recent"})),
-    ...mySubs.filter(s=>s.final_status==="Approved").slice(0,2).map(s=>({type:"green",text:<>Final approved: <strong>{db.campaigns.find(c=>c.id===s.campaign_id)?.name}</strong></>,time:"Recent"})),
-    ...mySubs.filter(s=>s.concept_status==="Revisions Needed").slice(0,2).map(s=>({type:"orange",text:<>Revisions needed: <strong>{db.campaigns.find(c=>c.id===s.campaign_id)?.name}</strong></>,time:"Recent"})),
-  ].slice(0,4);
-
-  return (
-    <div className="content">
-      <div className="premium-card mb-24" style={{cursor: 'pointer'}} onClick={() => onNavigate('social-connections')}>
-        <div className="flex-between">
-          <div>
-              <div className="heading-md">Integration Pulse</div>
-              <div className="fs-12 text-muted">Verification Status: { (connections.tiktok && (connections.instagram || connections.facebook)) ? "Ready" : "Action Required" }</div>
-          </div>
-          <div className="flex-center gap-16">
-              <div className="flex-center gap-8">
-                  <div className={`dot ${connections.tiktok ? 'dot-green' : ''}`} style={{background: connections.tiktok ? '#10b981' : '#e5e7eb'}}></div>
-                  <span className="fs-13 fw-500" style={{color: connections.tiktok ? '#10b981' : '#9ca3af'}}>TikTok</span>
-              </div>
-              <div className="flex-center gap-8">
-                  <div className={`dot ${connections.instagram ? 'dot-green' : ''}`} style={{background: connections.instagram ? '#10b981' : '#e5e7eb'}}></div>
-                  <span className="fs-13 fw-500" style={{color: connections.instagram ? '#10b981' : '#9ca3af'}}>Instagram</span>
-              </div>
-              <div className="flex-center gap-8">
-                  <div className={`dot ${connections.facebook ? 'dot-green' : ''}`} style={{background: connections.facebook ? '#10b981' : '#e5e7eb'}}></div>
-                  <span className="fs-13 fw-500" style={{color: connections.facebook ? '#10b981' : '#9ca3af'}}>Facebook</span>
-              </div>
-              {(!connections.tiktok || !connections.instagram || !connections.facebook) && (
-                  <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); onNavigate('social-connections'); }}>
-                     Manage
-                  </button>
-              )}
-          </div>
-        </div>
-      </div>
-      <div className="stats-grid">
-        <div className="stat-card"><div className="stat-label">Submitted This Week</div><div className="stat-value">{thisWeek}</div></div>
-        <div className="stat-card"><div className="stat-label">Total Approved</div><div className="stat-value">{mySubs.filter(s=>s.final_status==="Approved").length}</div></div>
-        <div className="stat-card stat-highlight"><div className="stat-label">Approval Rate</div><div className="stat-value">{mySubs.length>0?Math.round((mySubs.filter(s=>s.final_status==="Approved").length/mySubs.length)*100):0}%</div></div>
-        <div className="stat-card"><div className="stat-label">Pending Earnings</div><div className="stat-value">{fmtMoney(earnings)}</div></div>
-      </div>
-      <div className="grid-2">
-        <div className="premium-card">
-          <div className="card-title">Notifications</div>
-          {notifs.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">🔔</div><h3>All caught up!</h3></div>}
-          {notifs.map((n,i)=>(
-            <div key={i} className="notif">
-              <div className={`notif-dot notif-dot-${n.type==="orange"?"orange":"green"}`}/>
-              <div><div className="notif-text">{n.text}</div><div className="notif-time">{n.time}</div></div>
-            </div>
-          ))}
-        </div>
-        <div className="premium-card">
-          <div className="card-title">Active Jobs</div>
-          {myJobs.length===0&&<div className="empty" style={{padding:24}}><div className="empty-icon">💼</div><h3>No active jobs</h3></div>}
-          {myJobs.map(job=>{
-            const client=db.clients.find(c=>c.id===job.client_id);
-            return (
-              <div key={job.id} style={{padding:"12px 0",borderBottom:"1px solid var(--border2)"}}>
-                <div className="flex-between mb-8"><div className="fw-600 fs-13">{job.name}</div>{statusBadge(job.status)}</div>
-                <div className="flex-center gap-8" style={{fontSize:12,color:"var(--ink3)"}}>
-                  <span>{client?.name}</span><span>·</span><span>Due {fmtDate(job.deadline)}</span>
-                  <span>·</span><span className="text-green">{fmtMoney(job.pay_per_video)}/video</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function JobBoard({ user, db, onRefresh }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
@@ -4714,6 +4603,54 @@ export default function App() {
   },[user]);
 
   useEffect(()=>{ if(user&&!needsSetup) loadDB(); },[user,needsSetup,loadDB]);
+
+  // Global Realtime Sync (Delta Updates)
+  useEffect(() => {
+    if (!user || needsSetup) return;
+
+    const tableKeyMap = {
+      creators: 'creators',
+      clients: 'clients',
+      campaigns: 'campaigns',
+      submissions: 'submissions',
+      account_managers: 'accountManagers',
+      payments: 'payments',
+      user_profiles: 'userProfiles'
+    };
+
+    const channels = Object.keys(tableKeyMap).map(table => 
+      supabase.channel(`sync_${table}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: table }, payload => {
+          console.log(`Realtime Delta [${payload.eventType}] on ${table}`, payload);
+          
+          setDb(prev => {
+            const listKey = tableKeyMap[table];
+            if (!prev[listKey]) return prev;
+
+            const currentArr = [...prev[listKey]];
+
+            if (payload.eventType === 'INSERT') {
+              if (!currentArr.find(item => item.id === payload.new.id)) {
+                currentArr.push(payload.new);
+              }
+            } else if (payload.eventType === 'UPDATE') {
+              const idx = currentArr.findIndex(item => item.id === payload.new.id);
+              if (idx !== -1) currentArr[idx] = payload.new;
+              else currentArr.push(payload.new); // Safety net insert
+            } else if (payload.eventType === 'DELETE') {
+              return { ...prev, [listKey]: currentArr.filter(item => item.id !== payload.old.id) };
+            }
+
+            return { ...prev, [listKey]: currentArr };
+          });
+        })
+        .subscribe()
+    );
+
+    return () => {
+      channels.forEach(ch => supabase.removeChannel(ch));
+    };
+  }, [user, needsSetup]);
 
   const handleLogin = async(u) => {
     console.log("handleLogin: instant login for", u.id);
