@@ -1224,7 +1224,15 @@ function JobBoard({ user, db, onRefresh }) {
           <div key={job.id} className="premium-card mb-24 fade-in">
             <div className="flex-between mb-16">
               <div>
-                <div className="status-pill status-pill-blue mb-8">{job.format}</div>
+                <div className="flex-center gap-8 mb-8">
+                  <span className="status-pill status-pill-blue">{job.format}</span>
+                  {new Date(job.deadline) - new Date() <= 3 * 86400000 && (
+                    <span className="status-pill status-pill-orange" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div className="dot pulse-amber" style={{ background: '#f59e0b', width: 6, height: 6 }}></div>
+                      URGENT
+                    </span>
+                  )}
+                </div>
                 <div className="heading-lg" style={{marginBottom: 4}}>{job.name}</div>
                 <div className="flex-center gap-8" style={{fontSize:13, color:'var(--ink3)', fontWeight: 500}}>
                   <span>{client?.name}</span>
@@ -1530,31 +1538,52 @@ function MySubmissions({ user, db }) {
       </div>
       {filtered.length===0&&<div className="empty"><div className="empty-icon">📁</div><h3>No submissions found</h3></div>}
       {filtered.length>0 && (
-        <div className="premium-card">
-          <div className="table-wrap" style={{marginTop: 0}}>
-            <table className="premium-table">
-              <thead><tr><th>Campaign</th><th>Type</th><th>Concept Status</th><th>Final Status</th><th>Submitted</th><th>Feedback</th></tr></thead>
-              <tbody>
-                {filtered.map(s=>{
-                  const camp=db.campaigns.find(c=>c.id===s.campaign_id);
-                  return (
-                    <tr key={s.id} className="fade-in">
-                      <td><div className="fw-600 fs-14">{camp?.name||"—"}</div><div className="fs-12 text-muted">{s.submission_type}</div></td>
-                      <td>
-                        <span className={`status-pill ${s.submission_type==='Concept'?'status-pill-blue':'status-pill-orange'}`}>
-                          {s.submission_type}
-                        </span>
-                      </td>
-                      <td>{statusBadge(s.concept_status)}</td>
-                      <td>{s.final_status?statusBadge(s.final_status):<span className="text-muted">—</span>}</td>
-                      <td className="text-muted"><div className="fs-12">{fmtDate(s.created_at)}</div></td>
-                      <td style={{maxWidth:200,fontSize:13,color:"var(--ink2)"}}>{s.feedback || <span className="text-muted">—</span>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+          {filtered.map(s => {
+            const camp = db.campaigns.find(c => c.id === s.campaign_id);
+            const isApproved = s.final_status === "Approved";
+            const needsRevisions = s.concept_status === "Revisions Needed";
+            const isPending = s.concept_status === "Pending" || s.final_status === "Pending";
+            
+            // Build aesthetic status dots
+            let statusColor = "var(--ink2)";
+            let pulseClass = "";
+            if (isApproved) statusColor = "#10b981"; // green
+            else if (isPending) { statusColor = "#f59e0b"; pulseClass = "pulse-amber"; }
+            else if (needsRevisions) statusColor = "#ef4444"; // red
+
+            return (
+              <div key={s.id} className="premium-card fade-in" style={{ padding: '24px', display: 'flex', flexDirection: 'column', height: '100%' }}>
+                
+                <div className="flex-between mb-16">
+                  <span className={`status-pill ${s.submission_type==='Concept'?'status-pill-blue':'status-pill-orange'}`}>
+                    {s.submission_type} Video
+                  </span>
+                  
+                  <div className="flex-center gap-8">
+                    <div className={`dot ${pulseClass}`} style={{background: statusColor, width: 8, height: 8}}></div>
+                    <span className="fs-12 fw-600" style={{color: statusColor, textTransform: 'uppercase', letterSpacing: 0.5}}>
+                      {s.final_status || s.concept_status}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="heading-md" style={{marginBottom: 4, lineHeight: 1.2}}>{camp?.name || "Unknown Campaign"}</div>
+                <div className="fs-12 text-muted mb-16">Submitted on {fmtDate(s.created_at)}</div>
+
+                {s.feedback ? (
+                  <div style={{ marginTop: 'auto', background: 'var(--bg2)', padding: '16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border2)' }}>
+                    <div className="fs-12 fw-600 mb-4" style={{color: 'var(--ink)'}}>AM Feedback</div>
+                    <div className="fs-13" style={{color: 'var(--ink2)', lineHeight: 1.5}}>{s.feedback}</div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 'auto', padding: '16px', borderTop: '1px dashed var(--border2)', textAlign: 'center' }}>
+                    <div className="fs-12 text-muted">Awaiting Account Manager Review...</div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
