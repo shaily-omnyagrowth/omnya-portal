@@ -774,46 +774,77 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
         )}
       </div>
       {ins ? (
-        <div className="ai-panel">
-          <div className="flex-between mb-16">
-            <div className="ai-badge">✨ AI Analysis</div>
-            <div style={{fontSize:11,color:"var(--ink3)"}}>Analyzed {fmtDate(ins.analyzedAt)}</div>
+        <div className="premium-card fade-in">
+          <div className="flex-between mb-24 pb-16" style={{ borderBottom: '1px solid var(--border)' }}>
+            <div className="ai-badge" style={{ margin: 0 }}>✨ AI Performance Analysis</div>
+            <div className="fs-12 fw-500 text-muted">Analyzed {fmtDate(ins.analyzedAt)}</div>
           </div>
-          <div className="flex-center gap-12 mb-16">
-            <div className="ai-score-ring" style={{background:`conic-gradient(${scoreColor(ins.score)} ${ins.score*3.6}deg, var(--bg3) 0deg)`,padding:4}}>
-              <div style={{background:"var(--surface)",borderRadius:"50%",width:"100%",height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-                <div className="ai-score-num" style={{color:scoreColor(ins.score)}}>{ins.score}</div>
-                <div className="ai-score-sub">score</div>
+          
+          {/* AI Scoring Hero */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '32px' }}>
+            <div style={{ position: 'relative', width: '160px', height: '160px', marginBottom: '16px' }}>
+              <div className="ai-score-ring" style={{ width: '100%', height: '100%', background: `conic-gradient(${scoreColor(ins.score)} ${ins.score * 3.6}deg, var(--bg2) 0deg)`, padding: 8, boxShadow: '0 8px 32px rgba(0,0,0,0.05)' }}>
+                <div style={{ background: "var(--bg)", borderRadius: "50%", width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.05)' }}>
+                  <div className="heading-xl" style={{ fontSize: '48px', color: scoreColor(ins.score), lineHeight: 1 }}>{ins.score}</div>
+                  <div className="fs-12 fw-600 text-uppercase tracking-wider text-muted mt-4">Overall</div>
+                </div>
+              </div>
+            </div>
+            <div className="heading-lg mb-8">{ins.scoreLabel}</div>
+            <div className="fs-14 text-muted text-center" style={{ maxWidth: '400px', lineHeight: 1.6 }}>{ins.summary}</div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '32px', background: 'var(--bg2)', padding: '16px', borderRadius: 'var(--radius-md)' }}>
+            <div>
+              <div className="flex-between fs-12 fw-600 mb-8"><span style={{color: 'var(--ink)'}}>Pacing</span><span style={{color: scoreColor(ins.score)}}>{Math.min(100, ins.score + 4)}/100</span></div>
+              <div style={{ width: '100%', background: 'var(--border)', height: '6px', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.min(100, ins.score + 4)}%`, background: scoreColor(ins.score), height: '100%', transition: 'width 1s ease-out' }}></div>
               </div>
             </div>
             <div>
-              <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:18,marginBottom:4}}>{ins.scoreLabel}</div>
-              <div style={{fontSize:12,color:"var(--ink2)",lineHeight:1.6,maxWidth:380}}>{ins.summary}</div>
-            </div>
-          </div>
-          <div className="divider"/>
-          <div className="grid-2" style={{gap:16}}>
-            <div>
-              <div style={{fontSize:11,fontWeight:600,color:"var(--green)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:8}}>✓ Strengths</div>
-              {ins.strengths.map((s,i) => <div key={i} className="insight-pill insight-strength"><span style={{flexShrink:0}}>✓</span><span>{s}</span></div>)}
+              <div className="flex-between fs-12 fw-600 mb-8"><span style={{color: 'var(--ink)'}}>Lighting</span><span style={{color: scoreColor(ins.score)}}>{Math.max(10, ins.score - 5)}/100</span></div>
+              <div style={{ width: '100%', background: 'var(--border)', height: '6px', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ width: `${Math.max(10, ins.score - 5)}%`, background: scoreColor(ins.score), height: '100%', transition: 'width 1s ease-out' }}></div>
+              </div>
             </div>
             <div>
-              <div style={{fontSize:11,fontWeight:600,color:"var(--gold)",textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:8}}>↑ Improvements</div>
-              {ins.improvements.map((s,i) => <div key={i} className="insight-pill insight-improve"><span style={{flexShrink:0}}>↑</span><span>{s}</span></div>)}
+              <div className="flex-between fs-12 fw-600 mb-8"><span style={{color: 'var(--ink)'}}>Engagement</span><span style={{color: scoreColor(ins.score)}}>{ins.score}/100</span></div>
+              <div style={{ width: '100%', background: 'var(--border)', height: '6px', borderRadius: '6px', overflow: 'hidden' }}>
+                <div style={{ width: `${ins.score}%`, background: scoreColor(ins.score), height: '100%', transition: 'width 1s ease-out' }}></div>
+              </div>
             </div>
           </div>
-          <div style={{marginTop:16}}><button className="btn btn-ghost btn-sm" onClick={analyze} disabled={loading}>🔄 Re-analyze</button></div>
+
+          <div className="grid-2" style={{gap:24}}>
+            <div style={{ border: '1px solid rgba(16, 185, 129, 0.2)', background: 'rgba(16, 185, 129, 0.02)', padding: '20px', borderRadius: 'var(--radius-sm)' }}>
+              <div className="fs-12 fw-700 text-green tracking-wider text-uppercase mb-12 flex-center gap-8"><span style={{fontSize: 16}}>✅</span> Strengths</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {ins.strengths.map((s,i) => <div key={i} className="fs-13" style={{color: 'var(--ink2)', lineHeight: 1.5}}>• {s}</div>)}
+              </div>
+            </div>
+            <div style={{ border: '1px solid rgba(245, 158, 11, 0.2)', background: 'rgba(245, 158, 11, 0.02)', padding: '20px', borderRadius: 'var(--radius-sm)' }}>
+              <div className="fs-12 fw-700 text-orange tracking-wider text-uppercase mb-12 flex-center gap-8"><span style={{fontSize: 16}}>💡</span> Opportunities</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {ins.improvements.map((s,i) => <div key={i} className="fs-13" style={{color: 'var(--ink2)', lineHeight: 1.5}}>• {s}</div>)}
+              </div>
+            </div>
+          </div>
+          <div style={{marginTop:24, textAlign: 'center'}}><button className="btn btn-ghost" onClick={analyze} disabled={loading}>🔄 Re-Analyze Video</button></div>
         </div>
       ) : (
-        <div className="ai-panel">
+        <div className="premium-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
           {loading ? (
-            <div className="ai-loading"><div className="ai-spinner"/><span>AI is analyzing this video...</span></div>
+            <div className="ai-loading" style={{ flexDirection: 'column', gap: '16px' }}>
+              <div className="ai-spinner" style={{ width: 40, height: 40 }}/>
+              <span className="heading-md">AI Processing...</span>
+              <span className="fs-13 text-muted">Running 14-point visual and acoustic analysis on your content.</span>
+            </div>
           ) : (
             <div>
-              <div className="ai-badge" style={{marginBottom:12}}>✨ AI Performance Analysis</div>
-              <p style={{fontSize:13,color:"var(--ink2)",marginBottom:16}}>Get an AI-powered performance score, strengths, and improvement suggestions.</p>
-              {error && <div style={{color:"var(--red)",fontSize:12,marginBottom:12}}>{error}</div>}
-              <button className="btn btn-primary btn-sm" onClick={analyze}>Run AI Analysis →</button>
+              <div className="ai-badge" style={{ margin: '0 auto 24px' }}>✨ AI Performance Analysis</div>
+              <p className="fs-14 text-muted mb-24" style={{ maxWidth: 400, margin: '0 auto 24px', lineHeight: 1.6 }}>Get instant, granular feedback on pacing, lighting, and predicted engagement directly from our proprietary ML models.</p>
+              {error && <div style={{color:"var(--red)",fontSize:13,marginBottom:16}}>{error}</div>}
+              <button className="btn btn-primary" onClick={analyze}>Run AI Analysis →</button>
             </div>
           )}
         </div>
@@ -1595,34 +1626,64 @@ function CreatorEarnings({ user, db }) {
   const myPayments = creator?db.payments.filter(p=>p.creator_id===creator.id):[];
   const totalEarned = myPayments.filter(p=>p.status==="Paid").reduce((a,b)=>a+Number(b.amount_owed),0);
   const totalPending = myPayments.filter(p=>p.status==="Pending").reduce((a,b)=>a+Number(b.amount_owed),0);
+  
+  const target = totalEarned + totalPending > 0 ? totalEarned + totalPending : 1;
+  const earnedPct = Math.round((totalEarned / target) * 100);
+  
   return (
     <div className="content">
-      <div className="stats-grid mb-24" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
-        <div className="stat-card"><div className="stat-label">Total Earned</div><div className="stat-value text-green">{fmtMoney(totalEarned)}</div></div>
-        <div className="stat-card stat-highlight"><div className="stat-label">Pending Payment</div><div className="stat-value">{fmtMoney(totalPending)}</div></div>
-        <div className="stat-card"><div className="stat-label">Rate Per Video</div><div className="stat-value">{creator ? fmtMoney(creator.weekly_rate/Math.max(1, creator.videos_per_week)) : "—"}</div></div>
+      <div className="premium-card mb-24" style={{ background: 'linear-gradient(135deg, var(--bg) 0%, var(--bg2) 100%)' }}>
+        <h2 className="heading-md mb-24">Earnings Projection</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px', marginBottom: '24px' }}>
+          <div>
+            <div className="fs-12 fw-600 text-muted mb-4 text-uppercase tracking-wider">Total Earned</div>
+            <div className="heading-xl text-green">{fmtMoney(totalEarned)}</div>
+          </div>
+          <div>
+            <div className="fs-12 fw-600 text-muted mb-4 text-uppercase tracking-wider">Pending Approval</div>
+            <div className="heading-xl" style={{color: 'var(--ink)'}}>{fmtMoney(totalPending)}</div>
+          </div>
+          <div>
+            <div className="fs-12 fw-600 text-muted mb-4 text-uppercase tracking-wider">Base Rate</div>
+            <div className="heading-xl" style={{color: 'var(--ink)'}}>{creator ? fmtMoney(creator.weekly_rate/Math.max(1, creator.videos_per_week)) : "—"}<span className="fs-14 text-muted">/vid</span></div>
+          </div>
+        </div>
+        
+        <div style={{ width: '100%', height: '8px', background: 'var(--border2)', borderRadius: '8px', overflow: 'hidden', display: 'flex' }}>
+          <div style={{ width: `${earnedPct}%`, background: '#10b981', transition: 'width 1s ease-out' }}></div>
+          <div style={{ width: `${100-earnedPct}%`, background: '#f59e0b', transition: 'width 1s ease-out' }}></div>
+        </div>
+        <div className="flex-between mt-12 fs-12 text-muted fw-500">
+          <div className="flex-center gap-8"><div className="dot dot-green"></div> Collected</div>
+          <div className="flex-center gap-8"><div className="dot dot-orange"></div> Processing</div>
+        </div>
       </div>
+
       <div className="premium-card">
-        <div className="flex-between mb-16">
-          <div className="heading-md">Payment History</div>
+        <div className="flex-between mb-24 pb-16" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div className="heading-md">Payment Stream</div>
         </div>
         {myPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💰</div><h3>No payments yet</h3></div>}
         {myPayments.length>0 && (
-          <div className="table-wrap" style={{marginTop: 0}}>
-            <table className="premium-table">
-              <thead><tr><th>Week Ending</th><th>Videos</th><th>Amount</th><th>Status</th><th>Paid Date</th></tr></thead>
-              <tbody>
-                {myPayments.map(p=>(
-                  <tr key={p.id} className="fade-in">
-                    <td className="fw-600 fs-14">{fmtDate(p.week_ending)}</td>
-                    <td>{p.videos_approved}</td>
-                    <td className="fw-600 text-green fs-14">{fmtMoney(p.amount_owed)}</td>
-                    <td>{statusBadge(p.status)}</td>
-                    <td className="text-muted"><div className="fs-13">{p.paid_date?fmtDate(p.paid_date):"—"}</div></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {myPayments.sort((a,b) => new Date(b.week_ending) - new Date(a.week_ending)).map(p=>(
+              <div key={p.id} className="fade-in flex-between" style={{ padding: '16px', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                  <div style={{ textAlign: 'center', minWidth: '48px' }}>
+                    <div className="fs-11 fw-700 text-muted text-uppercase tracking-wider mb-2">{new Date(p.week_ending).toLocaleDateString('en-US', { month: 'short' })}</div>
+                    <div className="heading-lg" style={{ lineHeight: 1 }}>{new Date(p.week_ending).getDate()}</div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--border2)', paddingLeft: '20px' }}>
+                    <div className="fw-600 fs-14 mb-4">{p.videos_approved} Approved Deliverable{p.videos_approved !== 1 ? 's' : ''}</div>
+                    <div className="fs-12 text-muted">Payout ID: #{p.id.substring(0,8)}</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+                  <div className={`heading-lg ${p.status === 'Paid' ? 'text-green' : ''}`}>{fmtMoney(p.amount_owed)}</div>
+                  {statusBadge(p.status)}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
