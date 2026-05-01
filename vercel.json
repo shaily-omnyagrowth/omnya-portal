@@ -1,5 +1,11 @@
 {
   "cleanUrls": true,
+  "crons": [
+    {
+      "path": "/api/analytics/sync",
+      "schedule": "0 */12 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/termsofservice/tiktokXcaN82BdlRpeiVi4OCgeEdpqtjPkiYKP.txt",

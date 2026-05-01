@@ -5,7 +5,7 @@ module.exports = async (req, res) => {
   // YouTube Data API v3 Scopes
   const scope = encodeURIComponent('https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly');
   const redirectUri = encodeURIComponent('https://www.portalomnyagrowth.com/api/auth/youtube/callback');
-  const clientId = process.env.YOUTUBE_CLIENT_ID || 'DEMO_CLIENT_ID';
+  const clientId = process.env.YOUTUBE_CLIENT_ID;
   
   const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
   

@@ -9,7 +9,9 @@ export default function CreatorConnections({ currentUser }) {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState({
     tiktok: null,
-    meta: null
+    instagram: null,
+    facebook: null,
+    youtube: null
   });
   const [message, setMessage] = useState({ type: '', text: '' });
   const [disconnecting, setDisconnecting] = useState(null);
@@ -42,20 +44,21 @@ export default function CreatorConnections({ currentUser }) {
       if (!currentUser || !currentUser.id) return;
       try {
         setLoading(true);
-        // We look up the creator table first to get the creator UUID
-        const { data: creator } = await supabase.from('creators').select('id').eq('user_id', currentUser.id).single();
-        if (!creator) return;
-
         const { data, error } = await supabase
           .from('creator_tokens')
           .select('platform, updated_at, expires_at, account_name')
-          .eq('creator_id', creator.id);
+          .eq('user_id', currentUser.id);
 
         if (error) throw error;
         
-        const mapped = { tiktok: null, instagram: null, facebook: null };
+        const mapped = { tiktok: null, instagram: null, facebook: null, youtube: null };
         data?.forEach(token => {
-          mapped[token.platform] = token;
+          if (token.platform === 'meta') {
+            mapped.instagram = token;
+            mapped.facebook = token;
+          } else {
+            mapped[token.platform] = token;
+          }
         });
         setConnections(mapped);
       } catch (err) {
@@ -83,7 +86,7 @@ export default function CreatorConnections({ currentUser }) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      const res = await fetch(`/api/auth/${platform}/disconnect`, {
+      const res = await fetch(`/api/auth/disconnect`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -94,7 +97,11 @@ export default function CreatorConnections({ currentUser }) {
       
       if (!res.ok) throw new Error('Failed to disconnect');
       
-      setConnections(prev => ({ ...prev, [platform]: null }));
+      if (platform === 'instagram' || platform === 'facebook') {
+        setConnections(prev => ({ ...prev, instagram: null, facebook: null }));
+      } else {
+        setConnections(prev => ({ ...prev, [platform]: null }));
+      }
       setMessage({ type: 'success', text: `${platform} disconnected successfully.` });
     } catch (err) {
       setMessage({ type: 'error', text: err.message });
@@ -154,9 +161,15 @@ export default function CreatorConnections({ currentUser }) {
           isDisconnecting={disconnecting === 'facebook'}
         />
 
-        <div style={{ opacity: 0.5 }}>
-          <ConnectionCard title="YouTube" platform="youtube" data={null} disabled={true} />
-        </div>
+        <ConnectionCard 
+          title="YouTube" 
+          platform="youtube"
+          subtitle="Channel & Videos"
+          data={connections.youtube}
+          onConnect={() => handleConnect('youtube')}
+          onDisconnect={() => handleDisconnect('youtube')}
+          isDisconnecting={disconnecting === 'youtube'}
+        />
       </div>
     </div>
   );
