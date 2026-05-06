@@ -8,6 +8,10 @@
   ],
   "rewrites": [
     {
+      "source": "/tiktokoqK4VOs7KRWPD6HowmYcFknpWtvZthbs.txt",
+      "destination": "/tiktokoqK4VOs7KRWPD6HowmYcFknpWtvZthbs.txt"
+    },
+    {
       "source": "/termsofservice/tiktokXcaN82BdlRpeiVi4OCgeEdpqtjPkiYKP.txt",
       "destination": "/termsofservice/tiktokXcaN82BdlRpeiVi4OCgeEdpqtjPkiYKP.txt"
     },
