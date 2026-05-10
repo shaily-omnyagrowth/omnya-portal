@@ -20,10 +20,16 @@ module.exports = async (req, res) => {
   }
   
   try {
+    const clientKey = process.env.TIKTOK_CLIENT_KEY;
+    const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
+    
+    console.log(`[TikTok OAuth Callback] Client Key Present: ${!!clientKey}`);
+    console.log(`[TikTok OAuth Callback] Client Secret Present: ${!!clientSecret}`);
+
     // Exchange code for token via TikTok API
     const params = new URLSearchParams();
-    params.append('client_key', process.env.TIKTOK_CLIENT_KEY);
-    params.append('client_secret', process.env.TIKTOK_CLIENT_SECRET);
+    params.append('client_key', clientKey);
+    params.append('client_secret', clientSecret);
     params.append('code', code);
     params.append('grant_type', 'authorization_code');
     params.append('redirect_uri', 'https://www.portalomnyagrowth.com/api/auth/tiktok/callback');
