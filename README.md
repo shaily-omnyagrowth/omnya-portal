@@ -12,8 +12,8 @@ This project requires several environment variables to function correctly. These
 
 To enable analytics fetching for creators, you need to set up developer apps for the respective platforms and obtain API keys/tokens.
 
-- `TIKTOK_APP_KEY`: Your TikTok Developer App Key.
-- `TIKTOK_APP_SECRET`: Your TikTok Developer App Secret.
+- `TIKTOK_CLIENT_KEY`: Your TikTok Developer App Key.
+- `TIKTOK_CLIENT_SECRET`: Your TikTok Developer App Secret.
 - `INSTAGRAM_APP_KEY`: Your Instagram/Meta App Key.
 - `INSTAGRAM_APP_SECRET`: Your Instagram/Meta App Secret.
 - `YOUTUBE_API_KEY`: Your Google Cloud Console Project API Key (enabled for YouTube Data API v3).

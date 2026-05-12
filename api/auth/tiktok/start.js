@@ -2,7 +2,7 @@ module.exports = async (req, res) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).send('Missing userId field required for OAuth state');
   
-  const clientKey = process.env.TIKTOK_CLIENT_KEY;
+  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY;
   console.log(`[TikTok OAuth Start] Client Key Present: ${!!clientKey}`);
   
   const redirectUri = 'https://www.portalomnyagrowth.com/api/auth/tiktok/callback';

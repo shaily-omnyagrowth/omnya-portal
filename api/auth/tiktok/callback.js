@@ -20,8 +20,8 @@ module.exports = async (req, res) => {
   }
   
   try {
-    const clientKey = process.env.TIKTOK_CLIENT_KEY;
-    const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
+    const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY;
+    const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET;
     
     console.log(`[TikTok OAuth Callback] Client Key Present: ${!!clientKey}`);
     console.log(`[TikTok OAuth Callback] Client Secret Present: ${!!clientSecret}`);

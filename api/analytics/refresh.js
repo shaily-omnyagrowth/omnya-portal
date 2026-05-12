@@ -24,8 +24,8 @@ module.exports = async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_key: process.env.TIKTOK_CLIENT_KEY,
-        client_secret: process.env.TIKTOK_CLIENT_SECRET,
+        client_key: process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY,
+        client_secret: process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET,
         grant_type: 'refresh_token',
         refresh_token: currentToken.refresh_token
       })
