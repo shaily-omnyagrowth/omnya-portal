@@ -4669,12 +4669,19 @@ export default function App() {
         if (profile) { 
           setUser(prev => ({...prev, ...profile})); 
         } else {
+          // Profile fetch returned null — could be a brand-new user OR a transient fetch failure.
+          // SAFE: Use INSERT (not upsert) so we never overwrite an existing role (e.g. owner → pending).
           const requestedRole = u.user_metadata?.requested_role || "creator";
-          const { data: newProfile } = await supabase.from("user_profiles").upsert({ 
-            id: u.id, email: u.email, full_name: u.email.split("@")[0], 
-            role: "pending", requested_role: requestedRole 
-          }).select().maybeSingle();
-          if (newProfile) setUser(prev => ({...prev, ...newProfile}));
+          const { data: newProfile, error: insertError } = await supabase.from("user_profiles")
+            .insert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: "pending", requested_role: requestedRole })
+            .select().maybeSingle();
+          if (newProfile) {
+            setUser(prev => ({...prev, ...newProfile}));
+          } else {
+            // Insert failed (profile likely already exists) — retry the fetch to get the real data.
+            const { data: retryProfile } = await supabase.from("user_profiles").select("*").eq("id", u.id).maybeSingle();
+            if (retryProfile) setUser(prev => ({...prev, ...retryProfile}));
+          }
         }
       } catch(e) {
         console.warn("Background profile sync failed:", e.message);
