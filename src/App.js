@@ -4480,8 +4480,19 @@ export default function App() {
                   }
                 }
               } else {
-                // If profile is missing, shell it out but do NOT upsert right away on load, it can cause duplicate conflicts
-                setUser({ ...session.user, role: "creator" });
+                // Profile fetch returned null — could be RLS blocking or a transient error.
+                // Retry once before giving up.
+                const { data: retryProfile } = await supabase.from("user_profiles").select("*").eq("id", session.user.id).maybeSingle();
+                if (retryProfile) {
+                  setUser({ ...session.user, ...retryProfile });
+                } else {
+                  // Last resort: use email-based owner recognition so the owner account
+                  // is never accidentally downgraded to creator if the DB fetch fails.
+                  const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
+                  const fallbackRole = OWNER_EMAILS.includes(session.user.email) ? 'owner' : 'pending';
+                  setUser({ ...session.user, role: fallbackRole });
+                  console.warn('Profile fetch failed twice, using fallback role:', fallbackRole);
+                }
               }
             }
           } catch(err) {
