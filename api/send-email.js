@@ -142,6 +142,50 @@ const buildEmail = (type, data) => {
           </div>`,
       };
 
+    case 'supabase_auth': {
+      const authType = data.email_data?.email_action_type || 'signup';
+      const tokenHash = data.email_data?.token_hash;
+      const redirectTo = data.email_data?.redirect_to || portalUrl;
+      const supabaseUrl = process.env.SUPABASE_URL || 'https://aglikzyarmqbdmjvkvyj.supabase.co';
+      const actionUrl = `${supabaseUrl}/auth/v1/verify?token=${tokenHash}&type=${authType}&redirect_to=${encodeURIComponent(redirectTo)}`;
+
+      let subject = 'Verify your email';
+      let title = 'Verify your account';
+      let bodyText = 'Please verify your email address to complete your registration.';
+      let buttonText = 'Verify Email →';
+
+      if (authType === 'recovery') {
+        subject = 'Reset your password';
+        title = 'Password Reset';
+        bodyText = 'You requested a password reset. Click the button below to set a new password.';
+        buttonText = 'Reset Password →';
+      } else if (authType === 'magiclink') {
+        subject = 'Your magic sign-in link';
+        title = 'Sign in';
+        bodyText = 'Click the button below to sign in to your account securely.';
+        buttonText = 'Sign In →';
+      }
+
+      return {
+        to: data.user.email,
+        subject: `🔒 ${subject}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;text-align:center;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:12px;">${title}</div>
+              <p style="color:#555;font-size:15px;line-height:1.6;margin-bottom:24px;">
+                ${bodyText}
+              </p>
+              <a href="${actionUrl}" style="display:inline-block;background:#0a0a0a;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px;">${buttonText}</a>
+              <p style="color:#999;font-size:12px;margin-top:24px;">
+                If you didn't request this, you can safely ignore this email.
+              </p>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+    }
+
     default:
       return null;
   }
@@ -173,7 +217,14 @@ module.exports = async (req, res) => {
       try { body = JSON.parse(body); } catch (_) {}
     }
 
-    const { type, data } = body || {};
+    let { type, data } = body || {};
+
+    // Auto-detect Supabase Auth Custom Email webhook payloads
+    if (body?.user && body?.email_data) {
+      type = 'supabase_auth';
+      data = body;
+    }
+
     if (!type || !data) return res.status(400).json({ error: 'Missing type or data' });
 
     const email = buildEmail(type, data);

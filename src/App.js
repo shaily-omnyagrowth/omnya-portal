@@ -2992,7 +2992,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
               </tbody>
             </table>
           </div>
-            {db.clients.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🏢</div><h3 style={{fontSize:18,marginBottom:8}}>No clients yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Add your first client to start creating campaigns.</p></div>}
+            {db.clients.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🏢</div><h3 style={{fontSize:18,marginBottom:8}}>No clients yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Add your first client to start creating campaigns.</p><button className="btn btn-primary" onClick={() => window.location.search = "?page=clients"}>+ Add Client</button></div>}
         </div>
         
         <div className="premium-card">
