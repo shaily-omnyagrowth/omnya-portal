@@ -1,63 +1,8 @@
 /* eslint-disable */
 import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
-import { createClient } from "@supabase/supabase-js";
-import CreatorConnections from "./CreatorConnections";
-import AnalyticsDashboard from "./AnalyticsDashboard";
-import PayoutManager from "./PayoutManager";
-import Legal from "./Legal";
-import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor } from "./utils";
-import CreatorDashboard from "./pages/CreatorDashboard";// ============================================================
-// ERROR BOUNDARY
-// ============================================================
+import { supabase } from "./supabaseClient";
 
-class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
-  static getDerivedStateFromError(error) { return { hasError: true, error }; }
-  componentDidCatch(error, info) {
-    console.error("Portal error:", error, info);
-    // If it's an auth/session error, clear stale storage and force a clean reload to login
-    const msg = (error?.message || "").toLowerCase();
-    if (
-      msg.includes("jwt") || msg.includes("session") ||
-      msg.includes("unauthorized") || msg.includes("auth") ||
-      msg.includes("token")
-    ) {
-      try {
-        localStorage.clear();
-        sessionStorage.clear();
-      } catch(_) {}
-      setTimeout(() => window.location.replace("/"), 1500);
-    }
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9fafb",flexDirection:"column",gap:16,padding:24,textAlign:"center"}}>
-          <div style={{fontSize:48}}>🛠️</div>
-          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Something went wrong</div>
-          <div style={{fontSize:14,color:"#6b7280",maxWidth:340}}>
-            An unexpected error occurred. This might be due to a slow connection or a temporary issue.
-          </div>
-          <button onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.replace("/"); }} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
-            Reload Page
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-
-
-// ============================================================
-// SUPABASE CLIENT
-// ============================================================
-
-const SUPABASE_URL = "https://aglikzyarmqbdmjvkvyj.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnbGlrenlhcm1xYmRtanZrdnlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MjMwNDcsImV4cCI6MjA4NzI5OTA0N30.vYAk33Z_x5lWkKc6zUhTxhHiWo2cZgk3dYmO7c0I6GM";
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 console.log("Supabase initialized with URL:", SUPABASE_URL);
 if (!SUPABASE_URL || SUPABASE_URL.includes("your-project")) {
@@ -2980,17 +2925,20 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
             </div>
           ) : (
             <div className="list-stack" style={{ flex: 1 }}>
-              {pendingReviews.slice(0, 5).map(sub => (
+              {pendingReviews.slice(0, 5).map(sub => {
+                const creator = db.creators.find(c => c.id === sub.creator_id);
+                const campaign = db.campaigns.find(c => c.id === sub.campaign_id);
+                return (
                 <div key={sub.id} className="list-item flex-between" style={{ padding: "14px 0", borderBottom: "1px solid var(--border2)" }}>
                   <div>
-                    <div className="fw-600 fs-14">{sub.creator_name || "Creator"}</div>
+                    <div className="fw-600 fs-14">{creator?.name || "Creator"}</div>
                     <div style={{ fontSize: 12, color: "var(--ink3)", marginTop: 2 }}>
-                      {sub.campaign_name || "Unknown Campaign"} • <span style={{color:"var(--orange)", fontWeight:500}}>{sub.concept_status === 'Pending' ? 'Concept Pending' : 'Final Video Pending'}</span>
+                      {campaign?.name || "Unknown Campaign"} • <span style={{color:"var(--orange)", fontWeight:500}}>{sub.concept_status === 'Pending' ? 'Concept Pending' : 'Final Video Pending'}</span>
                     </div>
                   </div>
                   <div className="badge" style={{background:"var(--bg2)", color:"var(--ink2)"}}>Requires Review</div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
@@ -3044,7 +2992,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
               </tbody>
             </table>
           </div>
-            {db.clients.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🏢</div><h3 style={{fontSize:18,marginBottom:8}}>No clients yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Add your first client to start creating campaigns.</p>{isOwner&&<button className="btn btn-primary" onClick={()=>setShowCreate(true)}>+ Add Client</button>}</div>}
+            {db.clients.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🏢</div><h3 style={{fontSize:18,marginBottom:8}}>No clients yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Add your first client to start creating campaigns.</p></div>}
         </div>
         
         <div className="premium-card">
