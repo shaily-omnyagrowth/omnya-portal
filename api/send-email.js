@@ -142,6 +142,26 @@ const buildEmail = (type, data) => {
           </div>`,
       };
 
+    case 'user_signup_waiting_approval':
+      return {
+        to: 'shaily@omnyagrowth.com',
+        subject: `🔔 New User Signup: Waiting for Approval`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">New User Registered!</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">Waiting for admin/owner approval</div>
+              <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
+                <tr><td style="padding:6px 0;color:#555;width:140px;">Email</td><td style="padding:6px 0;font-weight:600;">${data.userEmail}</td></tr>
+                <tr><td style="padding:6px 0;color:#555;">Name</td><td style="padding:6px 0;">${data.displayName || '—'}</td></tr>
+                <tr><td style="padding:6px 0;color:#555;">Requested Role</td><td style="padding:6px 0;font-weight:600;text-transform:uppercase;">${data.requestedRole === 'am' || data.requestedRole === 'account_manager' ? 'Account Manager' : 'Creator'}</td></tr>
+              </table>
+              <a href="${portalUrl}/?page=pending-users" style="display:inline-block;background:#0a0a0a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">Approve in Portal →</a>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+
     case 'supabase_auth': {
       const authType = data.email_data?.email_action_type || 'signup';
       const tokenHash = data.email_data?.token_hash;

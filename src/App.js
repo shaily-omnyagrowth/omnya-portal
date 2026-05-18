@@ -2856,6 +2856,13 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
         if(cError) throw cError;
       }
       
+      // Email: welcome the newly approved user
+      sendEmail("user_approved", {
+        userEmail: email,
+        displayName: name,
+        role: role,
+      });
+      
       setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
       await onRefresh();
     } catch (err) {
@@ -4332,6 +4339,9 @@ export default function App() {
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(true); // Start as true for initial session check
   let rawRole = (user?.role || "pending").toLowerCase();
+  if (user?.email && ['shaily@omnyagrowth.com'].includes(user.email)) {
+    rawRole = "owner";
+  }
   let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
@@ -4631,11 +4641,22 @@ export default function App() {
           // Profile fetch returned null — could be a brand-new user OR a transient fetch failure.
           // SAFE: Use INSERT (not upsert) so we never overwrite an existing role (e.g. owner → pending).
           const requestedRole = u.user_metadata?.requested_role || "creator";
+          const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
+          const initialRole = OWNER_EMAILS.includes(u.email) ? "owner" : "pending";
           const { data: newProfile, error: insertError } = await supabase.from("user_profiles")
-            .insert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: "pending", requested_role: requestedRole })
+            .insert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: initialRole, requested_role: requestedRole })
             .select().maybeSingle();
           if (newProfile) {
             setUser(prev => ({...prev, ...newProfile}));
+            
+            // Only send the approval request email if the user is a pending new signup
+            if (initialRole === "pending") {
+              sendEmail("user_signup_waiting_approval", {
+                userEmail: u.email,
+                displayName: u.email.split("@")[0],
+                requestedRole: requestedRole,
+              });
+            }
           } else {
             // Insert failed (profile likely already exists) — retry the fetch to get the real data.
             const { data: retryProfile } = await supabase.from("user_profiles").select("*").eq("id", u.id).maybeSingle();
