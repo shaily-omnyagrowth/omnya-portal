@@ -1,7 +1,7 @@
 /* eslint-disable */
 import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
-import { supabase } from "./supabaseClient";
+import { supabase, SUPABASE_URL } from "./supabaseClient";
 
 
 console.log("Supabase initialized with URL:", SUPABASE_URL);
