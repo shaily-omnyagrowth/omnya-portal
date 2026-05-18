@@ -46,7 +46,7 @@ export default function PayoutManager() {
       const payload = {
         periodStart: new Date(0).toISOString(),
         periodEnd: now.toISOString(),
-        periodType: 'Rolling'
+        periodType: 'custom'
       };
 
       const res = await fetch('/api/payouts/generate', { 
