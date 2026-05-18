@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
 import { supabase, SUPABASE_URL } from "./supabaseClient";
+import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor } from "./utils";
 
 
 // ============================================================
