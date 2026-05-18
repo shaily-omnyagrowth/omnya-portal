@@ -4,6 +4,49 @@ import React from "react";
 import { supabase, SUPABASE_URL } from "./supabaseClient";
 
 
+// ============================================================
+// ERROR BOUNDARY
+// ============================================================
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) {
+    console.error("Portal error:", error, info);
+    // If it's an auth/session error, clear stale storage and force a clean reload to login
+    const msg = (error?.message || "").toLowerCase();
+    if (
+      msg.includes("jwt") || msg.includes("session") ||
+      msg.includes("unauthorized") || msg.includes("auth") ||
+      msg.includes("token")
+    ) {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch(_) {}
+      setTimeout(() => window.location.replace("/"), 1500);
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9fafb",flexDirection:"column",gap:16,padding:24,textAlign:"center"}}>
+          <div style={{fontSize:48}}>🛠️</div>
+          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Something went wrong</div>
+          <div style={{fontSize:14,color:"#6b7280",maxWidth:340}}>
+            An unexpected error occurred. This might be due to a slow connection or a temporary issue.
+          </div>
+          <button onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.replace("/"); }} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
 console.log("Supabase initialized with URL:", SUPABASE_URL);
 if (!SUPABASE_URL || SUPABASE_URL.includes("your-project")) {
   console.error("CRITICAL: Supabase URL is not configured correctly!");
