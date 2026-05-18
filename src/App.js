@@ -837,7 +837,7 @@ function Login({ onLogin }) {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState("login"); // login | signup | forgot
+  const [mode, setMode] = useState("login"); // login | signup | forgot | verify-waiting
   const [requestedRole, setRequestedRole] = useState("creator");
 
   const handle = async () => {
@@ -859,9 +859,39 @@ function Login({ onLogin }) {
         
         if (error) throw error;
         
+        // Auto-provision user profile & notify owner even if unconfirmed
+        if (data.user) {
+          try {
+            const u = data.user;
+            const reqRole = requestedRole || "creator";
+            const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
+            const initialRole = OWNER_EMAILS.includes(email) ? "owner" : "pending";
+            
+            // Insert profile row immediately (RLS allows all)
+            await supabase.from("user_profiles").insert({
+              id: u.id,
+              email: email,
+              full_name: email.split("@")[0],
+              role: initialRole,
+              requested_role: reqRole
+            });
+            
+            // Send signup email to owner
+            if (initialRole === "pending") {
+              sendEmail("user_signup_waiting_approval", {
+                userEmail: email,
+                displayName: email.split("@")[0],
+                requestedRole: reqRole,
+              });
+            }
+          } catch (profileErr) {
+            console.warn("Non-critical profile pre-provisioning failed:", profileErr.message);
+          }
+        }
+
         if (data.user && !data.session) {
-          setErr("Account created! Please check your email to verify your account.");
-          setMode("login"); 
+          // Transitions to waiting for email verification screen
+          setMode("verify-waiting");
         } else if (data.session) {
           onLogin(data.user);
         }
@@ -895,6 +925,95 @@ function Login({ onLogin }) {
       setLoading(false);
     }
   };
+
+  if (mode === "verify-waiting") {
+    return (
+      <div className="login-wrap">
+        <div className="login-card" style={{textAlign:"center", padding: "36px 28px"}}>
+          <div className="login-logo" style={{marginBottom: 20}}>
+            <img src={LOGO_URI} alt="Omnya" style={{height:56,width:"auto"}} />
+          </div>
+          
+          <div style={{
+            width: 72,
+            height: 72,
+            borderRadius: "50%",
+            background: "rgba(39, 174, 96, 0.1)",
+            color: "var(--green)",
+            fontSize: 32,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 24px auto"
+          }}>
+            📧
+          </div>
+
+          <div className="login-title" style={{fontSize: 22, marginBottom: 12}}>
+            Verify Your Email
+          </div>
+          
+          <p style={{fontSize: 14, color: "var(--ink2)", lineHeight: "1.6", marginBottom: 24}}>
+            We've sent a verification link to <strong style={{color:"var(--ink)"}}>{email}</strong>.<br />
+            Please click the link in that email to confirm your registration.
+          </p>
+
+          <div style={{
+            background: "var(--bg2)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            padding: "16px",
+            fontSize: 13,
+            color: "var(--ink3)",
+            lineHeight: "1.5",
+            textAlign: "left",
+            marginBottom: 24
+          }}>
+            🔒 <strong>Admin Approval Required</strong><br />
+            Once your email is verified, your account will be set to <strong>Pending Approval</strong> and the owner will be notified to grant you access.
+          </div>
+
+          {err && <div style={{fontSize:13,marginBottom:16,color:err.includes("sent")?"var(--green)":"var(--red)"}}>{err}</div>}
+
+          <div style={{display:"flex", flexDirection:"column", gap:12}}>
+            <button 
+              className="btn btn-primary" 
+              style={{width:"100%"}}
+              onClick={async () => {
+                setLoading(true); setErr("");
+                try {
+                  const { error } = await supabase.auth.resend({
+                    type: 'signup',
+                    email: email,
+                    options: {
+                      emailRedirectTo: `${window.location.origin}/`
+                    }
+                  });
+                  if (error) throw error;
+                  setErr("Verification link resent! Check your inbox.");
+                } catch (e) {
+                  setErr(`Resend failed: ${e.message}`);
+                } finally {
+                  setLoading(false);
+                }
+              }} 
+              disabled={loading}
+            >
+              {loading ? "Resending..." : "Resend Verification Email"}
+            </button>
+
+            <button 
+              className="btn btn-ghost" 
+              style={{width:"100%"}}
+              onClick={() => { setMode("login"); setErr(""); }}
+            >
+              ← Back to Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-wrap">
@@ -4488,10 +4607,32 @@ export default function App() {
                 if (retryProfile) {
                   setUser({ ...session.user, ...retryProfile });
                 } else {
-                  // Last resort: use email-based owner recognition so the owner account
-                  // is never accidentally downgraded to creator if the DB fetch fails.
+                  // Profile is actually missing in the database!
+                  // Create it immediately as a bulletproof backup.
                   const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
                   const fallbackRole = OWNER_EMAILS.includes(session.user.email) ? 'owner' : 'pending';
+                  const reqRole = session.user.user_metadata?.requested_role || "creator";
+                  
+                  try {
+                    await supabase.from("user_profiles").insert({
+                      id: session.user.id,
+                      email: session.user.email,
+                      full_name: session.user.email.split("@")[0],
+                      role: fallbackRole,
+                      requested_role: reqRole
+                    });
+                    
+                    if (fallbackRole === "pending") {
+                      sendEmail("user_signup_waiting_approval", {
+                        userEmail: session.user.email,
+                        displayName: session.user.email.split("@")[0],
+                        requestedRole: reqRole,
+                      });
+                    }
+                  } catch (err) {
+                    console.warn("Failed to auto-create missing user profile:", err.message);
+                  }
+                  
                   setUser({ ...session.user, role: fallbackRole });
                   console.warn('Profile fetch failed twice, using fallback role:', fallbackRole);
                 }
