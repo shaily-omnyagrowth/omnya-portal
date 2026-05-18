@@ -3,6 +3,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
 import { supabase, SUPABASE_URL } from "./supabaseClient";
 import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor } from "./utils";
+import Legal from "./Legal";
+import CreatorDashboard from "./pages/CreatorDashboard";
+import CreatorConnections from "./CreatorConnections";
+import AnalyticsDashboard from "./AnalyticsDashboard";
+import PayoutManager from "./PayoutManager";
 
 
 // ============================================================
