@@ -6,9 +6,10 @@ export const RequireRole = ({ allowedRoles, children }) => {
   const { user, profile } = useAuth();
 
   if (!user || !profile) return <Navigate to="/login" replace />;
-  
-  // Block pending/denied users unless they are owners
-  if (profile.status !== 'approved' && profile.role !== 'owner') {
+
+  // Block pending/denied users. user_profiles has no `status` column; gating is
+  // by role: pending/denied users go to /pending, everyone else passes through.
+  if (profile.role === 'pending' || profile.role === 'denied') {
     return <Navigate to="/pending" replace />;
   }
 
