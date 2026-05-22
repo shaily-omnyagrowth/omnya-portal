@@ -269,13 +269,16 @@ create table if not exists video_analytics (
 -- Enable RLS
 alter table video_analytics enable row level security;
 
--- Policy to allow creators to see their own analytics
-create policy "Allow owners to see their own analytics" 
-on video_analytics for select 
+-- Policy to allow creators to see their own analytics.
+-- Drop-then-create so the bundle is safe to re-run; Section 6 will drop and
+-- replace this anyway, but we need the script to reach Section 6 first.
+drop policy if exists "Allow owners to see their own analytics" on video_analytics;
+create policy "Allow owners to see their own analytics"
+on video_analytics for select
 using (
   exists (
-    select 1 from creators 
-    where creators.id = video_analytics.creator_id 
+    select 1 from creators
+    where creators.id = video_analytics.creator_id
     and creators.user_id = auth.uid()
   )
 );
@@ -307,13 +310,16 @@ create table if not exists creator_tokens (
 -- Enable RLS
 alter table creator_tokens enable row level security;
 
--- Policy to allow creators to see their own tokens (read-only for frontend)
-create policy "Allow owners to see their own tokens" 
-on creator_tokens for select 
+-- Policy to allow creators to see their own tokens (read-only for frontend).
+-- Drop-then-create for re-run safety; Section 6 drops and replaces this with
+-- a role-scoped policy keyed on user_id.
+drop policy if exists "Allow owners to see their own tokens" on creator_tokens;
+create policy "Allow owners to see their own tokens"
+on creator_tokens for select
 using (
   exists (
-    select 1 from creators 
-    where creators.id = creator_tokens.creator_id 
+    select 1 from creators
+    where creators.id = creator_tokens.creator_id
     and creators.user_id = auth.uid()
   )
 );
