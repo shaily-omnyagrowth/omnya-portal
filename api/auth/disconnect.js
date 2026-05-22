@@ -1,36 +1,70 @@
-const { createClient } = require('@supabase/supabase-js');
+// api/auth/disconnect.js
+//
+// POST /api/auth/disconnect
+//   Headers: Authorization: Bearer <supabase-jwt>
+//   Body:    { platform: 'tiktok' | 'instagram' | 'facebook' | 'meta' | 'youtube' }
+//   Returns: 200 { ok: true, data: { platform, status: 'disconnected' } }
+//
+// Soft-delete: clears the OAuth tokens and flips status='disconnected'. The
+// row stays for audit history. Only affects the caller's own row.
 
-const supabase = createClient(process.env.REACT_APP_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const { applyCors } = require('../_utils/cors');
+const { requireAuth } = require('../_utils/auth');
+const { Errors, sendOk } = require('../_utils/errors');
+const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
+const { SUPPORTED_PLATFORMS } = require('../_utils/oauth');
 
 module.exports = async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+  if (applyCors(req, res)) return;
+  if (req.method !== 'POST') return Errors.methodNotAllowed(res);
+
+  const user = await requireAuth(req, res);
+  if (!user) return;
+
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { body = {}; }
+  }
+  const { platform } = body || {};
+
+  if (!platform || !SUPPORTED_PLATFORMS.has(platform)) {
+    return Errors.badRequest(res, `Unsupported platform: ${platform}`, {
+      allowed: Array.from(SUPPORTED_PLATFORMS),
+    });
+  }
 
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).send('Missing authorization header');
+    const supabase = getSupabaseAdminClient();
+    const { data, error } = await supabase
+      .from('creator_tokens')
+      .update({
+        access_token: null,
+        refresh_token: null,
+        expires_at: null,
+        refresh_expires_at: null,
+        status: 'disconnected',
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', user.id)
+      .eq('platform', platform)
+      .select('id, platform, status')
+      .maybeSingle();
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-    if (authError || !user) return res.status(401).send('Unauthorized');
-
-    let { platform } = req.body;
-    if (!platform) return res.status(400).send('Missing platform');
-    if (platform === 'instagram' || platform === 'facebook') {
-      platform = 'meta';
+    if (error) {
+      console.error('[disconnect] update failed:', error.message);
+      return Errors.internal(res, 'Failed to disconnect');
     }
 
-    // Remove token from database
-    const { error } = await supabase
-      .from('creator_tokens')
-      .delete()
-      .match({ user_id: user.id, platform });
+    if (!data) {
+      // Nothing existed for that user+platform. Treat as success — UI gets a
+      // consistent "disconnected" state either way.
+      return sendOk(res, { platform, status: 'disconnected', wasConnected: false });
+    }
 
-    if (error) throw error;
-
-    res.status(200).json({ success: true });
+    return sendOk(res, { platform: data.platform, status: data.status, wasConnected: true });
   } catch (err) {
-    console.error('Disconnect error:', err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[disconnect] unexpected error:', err && err.message);
+    return Errors.internal(res, 'Internal server error');
   }
 };

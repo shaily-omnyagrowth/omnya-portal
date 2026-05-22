@@ -1,66 +1,112 @@
-const { createClient } = require('@supabase/supabase-js');
+// api/auth/tiktok/callback.js
+//
+// GET /api/auth/tiktok/callback?code=...&state=...
+//
+// 1. Validates state via oauth_states (server-stored, hashed, one-time-use).
+// 2. Exchanges code + PKCE verifier for tokens at TikTok.
+// 3. Upserts creator_tokens with the canonical schema.
+// 4. Redirects to the SPA with success/error query params.
 
-const supabase = createClient(process.env.REACT_APP_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
+const { consumeOAuthState } = require('../../_utils/oauth');
+
+function redirectBack(res, params) {
+  const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
+  const qs = new URLSearchParams({ page: 'social-connections', ...params }).toString();
+  res.redirect(302, `${base}/?${qs}`);
+}
 
 module.exports = async (req, res) => {
-  const { code, state, error } = req.query;
-  
-  if (error) {
-    return res.redirect(302, '/?page=social-connections&error=tiktok_auth_denied');
+  const { code, state, error: providerError } = req.query || {};
+
+  if (providerError) {
+    console.warn('[tiktok/callback] provider returned error:', providerError);
+    return redirectBack(res, { error: 'tiktok_auth_denied' });
   }
-  
-  if (!code || !state) return res.status(400).send('Missing code or state');
-
-  let userId;
-  try {
-    const stateObj = JSON.parse(Buffer.from(state, 'base64').toString('ascii'));
-    userId = stateObj.userId;
-  } catch (err) {
-    return res.status(400).send('Invalid state parameter');
+  if (!code || !state) {
+    return redirectBack(res, { error: 'tiktok_missing_params' });
   }
-  
+
+  // Verify state. If null, either expired, already used, or forged.
+  const stateRow = await consumeOAuthState({ platform: 'tiktok', state });
+  if (!stateRow) {
+    console.warn('[tiktok/callback] invalid or expired state');
+    return redirectBack(res, { error: 'tiktok_invalid_state' });
+  }
+
+  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY;
+  const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET;
+  const redirectUri =
+    process.env.TIKTOK_REDIRECT_URI ||
+    `${process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com'}/api/auth/tiktok/callback`;
+
+  if (!clientKey || !clientSecret) {
+    console.error('[tiktok/callback] TIKTOK_CLIENT_KEY/SECRET not set');
+    return redirectBack(res, { error: 'tiktok_misconfigured' });
+  }
+
   try {
-    const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY;
-    const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET;
-    
-    console.log(`[TikTok OAuth Callback] Client Key Present: ${!!clientKey}`);
-    console.log(`[TikTok OAuth Callback] Client Secret Present: ${!!clientSecret}`);
-
-    // Exchange code for token via TikTok API
-    const params = new URLSearchParams();
-    params.append('client_key', clientKey);
-    params.append('client_secret', clientSecret);
-    params.append('code', code);
-    params.append('grant_type', 'authorization_code');
-    params.append('redirect_uri', 'https://www.portalomnyagrowth.com/api/auth/tiktok/callback');
-
-    const tokenResponse = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+    const tokenResp = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params
+      body: new URLSearchParams({
+        client_key: clientKey,
+        client_secret: clientSecret,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: redirectUri,
+        code_verifier: stateRow.code_verifier || '',
+      }),
     });
-    
-    const tokenData = await tokenResponse.json();
-    
-    if (tokenData.error || !tokenData.access_token) {
-       console.error("TikTok OAuth Error:", tokenData);
-       return res.redirect(302, '/?page=social-connections&error=tiktok_auth_failed');
+
+    const tokenData = await tokenResp.json().catch(() => ({}));
+
+    if (!tokenResp.ok || !tokenData.access_token) {
+      console.error(
+        '[tiktok/callback] token exchange failed:',
+        tokenResp.status,
+        tokenData && tokenData.error
+      );
+      return redirectBack(res, { error: 'tiktok_token_exchange_failed' });
     }
 
-    // Upsert token in Supabase
-    await supabase.from('creator_tokens').upsert({
-      user_id: userId,
-      platform: 'tiktok',
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-      expires_at: new Date(Date.now() + tokenData.expires_in * 1000),
-      updated_at: new Date()
-    }, { onConflict: 'user_id, platform' });
+    const expiresAt = tokenData.expires_in
+      ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
+      : null;
+    const refreshExpiresAt = tokenData.refresh_expires_in
+      ? new Date(Date.now() + tokenData.refresh_expires_in * 1000).toISOString()
+      : null;
 
-    // Redirect back to frontend
-    res.redirect(302, '/?page=social-connections&success=tiktok');
-  } catch (error) {
-    console.error("TikTok Callback Error:", error);
-    res.redirect(302, '/?page=social-connections&error=server_error');
+    const supabase = getSupabaseAdminClient();
+    const { error: upsertErr } = await supabase
+      .from('creator_tokens')
+      .upsert(
+        {
+          user_id: stateRow.user_id,
+          platform: 'tiktok',
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token || null,
+          token_type: tokenData.token_type || 'bearer',
+          scope: tokenData.scope || null,
+          expires_at: expiresAt,
+          refresh_expires_at: refreshExpiresAt,
+          status: 'connected',
+          last_error: null,
+          platform_user_id: tokenData.open_id || null,
+          metadata: { open_id: tokenData.open_id || null },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,platform' }
+      );
+
+    if (upsertErr) {
+      console.error('[tiktok/callback] upsert failed:', upsertErr.message);
+      return redirectBack(res, { error: 'tiktok_storage_failed' });
+    }
+
+    return redirectBack(res, { connected: 'tiktok' });
+  } catch (err) {
+    console.error('[tiktok/callback] unexpected error:', err && err.message);
+    return redirectBack(res, { error: 'tiktok_server_error' });
   }
 };
