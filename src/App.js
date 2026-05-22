@@ -4676,11 +4676,19 @@ export default function App() {
         if (mounted) setIsRecoveryMode(true);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         // Leave the DB fetching loop to the global useEffect to avoid race condition!
-        // We only append the raw user object immediately.
+        // We only append the raw auth user info, preserving profile fields
+        // (role, full_name, etc.) that come from user_profiles.
+        //
+        // IMPORTANT: session.user.role is the auth-level role ("authenticated"),
+        // NOT user_profiles.role. Spreading session.user last would clobber the
+        // real role and break the sidebar / page-validation effect on token
+        // refresh (~50 min after sign-in).
         if (session && mounted) {
           setUser(prevUser => {
-            // Merge in new auth info, preserving existing profile state if possible
-            return { ...prevUser, ...session.user };
+            if (!prevUser) return { ...session.user };
+            // Profile fields win; only merge session.user fields that prevUser
+            // doesn't already have (e.g. id/email on the initial SIGNED_IN).
+            return { ...session.user, ...prevUser };
           });
         }
       }
@@ -4692,20 +4700,28 @@ export default function App() {
     };
   }, []);
 
-  // Sync page validation
+  // Sync page validation.
+  //
+  // Uses App's already-computed `role` (which has the OWNER_EMAILS shortcut
+  // + 'pending' fallback). We refuse to validate at all if role is not one
+  // of the known nav buckets — that keeps a transient state like
+  // role="authenticated" from briefly resetting `page` to dashboard during
+  // token refresh.
   useEffect(() => {
-    if (user) {
-      let rawRole = (user?.role || "creator").toLowerCase();
-      let checkRole = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
-      
-      const currentNavs = navs[checkRole] || [];
-      const isPageValid = currentNavs.some(n => n.id === page);
-      if (!isPageValid && page !== "dashboard") {
-        setPage("dashboard");
-      }
-      setLoading(false); // Ensure loading is cleared once user is validated
+    if (!user) return;
+    if (!navs[role]) {
+      // Role is unknown (e.g. transient 'pending' before profile loads, or
+      // some auth-level value). Don't force-reset the page.
+      setLoading(false);
+      return;
     }
-  }, [user, page]);
+    const currentNavs = navs[role];
+    const isPageValid = currentNavs.some(n => n.id === page);
+    if (!isPageValid && page !== "dashboard") {
+      setPage("dashboard");
+    }
+    setLoading(false);
+  }, [user, page, role]);
 
   const loadDB = useCallback(async()=>{
     if (!user) return;
