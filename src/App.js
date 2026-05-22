@@ -1148,10 +1148,11 @@ const navs = {
   ],
 };
 
-function Sidebar({ user, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
-  let rawRole = (user?.role || "creator").toLowerCase();
-  let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
-
+function Sidebar({ user, role, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
+  // role is computed by App.js with the email-promotion shortcut + 'pending' fallback.
+  // We don't recompute here; the source of truth lives one level up. (Used to be
+  // a local `(user?.role || "creator")` which raced on cold load and rendered an
+  // empty sidebar until the next React update.)
   return (
     <div className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>
       <div className="sidebar-header">
@@ -5023,7 +5024,7 @@ export default function App() {
     <>
       <div className={`app ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-overlay" onClick={() => setMobileMenuOpen(false)}></div>
-        <Sidebar user={user} page={page} setPage={setPage} reviewPendingCount={reviewPendingCount} usersPendingCount={usersPendingCount} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}/>
+        <Sidebar user={user} role={role} page={page} setPage={setPage} reviewPendingCount={reviewPendingCount} usersPendingCount={usersPendingCount} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}/>
         <div className="main">
           <div className="topbar">
             <div className="flex-center gap-12">
