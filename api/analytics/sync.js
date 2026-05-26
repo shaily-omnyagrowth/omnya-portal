@@ -25,13 +25,15 @@ module.exports = async (req, res) => {
 
     if (tokensError) throw tokensError;
 
-    // 3. Fetch all active submissions that have posted links
+    // 3. Fetch all active submissions that have posted links.
+    // submissions has creator_id (FK -> creators.id), not user_id (auth.users.id).
+    // creator_tokens is keyed by user_id, so we need creators.user_id to join.
     const { data: submissions, error: subError } = await supabase
       .from('submissions')
-      .select('id, creator_id, user_id, campaign_id, platform, posted_link')
+      .select('id, creator_id, campaign_id, platform, posted_link, submission_type, creators!inner(user_id)')
       .not('posted_link', 'is', null)
       .not('posted_link', 'eq', '')
-      .eq('type', 'Final Post'); // Adjust this based on actual status terminology
+      .eq('submission_type', 'Final Post');
 
     if (subError) throw subError;
 
@@ -40,13 +42,14 @@ module.exports = async (req, res) => {
     // 4. Group submissions by user & platform to optimize API calls
     const grouped = {};
     submissions.forEach(sub => {
-      // Extract video ID from link
+      const userId = sub.creators?.user_id;
+      if (!userId) return;
       const videoId = extractVideoId(sub.platform, sub.posted_link);
       if (!videoId) return;
 
-      const key = `${sub.user_id}_${sub.platform}`;
+      const key = `${userId}_${sub.platform}`;
       if (!grouped[key]) grouped[key] = { submissions: [], token: null };
-      grouped[key].submissions.push({ ...sub, videoId });
+      grouped[key].submissions.push({ ...sub, videoId, user_id: userId });
     });
 
     // Map tokens to the groups
@@ -87,12 +90,13 @@ module.exports = async (req, res) => {
             console.warn(`Unsupported platform for sync: ${platform}`);
         }
 
-        // 6. Upsert the fetched metrics to Supabase
+        // 6. Upsert the fetched metrics to Supabase.
+        // video_analytics has UNIQUE(submission_id), so that's the conflict target.
         if (analyticsData.length > 0) {
           const { error: upsertError } = await supabase
             .from('video_analytics')
-            .upsert(analyticsData, { onConflict: 'video_id, platform' });
-            
+            .upsert(analyticsData, { onConflict: 'submission_id' });
+
           if (upsertError) throw upsertError;
           results.push(...analyticsData);
         }
@@ -150,22 +154,23 @@ async function syncYouTubeMetrics(submissions, accessToken) {
   if (!response.ok) throw new Error(`YouTube API Error: ${response.statusText}`);
   const data = await response.json();
 
-  return data.items.map(item => {
-    // Find the matching submission to grab campaign/user context
+  return (data.items || []).map(item => {
     const sub = submissions.find(s => s.videoId === item.id);
+    if (!sub) return null;
     return {
       video_id: item.id,
       platform: 'youtube',
+      submission_id: sub.id,
+      creator_id: sub.creator_id,
       campaign_id: sub.campaign_id,
-      user_id: sub.user_id,
       views: parseInt(item.statistics.viewCount || 0),
       likes: parseInt(item.statistics.likeCount || 0),
       comments: parseInt(item.statistics.commentCount || 0),
       shares: 0, // YouTube doesn't expose shares publicly easily
       reach: 0,
-      pulled_at: new Date()
+      pulled_at: new Date().toISOString()
     };
-  });
+  }).filter(Boolean);
 }
 
 async function syncTikTokMetrics(submissions, accessToken) {
@@ -197,14 +202,15 @@ async function syncTikTokMetrics(submissions, accessToken) {
             results.push({
               video_id: video.id,
               platform: 'tiktok',
+              submission_id: sub.id,
+              creator_id: sub.creator_id,
               campaign_id: sub.campaign_id,
-              user_id: sub.user_id,
               views: video.view_count || 0,
               likes: video.like_count || 0,
               comments: video.comment_count || 0,
               shares: video.share_count || 0,
               reach: 0,
-              pulled_at: new Date()
+              pulled_at: new Date().toISOString()
             });
           }
         });
@@ -267,14 +273,15 @@ async function syncMetaMetrics(submissions, accessToken, specificPlatform) {
           results.push({
             video_id: sub.videoId, // keep shortcode as identifier in DB
             platform: 'instagram',
+            submission_id: sub.id,
+            creator_id: sub.creator_id,
             campaign_id: sub.campaign_id,
-            user_id: sub.user_id,
             views: views,
             likes: matchedMedia.like_count || 0,
             comments: matchedMedia.comments_count || 0,
             shares: 0, // Shares require specialized webhook/insights
             reach: reach,
-            pulled_at: new Date()
+            pulled_at: new Date().toISOString()
           });
         }
       }
@@ -288,14 +295,15 @@ async function syncMetaMetrics(submissions, accessToken, specificPlatform) {
         results.push({
           video_id: sub.videoId,
           platform: 'facebook',
+          submission_id: sub.id,
+          creator_id: sub.creator_id,
           campaign_id: sub.campaign_id,
-          user_id: sub.user_id,
           views: 0, // Post impressions require page insights access
           likes: data.likes?.summary?.total_count || 0,
           comments: data.comments?.summary?.total_count || 0,
           shares: data.shares?.count || 0,
           reach: 0,
-          pulled_at: new Date()
+          pulled_at: new Date().toISOString()
         });
       }
     }

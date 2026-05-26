@@ -166,7 +166,10 @@ const buildEmail = (type, data) => {
       const authType = data.email_data?.email_action_type || 'signup';
       const tokenHash = data.email_data?.token_hash;
       const redirectTo = data.email_data?.redirect_to || portalUrl;
-      const supabaseUrl = process.env.SUPABASE_URL || 'https://aglikzyarmqbdmjvkvyj.supabase.co';
+      const supabaseUrl = process.env.SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('SUPABASE_URL env var is not set — cannot build auth action URL');
+      }
       const actionUrl = `${supabaseUrl}/auth/v1/verify?token=${tokenHash}&type=${authType}&redirect_to=${encodeURIComponent(redirectTo)}`;
 
       let subject = 'Verify your email';

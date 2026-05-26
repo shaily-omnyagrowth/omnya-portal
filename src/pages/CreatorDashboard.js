@@ -1,12 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import { statusBadge, fmtDate, fmtMoney } from '../utils';
-
-// We initialize a Supabase client just for reading the creator_tokens connection status
-const SUPABASE_URL = "https://aglikzyarmqbdmjvkvyj.supabase.co";
-// Fallback local mock key array check if env missing
-const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFnbGlrenlhcm1xYmRtanZrdnlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE3MjMwNDcsImV4cCI6MjA4NzI5OTA0N30.vYAk33Z_x5lWkKc6zUhTxhHiWo2cZgk3dYmO7c0I6GM";
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+import { supabase } from '../supabaseClient';
 
 export default function CreatorDashboard({ user, db, onNavigate }) {
   const creator = db.creators.find(c => c.user_id === user.id || c.email === user.email);
