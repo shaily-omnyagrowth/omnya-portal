@@ -872,17 +872,14 @@ function Login({ onLogin }) {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("login"); // login | signup | forgot | verify-waiting
-  const [requestedRole, setRequestedRole] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("client_id") ? "client" : "creator";
-  });
-  const isClientInvite = !!new URLSearchParams(window.location.search).get("client_id");
+  const [requestedRole, setRequestedRole] = useState("creator");
 
   useEffect(() => {
+    // If arriving via an invite link, auto-open signup in client mode.
     const params = new URLSearchParams(window.location.search);
-    const clientId = params.get("client_id");
-    if (clientId) {
+    if (params.get("client_id")) {
       setMode("signup");
+      setRequestedRole("client");
     }
   }, []);
 
@@ -1025,7 +1022,7 @@ function Login({ onLogin }) {
             textAlign: "left",
             marginBottom: 24
           }}>
-            {isClientInvite ? (
+            {requestedRole === "client" ? (
               <>✅ <strong>Account Ready Once Verified</strong><br />
               Click the link in your email to confirm your address — your brand portal will be immediately accessible, no further approval needed.</>
             ) : (
@@ -1083,16 +1080,16 @@ function Login({ onLogin }) {
           <img src={LOGO_URI} alt="Omnya" style={{height:56,width:"auto"}} />
         </div>
         <div className="login-title">
-          {mode === "login" ? "Welcome back" : mode === "signup" ? (isClientInvite ? "Brand Portal Access" : "Create account") : "Reset Password"}
+          {mode === "login" ? "Welcome back" : mode === "signup" ? (requestedRole === "client" ? "Brand Portal Access" : "Create account") : "Reset Password"}
         </div>
         <div className="login-sub">
-          {mode === "login" ? "Sign in to your portal" : mode === "signup" ? (isClientInvite ? "Set up your brand portal account" : "Join the Omnya creator network") : "Enter your email to receive a reset link"}
+          {mode === "login" ? "Sign in to your portal" : mode === "signup" ? (requestedRole === "client" ? "Set up your brand portal account" : "Join the Omnya creator network") : "Enter your email to receive a reset link"}
         </div>
 
         {mode === "signup" && (
           <div className="field">
-            <label>{isClientInvite ? "Your name / Company name" : "Your name"}</label>
-            <input value={fullName} onChange={e=>setFullName(e.target.value)} type="text" placeholder={isClientInvite ? "Acme Brand" : "Jane Smith"} />
+            <label>{requestedRole === "client" ? "Your name / Company name" : "Your name"}</label>
+            <input value={fullName} onChange={e=>setFullName(e.target.value)} type="text" placeholder={requestedRole === "client" ? "Acme Brand" : "Jane Smith"} />
           </div>
         )}
 
@@ -1121,16 +1118,11 @@ function Login({ onLogin }) {
         {mode === "signup" && (
           <div className="field">
             <label>I am a...</label>
-            {new URLSearchParams(window.location.search).get("client_id") ? (
-              <div style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg3)",color:"var(--ink)",fontSize:14,fontWeight:600}}>
-                🏢 Partner Brand Client
-              </div>
-            ) : (
-              <select value={requestedRole} onChange={e=>setRequestedRole(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--ink)",fontSize:14,cursor:"pointer"}}>
-                <option value="creator">Creator</option>
-                <option value="am">Account Manager</option>
-              </select>
-            )}
+            <select value={requestedRole} onChange={e=>setRequestedRole(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--ink)",fontSize:14,cursor:"pointer"}}>
+              <option value="creator">Creator</option>
+              <option value="client">Client / Brand Partner</option>
+              <option value="am">Account Manager</option>
+            </select>
           </div>
         )}
 
@@ -2788,6 +2780,41 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
   const [viewClient, setViewClient] = useState(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
+  const [linkingClient, setLinkingClient] = useState(null); // { id, name }
+  const [linkEmail, setLinkEmail] = useState("");
+  const [linkMsg, setLinkMsg] = useState({ type: "", text: "" });
+  const [linkBusy, setLinkBusy] = useState(false);
+
+  const handleLinkAccount = async () => {
+    if (!linkEmail.trim()) return;
+    setLinkBusy(true); setLinkMsg({ type: "", text: "" });
+    try {
+      // Look up user_profiles by email to get the user's id.
+      const { data: profile, error: lookupErr } = await supabase
+        .from("user_profiles")
+        .select("id, full_name, role")
+        .eq("email", linkEmail.trim().toLowerCase())
+        .maybeSingle();
+      if (lookupErr) throw lookupErr;
+      if (!profile) throw new Error(`No account found for ${linkEmail.trim()}. Ask the client to sign up first.`);
+      if (profile.role !== "client") throw new Error(`That account has role "${profile.role}", not "client". The user must sign up as Client / Brand Partner.`);
+
+      const { error: updateErr } = await supabase
+        .from("clients")
+        .update({ user_id: profile.id })
+        .eq("id", linkingClient.id)
+        .is("user_id", null);
+      if (updateErr) throw updateErr;
+
+      setLinkMsg({ type: "success", text: `Linked! ${profile.full_name || linkEmail} can now log in to the brand portal.` });
+      await onRefresh();
+      setTimeout(() => { setLinkingClient(null); setLinkEmail(""); setLinkMsg({ type: "", text: "" }); }, 2000);
+    } catch (e) {
+      setLinkMsg({ type: "error", text: e.message });
+    } finally {
+      setLinkBusy(false);
+    }
+  };
   const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_notes:"",contract_url:"",drive_link:""};
   const [form, setForm] = useState(emptyForm);
 
@@ -2879,7 +2906,7 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
                   <td style={{fontSize:12}}>
                     {c.user_id
                       ? <span className="badge badge-green" style={{fontSize:10}}>✓ Active</span>
-                      : <button className="btn btn-sm btn-ghost" style={{fontSize:11,padding:"3px 8px"}} title="Copy invite link" onClick={()=>{navigator.clipboard.writeText(`${window.location.origin}/?client_id=${c.id}`);alert(`Invite link copied!\n\nSend this to ${c.contact_name||c.name}:\n${window.location.origin}/?client_id=${c.id}`);}}>🔗 Invite</button>}
+                      : <button className="btn btn-sm btn-ghost" style={{fontSize:11,padding:"3px 8px"}} onClick={()=>{setLinkingClient({id:c.id,name:c.name});setLinkEmail("");setLinkMsg({type:"",text:""});}}>🔗 Link</button>}
                   </td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
                   {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
@@ -2893,6 +2920,45 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
       {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
       {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
       {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)} isOwner={isOwner} user={user}/>}
+      {linkingClient&&(
+        <div className="modal-overlay" onClick={()=>setLinkingClient(null)}>
+          <div className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}>
+            <div className="flex-between mb-16">
+              <div>
+                <div className="modal-title" style={{marginBottom:2}}>Link Portal Account</div>
+                <div style={{fontSize:12,color:"var(--ink3)"}}>{linkingClient.name}</div>
+              </div>
+              <button className="btn btn-sm btn-ghost" onClick={()=>setLinkingClient(null)}>✕</button>
+            </div>
+            <p style={{fontSize:13,color:"var(--ink3)",marginBottom:20,lineHeight:1.6}}>
+              Enter the email the client used when signing up as <strong>Client / Brand Partner</strong>. Their portal will be linked to this record immediately.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Client's account email</label>
+              <input
+                className="form-input"
+                type="email"
+                placeholder="client@brand.com"
+                value={linkEmail}
+                onChange={e=>setLinkEmail(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&handleLinkAccount()}
+                autoFocus
+              />
+            </div>
+            {linkMsg.text&&(
+              <div style={{fontSize:13,marginBottom:12,padding:"8px 12px",borderRadius:"var(--radius-sm)",background:linkMsg.type==="success"?"rgba(26,122,74,0.08)":"rgba(192,57,43,0.08)",color:linkMsg.type==="success"?"var(--green)":"var(--red)"}}>
+                {linkMsg.text}
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setLinkingClient(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleLinkAccount} disabled={linkBusy||!linkEmail.trim()}>
+                {linkBusy?"Linking…":"Link Account"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2973,12 +3039,10 @@ function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
                 </div>
               ) : (
                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  <div style={{fontSize:13,color:"var(--ink3)"}}>No portal account yet. Send the client this invite link to let them sign up:</div>
-                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                    <input readOnly value={`${window.location.origin}/?client_id=${client.id}`} className="form-input" style={{fontSize:12,flex:1}} onClick={e=>e.target.select()}/>
-                    <button className="btn btn-sm btn-primary" onClick={()=>{navigator.clipboard.writeText(`${window.location.origin}/?client_id=${client.id}`);}}>Copy</button>
+                  <div style={{fontSize:13,color:"var(--ink3)",lineHeight:1.6}}>
+                    No portal account linked yet.<br/>
+                    Ask the client to sign up at <strong>{window.location.origin}</strong> and select <strong>"Client / Brand Partner"</strong> as their role. Then use the <strong>🔗 Link</strong> button in the clients table to connect their account to this record.
                   </div>
-                  <div style={{fontSize:11,color:"var(--ink3)"}}>The link pre-fills their role as "Client" and links their account to {client.name} automatically.</div>
                 </div>
               )}
             </div>
