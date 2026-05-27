@@ -2,11 +2,11 @@
 // Proxies all transactional email sends via Resend.
 // Set RESEND_API_KEY in Vercel Environment Variables.
 
-const setCorsHeaders = (req) => ({
-  'Access-Control-Allow-Origin': req.headers.origin || '*',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-});
+const { applyCors } = require('./_utils/cors');
+const { requireAuth, getBearerToken } = require('./_utils/auth');
+const { Errors, sendOk } = require('./_utils/errors');
+const { getSupabaseAdminClient } = require('./_utils/supabaseAdmin');
+
 
 // Email templates per trigger type
 const buildEmail = (type, data) => {
@@ -215,26 +215,41 @@ const buildEmail = (type, data) => {
 };
 
 module.exports = async (req, res) => {
-  const corsHeaders = setCorsHeaders(req);
-  Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
-
-  if (req.method === 'OPTIONS') return res.status(204).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (applyCors(req, res)) return;
+  if (req.method !== 'POST') return Errors.methodNotAllowed(res);
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   if (!RESEND_API_KEY) {
     console.warn('RESEND_API_KEY not set — email skipped');
-    return res.status(200).json({ skipped: true, reason: 'RESEND_API_KEY not configured' });
+    return sendOk(res, { skipped: true, reason: 'RESEND_API_KEY not configured' });
   }
 
-  // FROM address: use verified domain sender if set, otherwise fall back to
-  // Resend's built-in test address (works immediately, no DNS verification needed).
-  // Once omnyagrowth.com is verified in Resend, add to Vercel env vars:
-  //   RESEND_FROM_EMAIL=Omnya Growth <noreply@mail.omnyagrowth.com>
+  // 1. Authenticate Request
+  let authorized = false;
+  let callerUser = null;
+  const token = getBearerToken(req);
+
+  // Allow service role or cron secret key bypass (for Supabase webhooks and backend crons)
+  if (token && (
+    (process.env.SUPABASE_SERVICE_ROLE_KEY && token === process.env.SUPABASE_SERVICE_ROLE_KEY) ||
+    (process.env.CRON_SECRET && token === process.env.CRON_SECRET)
+  )) {
+    authorized = true;
+  } else {
+    // Authenticate standard user JWT
+    callerUser = await requireAuth(req, res);
+    if (!callerUser) return; // requireAuth already responded with 401/403
+    authorized = true;
+  }
+
+  if (!authorized) {
+    return Errors.unauthorized(res, "Unauthorized email trigger");
+  }
+
+  const supabase = getSupabaseAdminClient();
   const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'Omnya Growth <onboarding@resend.dev>';
 
   try {
-    // Vercel may or may not pre-parse the body — handle both cases
     let body = req.body;
     if (typeof body === 'string') {
       try { body = JSON.parse(body); } catch (_) {}
@@ -248,11 +263,66 @@ module.exports = async (req, res) => {
       data = body;
     }
 
-    if (!type || !data) return res.status(400).json({ error: 'Missing type or data' });
+    if (!type || !data) return Errors.badRequest(res, 'Missing type or data');
+
+    // 2. Phishing Protection: Server-side validation of recipient address
+    // Verify that the caller is authorized to trigger the email type and send to the specified recipient.
+    if (callerUser) {
+      if (type === 'new_submission') {
+        const { data: amProfile } = await supabase
+          .from('user_profiles')
+          .select('email, role')
+          .eq('email', data.amEmail)
+          .single();
+        if (!amProfile || (amProfile.role !== 'am' && amProfile.role !== 'owner' && amProfile.role !== 'account_manager')) {
+          return Errors.forbidden(res, "Recipient is not an authorized manager");
+        }
+      } else if (['revision_requested', 'final_approved', 'payment_sent', 'campaign_assigned'].includes(type)) {
+        const { data: creatorProfile } = await supabase
+          .from('user_profiles')
+          .select('email')
+          .eq('email', data.creatorEmail)
+          .single();
+        if (!creatorProfile) {
+          return Errors.forbidden(res, "Recipient is not a registered creator");
+        }
+      } else if (type === 'user_approved') {
+        const { data: userProfile } = await supabase
+          .from('user_profiles')
+          .select('email')
+          .eq('email', data.userEmail)
+          .single();
+        if (!userProfile) {
+          return Errors.forbidden(res, "Recipient profile not found");
+        }
+      } else if (type === 'user_signup_waiting_approval') {
+        // Hardcoded recipient is safe
+      } else {
+        return Errors.badRequest(res, `Unauthorized email type: ${type}`);
+      }
+    }
+
+    // 3. Phishing Protection: Escaping client HTML input to prevent injection
+    const escapeHtml = (str) => {
+      if (typeof str !== 'string') return '';
+      return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;')
+        .replace(/\//g, '&#x2F;');
+    };
+
+    if (data.notes) data.notes = escapeHtml(data.notes);
+    if (data.feedback) data.feedback = escapeHtml(data.feedback);
+    if (data.description) data.description = escapeHtml(data.description);
+    if (data.creatorName) data.creatorName = escapeHtml(data.creatorName);
+    if (data.campaignName) data.campaignName = escapeHtml(data.campaignName);
 
     const email = buildEmail(type, data);
-    if (!email) return res.status(400).json({ error: `Unknown email type: ${type}` });
-    if (!email.to) return res.status(400).json({ error: 'No recipient email provided' });
+    if (!email) return Errors.badRequest(res, `Unknown email type: ${type}`);
+    if (!email.to) return Errors.badRequest(res, 'No recipient email provided');
 
     const payload = {
       from: FROM_EMAIL,
@@ -274,15 +344,13 @@ module.exports = async (req, res) => {
 
     if (!sendRes.ok) {
       console.error(`Resend error [${type}]:`, result);
-      // Return 200 to the client so email failures don't surface as portal errors
-      return res.status(200).json({ skipped: true, reason: result.message || 'Resend API error' });
+      return Errors.internal(res, result.message || 'Resend API error');
     }
 
     console.log(`Email sent [${type}] → ${email.to} (id: ${result.id})`);
-    return res.status(200).json({ success: true, id: result.id });
+    return sendOk(res, { id: result.id });
   } catch (err) {
     console.error('send-email error:', err);
-    // Always return 200 — email errors must never break portal actions
-    return res.status(200).json({ skipped: true, reason: 'Internal error' });
+    return Errors.internal(res, err.message);
   }
 };

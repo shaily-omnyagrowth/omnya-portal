@@ -1,4 +1,8 @@
-export const config = {
+const { applyCors } = require('./_utils/cors');
+const { requireAuth } = require('./_utils/auth');
+const { Errors, sendOk } = require('./_utils/errors');
+
+const config = {
   api: {
     bodyParser: false,
     sizeLimit: "100mb",
@@ -70,18 +74,18 @@ function parseMultipart(body, boundary) {
   return parts;
 }
 
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+module.exports = async (req, res) => {
+  if (applyCors(req, res)) return;
+  if (req.method !== 'POST') return Errors.methodNotAllowed(res);
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  // Require user session
+  const user = await requireAuth(req, res);
+  if (!user) return;
 
   try {
     const contentType = req.headers["content-type"] || "";
     const boundary = parseBoundary(contentType);
-    if (!boundary) return res.status(400).json({ error: "No boundary in content-type" });
+    if (!boundary) return Errors.badRequest(res, "No boundary in content-type");
 
     const rawBody = await getRawBody(req);
     const parts = parseMultipart(rawBody, boundary);
@@ -89,7 +93,7 @@ export default async function handler(req, res) {
     const filePart = parts.find(p => p.filename);
     const folderPart = parts.find(p => p.name === "folderId");
 
-    if (!filePart) return res.status(400).json({ error: "No file received" });
+    if (!filePart) return Errors.badRequest(res, "No file received");
 
     const fileName = filePart.filename;
     const fileData = filePart.data;
@@ -107,7 +111,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
         "X-Upload-Content-Type": "application/octet-stream",
-        "X-Upload-Content-Length": fileData.length,
+        "X-Upload-Content-Length": fileData.length.toString(),
       },
       body: JSON.stringify(metadata),
     });
@@ -136,21 +140,14 @@ export default async function handler(req, res) {
 
     const uploadData = await uploadRes.json();
 
-    // Make file publicly viewable
-    await fetch(`https://www.googleapis.com/drive/v3/files/${uploadData.id}/permissions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ role: "reader", type: "anyone" }),
-    });
-
+    // Removed the "anyone reader" public permission call to enforce server-side privacy by default.
     const driveLink = `https://drive.google.com/file/d/${uploadData.id}/view`;
-    return res.status(200).json({ url: driveLink, id: uploadData.id });
+    return sendOk(res, { url: driveLink, id: uploadData.id });
 
   } catch (err) {
     console.error("Upload error:", err);
-    return res.status(500).json({ error: err.message });
+    return Errors.internal(res, err.message);
   }
-}
+};
+
+module.exports.config = config;

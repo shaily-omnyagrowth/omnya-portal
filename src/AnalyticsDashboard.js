@@ -44,8 +44,19 @@ export default function AnalyticsDashboard({ campaignId }) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      let isClient = false;
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .maybeSingle();
+        if (profile?.role === 'client') isClient = true;
+      }
+      const sourceTable = isClient ? 'client_safe_analytics' : 'video_analytics';
       let query = supabase
-        .from('video_analytics')
+        .from(sourceTable)
         .select('*')
         .order('pulled_at', { ascending: false });
       if (campaignId) query = query.eq('campaign_id', campaignId);
