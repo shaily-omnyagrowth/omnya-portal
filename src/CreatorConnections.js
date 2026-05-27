@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './supabaseClient';
+import LoadingSpinner from './components/LoadingSpinner';
 
 // Connection statuses surfaced by /api/social/connections.
 // 'disconnected' is the default for platforms with no row yet.
@@ -169,9 +170,7 @@ export default function CreatorConnections({ currentUser }) {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 20 }}>Loading connections…</div>;
-  }
+  if (loading) return <LoadingSpinner label="Loading connections…" />;
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>

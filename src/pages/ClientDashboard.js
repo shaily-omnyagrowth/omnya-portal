@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import AnalyticsDashboard from '../AnalyticsDashboard';
 import { fmtDate, fmtNum } from '../utils';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 // ============================================================================
 // COMPONENT 1: ClientDashboard (Overview)
@@ -62,14 +63,7 @@ export default function ClientDashboard({ user, db, onRefresh }) {
     }, defaultStats);
   }, [db.analytics]);
 
-  if (loading) {
-    return (
-      <div className="content text-center" style={{ padding: 48 }}>
-        <div style={{ fontSize: 32, marginBottom: 16 }}>⏳</div>
-        <p style={{ color: "var(--ink2)" }}>Hydrating Brand Workspace...</p>
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner label="Loading Brand Workspace…" />;
 
   if (dbError || !clientProfile) {
     return (

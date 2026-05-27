@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from './supabaseClient';
+import LoadingSpinner from './components/LoadingSpinner';
 
 const PLATFORMS = ['all', 'tiktok', 'instagram', 'facebook', 'youtube'];
 
@@ -132,9 +133,7 @@ export default function AnalyticsDashboard({ campaignId }) {
     }
   };
 
-  if (loading) {
-    return <div style={{ padding: 20 }}>Loading analytics…</div>;
-  }
+  if (loading) return <LoadingSpinner label="Loading analytics…" />;
 
   const msgColors =
     message.type === 'success' ? { bg: '#dcfce7', fg: '#166534' } :

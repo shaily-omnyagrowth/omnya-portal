@@ -3,12 +3,18 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import React from "react";
 import { supabase, SUPABASE_URL } from "./supabaseClient";
 import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor } from "./utils";
-import Legal from "./Legal";
-import CreatorDashboard from "./pages/CreatorDashboard";
-import ClientDashboard, { ClientCampaignsPage, ClientContentGallery } from "./pages/ClientDashboard";
-import CreatorConnections from "./CreatorConnections";
-import AnalyticsDashboard from "./AnalyticsDashboard";
-import PayoutManager from "./PayoutManager";
+const Legal = React.lazy(() => import('./Legal'));
+const CreatorDashboard = React.lazy(() => import('./pages/CreatorDashboard'));
+const ClientDashboard = React.lazy(() => import('./pages/ClientDashboard'));
+const ClientCampaignsPage = React.lazy(() =>
+  import('./pages/ClientDashboard').then(m => ({ default: m.ClientCampaignsPage }))
+);
+const ClientContentGallery = React.lazy(() =>
+  import('./pages/ClientDashboard').then(m => ({ default: m.ClientContentGallery }))
+);
+const CreatorConnections = React.lazy(() => import('./CreatorConnections'));
+const AnalyticsDashboard = React.lazy(() => import('./AnalyticsDashboard'));
+const PayoutManager = React.lazy(() => import('./PayoutManager'));
 
 
 // ============================================================
@@ -662,10 +668,17 @@ const sendEmail = (type, data) => {
 // LOADING + ERROR COMPONENTS
 // ============================================================
 
-function Spinner() {
-  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:48}}>
-    <div className="ai-spinner" style={{width:28,height:28,borderWidth:3}} />
-  </div>;
+function Spinner({ label = null }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', width: '100%', minHeight: 240,
+      padding: '48px 24px', boxSizing: 'border-box', gap: 12,
+    }}>
+      <div className="ai-spinner" style={{ width: 32, height: 32, borderWidth: 3 }} role="status" aria-label={label || 'Loading'} />
+      {label && <div style={{ fontSize: 13, color: 'var(--ink3)' }}>{label}</div>}
+    </div>
+  );
 }
 
 function ErrorMsg({msg, onRetry}) {
@@ -869,6 +882,7 @@ function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("login"); // login | signup | forgot | verify-waiting
@@ -890,8 +904,11 @@ function Login({ onLogin }) {
     setLoading(true); setErr("");
     try {
       if (mode === "signup") {
+        if (!fullName.trim()) { setErr("Please enter your name"); setLoading(false); return; }
+        if (password.length < 6) { setErr("Password must be at least 6 characters"); setLoading(false); return; }
+        if (password !== confirmPassword) { setErr("Passwords do not match"); setLoading(false); return; }
         console.log("Attempting signup for:", email);
-        const { data, error } = await supabase.auth.signUp({ 
+        const { data, error } = await supabase.auth.signUp({
           email, 
           password, 
           options: { 
@@ -1112,6 +1129,23 @@ function Login({ onLogin }) {
               )}
             </div>
             <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
+          </div>
+        )}
+
+        {mode === "signup" && (
+          <div className="field">
+            <label>Confirm Password</label>
+            <input
+              value={confirmPassword}
+              onChange={e=>setConfirmPassword(e.target.value)}
+              type="password"
+              placeholder="••••••••"
+              onKeyDown={e=>e.key==="Enter"&&handle()}
+              style={{borderColor: confirmPassword && confirmPassword !== password ? "var(--red,#e53e3e)" : ""}}
+            />
+            {confirmPassword && confirmPassword !== password && (
+              <div style={{fontSize:12,color:"var(--red,#e53e3e)",marginTop:4}}>Passwords do not match</div>
+            )}
           </div>
         )}
 
@@ -2677,7 +2711,7 @@ function CampaignForum({ campaign, user, db, canPin }) {
   const pinned = messages.filter(m=>m.is_pinned);
   const regular = messages.filter(m=>!m.is_pinned);
 
-  if (loading) return <div style={{marginTop:24,textAlign:"center",fontSize:13,color:"var(--ink3)"}}>Loading forum...</div>;
+  if (loading) return <Spinner label="Loading forum…" />;
 
   return (
     <div style={{marginTop:24,borderTop:"1px solid var(--border)",paddingTop:20}}>
@@ -5208,10 +5242,10 @@ export default function App() {
 
   // Loading screen removed as per user request
   
-  if(isPublicLegal) return <Legal onBack={() => { if(path === '/termsofservice' || path === '/privacypolicy') window.location.href = '/'; else setIsPublicLegal(false); }} initialTab={publicLegalTab} />;
+  if(isPublicLegal) return <React.Suspense fallback={<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>}><Legal onBack={() => { if(path === '/termsofservice' || path === '/privacypolicy') window.location.href = '/'; else setIsPublicLegal(false); }} initialTab={publicLegalTab} /></React.Suspense>;
 
   // Display initialization spinner while checking session
-  if (loading && !user) return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><Spinner/><div style={{fontSize:14,color:"var(--ink3)"}}>Restoring session...</div></div>, false);
+  if (loading && !user) return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><Spinner label="Restoring session…" /></div>, false);
 
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>, true);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>, true);
@@ -5241,7 +5275,7 @@ export default function App() {
               <button className="btn btn-ghost btn-sm desktop-only" onClick={handleLogout}>Sign out</button>
             </div>
           </div>
-          {renderPage()}
+          <React.Suspense fallback={<Spinner />}>{renderPage()}</React.Suspense>
         </div>
       </div>
       {showSQL&&<SQLSetupModal onClose={()=>setShowSQL(false)}/>}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
+import LoadingSpinner from './components/LoadingSpinner';
 
 export default function PayoutManager() {
   const [batchList, setBatchList] = useState([]);
@@ -115,7 +116,7 @@ export default function PayoutManager() {
     }
   };
 
-  if (loading) return <div style={{ padding: 20 }}>Loading Payout History...</div>;
+  if (loading) return <LoadingSpinner label="Loading Payout History…" />;
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '20px' }}>
