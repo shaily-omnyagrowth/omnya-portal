@@ -28,8 +28,28 @@ export default function AnalyticsDashboard({ campaignId }) {
     async function loadData() {
       setLoading(true);
       try {
-        let query = supabase.from('video_analytics').select('*').order('pulled_at', { ascending: false });
-        if (campaignId) query = query.eq('campaign_id', campaignId);
+        // Fetch current session to check role-scoped access
+        const { data: { session } } = await supabase.auth.getSession();
+        let isClient = false;
+        if (session?.user) {
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          if (profile?.role === 'client') {
+            isClient = true;
+          }
+        }
+
+        const sourceTable = isClient ? 'client_safe_analytics' : 'video_analytics';
+        let query = supabase.from(sourceTable).select('*');
+        
+        if (campaignId) {
+          query = query.eq('campaign_id', campaignId);
+        }
+        
+        query = query.order('pulled_at', { ascending: false });
         
         const { data, error } = await query;
         if (error) throw error;

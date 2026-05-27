@@ -1,12 +1,19 @@
-const { createClient } = require('@supabase/supabase-js');
+const { applyCors } = require('../_utils/cors');
+const { requireRole } = require('../_utils/auth');
+const { Errors } = require('../_utils/errors');
+const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 
 module.exports = async (req, res) => {
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
-  
+  if (applyCors(req, res)) return;
+  if (req.method !== 'GET') return Errors.methodNotAllowed(res);
+
+  const authCtx = await requireRole(req, res, ['owner', 'am', 'account_manager']);
+  if (!authCtx) return;
+
   const { batchId } = req.query;
   if (!batchId) return res.status(400).send('Missing batchId Parameter');
 
-  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = getSupabaseAdminClient();
 
   try {
     const { data: payments } = await supabase.from('payments')
@@ -29,3 +36,4 @@ module.exports = async (req, res) => {
     res.status(500).send('Export computation failed');
   }
 };
+

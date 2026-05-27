@@ -1,13 +1,20 @@
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+const { applyCors } = require('./_utils/cors');
+const { requireAuth } = require('./_utils/auth');
+const { Errors, sendOk } = require('./_utils/errors');
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+module.exports = async (req, res) => {
+  if (applyCors(req, res)) return;
+  if (req.method !== 'POST') return Errors.methodNotAllowed(res);
+
+  // Require user session
+  const user = await requireAuth(req, res);
+  if (!user) return;
 
   try {
-    const { fileName, fileSize, mimeType, folderId } = req.body;
+    const { fileName, fileSize, mimeType, folderId } = req.body || {};
+    if (!fileName || !fileSize) {
+      return Errors.badRequest(res, 'Missing fileName or fileSize');
+    }
 
     // Get access token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -21,7 +28,7 @@ export default async function handler(req, res) {
       }),
     });
     const tokenData = await tokenRes.json();
-    if (!tokenData.access_token) throw new Error("Failed to get access token: " + JSON.stringify(tokenData));
+    if (!tokenData.access_token) throw new Error("Failed to get access token");
 
     // Create resumable upload session
     const metadata = { name: fileName };
@@ -33,7 +40,7 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${tokenData.access_token}`,
         "Content-Type": "application/json",
         "X-Upload-Content-Type": mimeType || "video/mp4",
-        "X-Upload-Content-Length": fileSize,
+        "X-Upload-Content-Length": fileSize.toString(),
       },
       body: JSON.stringify(metadata),
     });
@@ -46,14 +53,11 @@ export default async function handler(req, res) {
     const uploadUrl = initRes.headers.get("location");
     if (!uploadUrl) throw new Error("No upload URL returned");
 
-    // Also return the access token so browser can make file public after upload
-    return res.status(200).json({ 
-      uploadUrl, 
-      accessToken: tokenData.access_token 
-    });
+    // Secure flow: Never return Google Drive accessToken to browser/client!
+    return sendOk(res, { uploadUrl });
 
   } catch (err) {
-    console.error("Error:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("Error in get-upload-url:", err);
+    return Errors.internal(res, err.message);
   }
-}
+};

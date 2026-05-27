@@ -5,6 +5,7 @@ import { supabase, SUPABASE_URL } from "./supabaseClient";
 import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor } from "./utils";
 import Legal from "./Legal";
 import CreatorDashboard from "./pages/CreatorDashboard";
+import ClientDashboard, { ClientCampaignsPage, ClientContentGallery } from "./pages/ClientDashboard";
 import CreatorConnections from "./CreatorConnections";
 import AnalyticsDashboard from "./AnalyticsDashboard";
 import PayoutManager from "./PayoutManager";
@@ -623,11 +624,17 @@ const checkSupabaseHealth = async () => {
 // Never throws; silently skips if key not configured.
 // ============================================================
 const sendEmail = (type, data) => {
-  fetch("/api/send-email", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, data }),
-  }).catch(e => console.warn("Email send failed (non-critical):", e.message));
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    const headers = { "Content-Type": "application/json" };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
+    fetch("/api/send-email", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type, data }),
+    }).catch(e => console.warn("Email send failed (non-critical):", e.message));
+  }).catch(e => console.warn("Could not get session for email:", e.message));
 };
 
 // ============================================================
@@ -843,7 +850,18 @@ function Login({ onLogin }) {
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState("login"); // login | signup | forgot | verify-waiting
-  const [requestedRole, setRequestedRole] = useState("creator");
+  const [requestedRole, setRequestedRole] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("client_id") ? "client" : "creator";
+  });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const clientId = params.get("client_id");
+    if (clientId) {
+      setMode("signup");
+    }
+  }, []);
 
   const handle = async () => {
     if (!email && mode !== "login") { setErr("Please enter email"); return; }
@@ -870,7 +888,7 @@ function Login({ onLogin }) {
             const u = data.user;
             const reqRole = requestedRole || "creator";
             const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
-            const initialRole = OWNER_EMAILS.includes(email) ? "owner" : "pending";
+            const initialRole = OWNER_EMAILS.includes(email) ? "owner" : (reqRole === "client" ? "client" : "pending");
             
             // Insert profile row immediately (RLS allows all)
             await supabase.from("user_profiles").insert({
@@ -888,6 +906,16 @@ function Login({ onLogin }) {
                 displayName: email.split("@")[0],
                 requestedRole: reqRole,
               });
+            }
+
+            // Link client to user profile
+            const clientId = new URLSearchParams(window.location.search).get("client_id");
+            if (clientId && reqRole === "client") {
+              await supabase
+                .from("clients")
+                .update({ user_id: u.id })
+                .eq("id", clientId)
+                .is("user_id", null);
             }
           } catch (profileErr) {
             console.warn("Non-critical profile pre-provisioning failed:", profileErr.message);
@@ -1058,10 +1086,16 @@ function Login({ onLogin }) {
         {mode === "signup" && (
           <div className="field">
             <label>I am a...</label>
-            <select value={requestedRole} onChange={e=>setRequestedRole(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--ink)",fontSize:14,cursor:"pointer"}}>
-              <option value="creator">Creator</option>
-              <option value="am">Account Manager</option>
-            </select>
+            {new URLSearchParams(window.location.search).get("client_id") ? (
+              <div style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg3)",color:"var(--ink)",fontSize:14,fontWeight:600}}>
+                🏢 Partner Brand Client
+              </div>
+            ) : (
+              <select value={requestedRole} onChange={e=>setRequestedRole(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--ink)",fontSize:14,cursor:"pointer"}}>
+                <option value="creator">Creator</option>
+                <option value="am">Account Manager</option>
+              </select>
+            )}
           </div>
         )}
 
@@ -1111,7 +1145,7 @@ function Login({ onLogin }) {
 // SIDEBAR
 // ============================================================
 
-const roleLabel = { creator: "Creator Portal", am: "Account Manager", account_manager: "Account Manager", owner: "Owner" };
+const roleLabel = { creator: "Creator Portal", am: "Account Manager", account_manager: "Account Manager", owner: "Owner", client: "Client Portal" };
 
 const navs = {
   creator: [
@@ -1145,6 +1179,11 @@ const navs = {
     {id:"campaigns",icon:"📢",label:"All Campaigns"},
     {id:"content-library",icon:"🎬",label:"Content Library"},
     {id:"legal",icon:"⚖️",label:"Legal Center"},
+  ],
+  client: [
+    {id:"dashboard",icon:"🏠",label:"Brand Insights"},
+    {id:"campaigns",icon:"📢",label:"Campaign Overview"},
+    {id:"content-gallery",icon:"🎬",label:"Delivered Content"},
   ],
 };
 
@@ -4729,7 +4768,15 @@ export default function App() {
     try {
       console.log("loadDB: Fetching tables...");
       
-      const tables = [
+      const isClient = (user?.role || "").toLowerCase() === 'client';
+      
+      const tables = isClient ? [
+        { key: 'campaigns', name: 'client_safe_campaigns' },
+        { key: 'submissions', name: 'client_safe_submissions' },
+        { key: 'analytics', name: 'client_safe_analytics' },
+        { key: 'userProfiles', name: 'user_profiles' },
+        { key: 'clients', name: 'clients' }
+      ] : [
         { key: 'creators', name: 'creators' },
         { key: 'clients', name: 'clients' },
         { key: 'campaigns', name: 'campaigns' },
@@ -4753,7 +4800,8 @@ export default function App() {
       }));
 
       if (errors.length > 0) {
-        if (errors.includes("creators") || errors.includes("user_profiles")) {
+        const coreRequired = isClient ? ["user_profiles"] : ["creators", "user_profiles"];
+        if (errors.some(err => coreRequired.includes(err))) {
           setDbError(`Core tables (${errors.join(", ")}) not found. Please run the SQL setup.`);
           setShowSQL(true);
         } else {
@@ -4769,6 +4817,7 @@ export default function App() {
         accountManagers: results.accountManagers || [],
         payments: results.payments || [],
         userProfiles: results.userProfiles || [],
+        analytics: results.analytics || [],
         _currentUser: user
       });
     } catch(e) { 
@@ -4902,6 +4951,12 @@ export default function App() {
     if(dbLoading) return <Spinner/>;
 
     // Validation is now handled in useEffect
+
+    if(role==="client"){
+      if(page==="dashboard") return <ErrorBoundary label="Client Dashboard"><ClientDashboard user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="campaigns") return <ErrorBoundary label="Client Campaigns"><ClientCampaignsPage user={user} db={db}/></ErrorBoundary>;
+      if(page==="content-gallery") return <ErrorBoundary label="Client Content Gallery"><ClientContentGallery user={user} db={db}/></ErrorBoundary>;
+    }
 
     if(role==="creator"){
       if(page==="dashboard") return <ErrorBoundary label="Dashboard"><CreatorDashboard user={user} db={db} onNavigate={setPage}/></ErrorBoundary>;
