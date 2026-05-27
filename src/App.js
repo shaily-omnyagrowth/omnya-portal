@@ -487,9 +487,30 @@ const styles = `
     font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
   }
 
+  /* CARDS */
+  .premium-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow);
+  }
+  .hover-card { transition: transform 0.15s, box-shadow 0.15s; }
+  .hover-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+
+  /* TABLE */
+  .premium-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .premium-table thead tr { border-bottom: 1px solid var(--border); background: var(--bg2); }
+  .premium-table thead th { padding: 10px 16px; text-align: left; font-size: 11px; font-weight: 600; color: var(--ink3); text-transform: uppercase; letter-spacing: 0.6px; }
+  .premium-table tbody tr { border-bottom: 1px solid var(--border2); transition: background 0.1s; }
+  .premium-table tbody tr:last-child { border-bottom: none; }
+  .premium-table tbody tr:hover { background: var(--bg2); }
+  .premium-table td { padding: 12px 16px; color: var(--ink2); vertical-align: middle; }
+
   /* MISC */
   .divider { height: 1px; background: var(--border2); margin: 20px 0; }
   .text-muted { color: var(--ink3); }
+  .text-center { text-align: center; }
+  .fw-700 { font-weight: 700; }
+  .btn-secondary { background: var(--bg2); color: var(--ink2); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--bg3); }
   .text-blue { color: var(--blue); }
   .text-green { color: var(--green); }
   .text-gold { color: var(--gold); }
@@ -1184,6 +1205,7 @@ const navs = {
     {id:"dashboard",icon:"🏠",label:"Brand Insights"},
     {id:"campaigns",icon:"📢",label:"Campaign Overview"},
     {id:"content-gallery",icon:"🎬",label:"Delivered Content"},
+    {id:"analytics",icon:"📊",label:"Video Insights"},
   ],
 };
 
@@ -2823,7 +2845,7 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
               <tr>
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner?<><th>Budget</th><th>Contact</th><th>Email</th></>:<th>Monthly Value</th>}
-                <th>AM</th><th>Drive</th>
+                <th>AM</th><th>Portal</th><th>Drive</th>
                 {isOwner&&<th>Edit</th>}
               </tr>
             </thead>
@@ -2840,6 +2862,11 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
                     <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
                   </>:<td className="fw-600" style={{color:"var(--green)"}}>{fmtMoney(c.budget)}</td>}
                   <td style={{fontSize:12}}>{db.accountManagers.find(a=>a.id===c.am_id)?.name||"—"}</td>
+                  <td style={{fontSize:12}}>
+                    {c.user_id
+                      ? <span className="badge badge-green" style={{fontSize:10}}>✓ Active</span>
+                      : <button className="btn btn-sm btn-ghost" style={{fontSize:11,padding:"3px 8px"}} title="Copy invite link" onClick={()=>{navigator.clipboard.writeText(`${window.location.origin}/?client_id=${c.id}`);alert(`Invite link copied!\n\nSend this to ${c.contact_name||c.name}:\n${window.location.origin}/?client_id=${c.id}`);}}>🔗 Invite</button>}
+                  </td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
                   {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
                 </tr>
@@ -2919,8 +2946,31 @@ function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
                 <div style={{fontSize:14,color:val?"var(--ink)":"var(--ink3)",fontStyle:val?"normal":"italic"}}>{val||"Not filled in yet"}</div>
               </div>
             ))}
+            {/* Portal Access section */}
+            <div style={{borderTop:"1px solid var(--border)",paddingTop:16,marginTop:16}}>
+              <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:12}}>🔐 Client Portal Access</div>
+              {client.user_id ? (
+                <div style={{display:"flex",alignItems:"center",gap:8,background:"rgba(26,122,74,0.07)",border:"1px solid rgba(26,122,74,0.15)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>
+                  <span style={{color:"var(--green)",fontSize:16}}>✓</span>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,color:"var(--green)"}}>Portal account linked</div>
+                    <div style={{fontSize:11,color:"var(--ink3)"}}>Client can log in to view their brand dashboard.</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{fontSize:13,color:"var(--ink3)"}}>No portal account yet. Send the client this invite link to let them sign up:</div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <input readOnly value={`${window.location.origin}/?client_id=${client.id}`} className="form-input" style={{fontSize:12,flex:1}} onClick={e=>e.target.select()}/>
+                    <button className="btn btn-sm btn-primary" onClick={()=>{navigator.clipboard.writeText(`${window.location.origin}/?client_id=${client.id}`);}}>Copy</button>
+                  </div>
+                  <div style={{fontSize:11,color:"var(--ink3)"}}>The link pre-fills their role as "Client" and links their account to {client.name} automatically.</div>
+                </div>
+              )}
+            </div>
+
             {/* Contract section */}
-            <div style={{borderTop:"1px solid var(--border)",paddingTop:16,marginTop:4}}>
+            <div style={{borderTop:"1px solid var(--border)",paddingTop:16,marginTop:16}}>
               <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:12}}>📄 Contract</div>
               {form.contract_url&&(
                 <div style={{marginBottom:12}}>
@@ -4956,6 +5006,7 @@ export default function App() {
       if(page==="dashboard") return <ErrorBoundary label="Client Dashboard"><ClientDashboard user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="campaigns") return <ErrorBoundary label="Client Campaigns"><ClientCampaignsPage user={user} db={db}/></ErrorBoundary>;
       if(page==="content-gallery") return <ErrorBoundary label="Client Content Gallery"><ClientContentGallery user={user} db={db}/></ErrorBoundary>;
+      if(page==="analytics") return <ErrorBoundary label="Video Insights"><div className="content"><h2 style={{fontSize:24,fontWeight:700,marginBottom:8}}>Video Insights</h2><p style={{color:"var(--ink3)",marginBottom:24}}>Performance analytics across all your campaigns.</p><AnalyticsDashboard campaignId={null}/></div></ErrorBoundary>;
     }
 
     if(role==="creator"){
