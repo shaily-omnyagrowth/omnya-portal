@@ -867,6 +867,7 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
 
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -875,6 +876,7 @@ function Login({ onLogin }) {
     const params = new URLSearchParams(window.location.search);
     return params.get("client_id") ? "client" : "creator";
   });
+  const isClientInvite = !!new URLSearchParams(window.location.search).get("client_id");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -915,7 +917,7 @@ function Login({ onLogin }) {
             await supabase.from("user_profiles").insert({
               id: u.id,
               email: email,
-              full_name: email.split("@")[0],
+              full_name: fullName.trim() || email.split("@")[0],
               role: initialRole,
               requested_role: reqRole
             });
@@ -1023,8 +1025,13 @@ function Login({ onLogin }) {
             textAlign: "left",
             marginBottom: 24
           }}>
-            🔒 <strong>Admin Approval Required</strong><br />
-            Once your email is verified, your account will be set to <strong>Pending Approval</strong> and the owner will be notified to grant you access.
+            {isClientInvite ? (
+              <>✅ <strong>Account Ready Once Verified</strong><br />
+              Click the link in your email to confirm your address — your brand portal will be immediately accessible, no further approval needed.</>
+            ) : (
+              <>🔒 <strong>Admin Approval Required</strong><br />
+              Once your email is verified, your account will be set to <strong>Pending Approval</strong> and the owner will be notified to grant you access.</>
+            )}
           </div>
 
           {err && <div style={{fontSize:13,marginBottom:16,color:err.includes("sent")?"var(--green)":"var(--red)"}}>{err}</div>}
@@ -1076,12 +1083,19 @@ function Login({ onLogin }) {
           <img src={LOGO_URI} alt="Omnya" style={{height:56,width:"auto"}} />
         </div>
         <div className="login-title">
-          {mode === "login" ? "Welcome back" : mode === "signup" ? "Create account" : "Reset Password"}
+          {mode === "login" ? "Welcome back" : mode === "signup" ? (isClientInvite ? "Brand Portal Access" : "Create account") : "Reset Password"}
         </div>
         <div className="login-sub">
-          {mode === "login" ? "Sign in to your creator portal" : mode === "signup" ? "Join the Omnya creator network" : "Enter your email to receive a reset link"}
+          {mode === "login" ? "Sign in to your portal" : mode === "signup" ? (isClientInvite ? "Set up your brand portal account" : "Join the Omnya creator network") : "Enter your email to receive a reset link"}
         </div>
-        
+
+        {mode === "signup" && (
+          <div className="field">
+            <label>{isClientInvite ? "Your name / Company name" : "Your name"}</label>
+            <input value={fullName} onChange={e=>setFullName(e.target.value)} type="text" placeholder={isClientInvite ? "Acme Brand" : "Jane Smith"} />
+          </div>
+        )}
+
         <div className="field">
           <label>Email</label>
           <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="you@omnya.com" />
