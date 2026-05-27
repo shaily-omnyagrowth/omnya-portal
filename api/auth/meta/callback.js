@@ -61,11 +61,11 @@ module.exports = async (req, res) => {
     return redirectBack(res, 'meta', { error: 'meta_missing_params' });
   }
 
-  // The state could have been issued by instagram/start, facebook/start, or
-  // meta/start. Try each platform label in turn until one matches.
+  // The state could have been issued by facebook/start or meta/start.
+  // Instagram now has its own callback (instagram/callback.js).
   let stateRow = null;
   let platform = null;
-  for (const candidate of ['instagram', 'facebook', 'meta']) {
+  for (const candidate of ['facebook', 'meta']) {
     const row = await consumeOAuthState({ platform: candidate, state });
     if (row) {
       stateRow = row;

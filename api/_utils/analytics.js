@@ -152,9 +152,28 @@ async function refreshYouTubeToken(supabase, token) {
   };
 }
 
-// Meta does NOT have a real refresh-token flow. Long-lived tokens last ~60d;
-// when they expire the creator must reconnect. We return null so the caller
-// flags the token expired.
+// Instagram Business long-lived tokens can be refreshed before they expire.
+// No client_id/secret required — just the current long-lived token.
+async function refreshInstagramToken(supabase, token) {
+  try {
+    const params = new URLSearchParams({
+      grant_type: 'ig_refresh_token',
+      access_token: token.access_token,
+    });
+    const resp = await fetch(`https://graph.instagram.com/refresh_access_token?${params.toString()}`);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data.access_token) return null;
+    return {
+      access_token: data.access_token,
+      refresh_token: null,
+      expires_at: data.expires_in ? new Date(Date.now() + data.expires_in * 1000).toISOString() : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Meta Facebook tokens (meta/facebook platforms) have no refresh flow; creator must reconnect.
 async function refreshMetaToken() {
   return null;
 }
@@ -166,7 +185,9 @@ async function refreshTokenIfNeeded(supabase, token) {
   let refreshed = null;
   if (token.platform === 'tiktok') refreshed = await refreshTikTokToken(supabase, token);
   else if (token.platform === 'youtube') refreshed = await refreshYouTubeToken(supabase, token);
-  else if (token.platform === 'meta' || token.platform === 'instagram' || token.platform === 'facebook') {
+  else if (token.platform === 'instagram' && token.metadata?.provider === 'instagram') {
+    refreshed = await refreshInstagramToken(supabase, token);
+  } else if (token.platform === 'meta' || token.platform === 'facebook') {
     refreshed = await refreshMetaToken(supabase, token);
   }
 
@@ -252,10 +273,48 @@ async function fetchYouTubeMetrics(token, submission) {
   };
 }
 
-async function fetchInstagramMetrics(token, submission) {
-  // Walk the IG-account → media list to find the matching shortcode, then pull
-  // insights. This is best-effort: Graph API permissions vary, and many
-  // accounts return 400/403 for /insights unless they're Business + scoped.
+// New Instagram Business API (graph.instagram.com) — tokens issued by instagram/callback.js.
+async function fetchInstagramBusinessMetrics(token, submission) {
+  const userId = token.platform_user_id;
+  if (!userId) return { error: 'ig_missing_user_id' };
+
+  const mediaResp = await fetch(
+    `https://graph.instagram.com/v21.0/${userId}/media?fields=id,shortcode,like_count,comments_count,media_type&access_token=${encodeURIComponent(token.access_token)}`
+  );
+  const mediaData = await mediaResp.json().catch(() => ({}));
+  if (!mediaResp.ok) return { error: mediaData?.error?.message || `ig_media_http_${mediaResp.status}` };
+
+  const match = mediaData?.data?.find((m) => m.shortcode === submission.videoId);
+  if (!match) return { error: 'ig_media_not_found' };
+
+  let views = 0;
+  let reach = 0;
+  try {
+    const insightsResp = await fetch(
+      `https://graph.instagram.com/v21.0/${match.id}/insights?metric=impressions,reach&access_token=${encodeURIComponent(token.access_token)}`
+    );
+    const insightsData = await insightsResp.json().catch(() => ({}));
+    if (insightsResp.ok && Array.isArray(insightsData.data)) {
+      const byName = Object.fromEntries(insightsData.data.map((d) => [d.name, d.values?.[0]?.value || 0]));
+      views = byName.impressions || 0;
+      reach = byName.reach || 0;
+    }
+  } catch { /* non-fatal */ }
+
+  return {
+    views,
+    likes: match.like_count || 0,
+    comments: match.comments_count || 0,
+    shares: 0,
+    saves: 0,
+    reach,
+    raw: match,
+  };
+}
+
+// Legacy: Facebook-issued token via meta/callback (provider='meta'). Kept for
+// tokens connected before the Instagram Business Login migration.
+async function fetchInstagramViaMetaMetrics(token, submission) {
   const accountsResp = await fetch(
     `https://graph.facebook.com/v19.0/me/accounts?fields=instagram_business_account&access_token=${encodeURIComponent(token.access_token)}`
   );
@@ -274,7 +333,6 @@ async function fetchInstagramMetrics(token, submission) {
   const match = mediaData?.data?.find((m) => m.shortcode === submission.videoId);
   if (!match) return { error: 'ig_media_not_found' };
 
-  // Optional insights (may 400 with permission error)
   let reach = 0;
   let views = 0;
   try {
@@ -298,6 +356,14 @@ async function fetchInstagramMetrics(token, submission) {
     reach,
     raw: match,
   };
+}
+
+async function fetchInstagramMetrics(token, submission) {
+  // Route to the correct API based on which OAuth flow issued the token.
+  if (token.metadata?.provider === 'instagram') {
+    return fetchInstagramBusinessMetrics(token, submission);
+  }
+  return fetchInstagramViaMetaMetrics(token, submission);
 }
 
 async function fetchFacebookMetrics(token, submission) {
