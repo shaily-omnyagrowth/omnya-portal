@@ -17,6 +17,7 @@ const { applyCors } = require('../_utils/cors');
 const { requireRole, normalizeRole } = require('../_utils/auth');
 const { Errors, sendOk } = require('../_utils/errors');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
+const { applyRateLimit } = require('../_utils/rateLimit');
 const {
   syncSubmissions,
   fetchSubmissionsByIds,
@@ -29,8 +30,18 @@ module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
   if (req.method !== 'POST') return Errors.methodNotAllowed(res);
 
+  // Authenticate first to get userId for per-user rate limiting.
   const ctx = await requireRole(req, res, ['owner', 'am', 'account_manager', 'creator']);
   if (!ctx) return;
+
+  // Rate limit: 5 manual syncs per minute per user (analytics fetches hit external APIs).
+  const blocked = await applyRateLimit(req, res, {
+    max: 5,
+    windowSecs: 60,
+    endpoint: 'analytics-manual-sync',
+    userId: ctx.user.id,
+  });
+  if (blocked) return;
   const { user, profile } = ctx;
   const role = normalizeRole(profile.role);
 

@@ -180,11 +180,25 @@ export default function ClientDashboard({ user, db, onRefresh }) {
 // ============================================================================
 export function ClientCampaignsPage({ user, db }) {
   const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const [clientProfile, setClientProfile] = useState(null);
 
-  // Filter campaigns belonging to this client user
+  // Load client profile so we can scope campaigns to this specific client.
+  useEffect(() => {
+    let active = true;
+    supabase
+      .from('clients')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => { if (active && data) setClientProfile(data); });
+    return () => { active = false; };
+  }, [user.id]);
+
+  // Filter campaigns belonging to this client only.
   const clientCampaigns = useMemo(() => {
-    return db.campaigns || [];
-  }, [db.campaigns]);
+    if (!clientProfile) return [];
+    return (db.campaigns || []).filter(c => c.client_id === clientProfile.id);
+  }, [db.campaigns, clientProfile]);
 
   // Submissions associated with each campaign
   const getSubmissionsForCampaign = (campaignId) => {
@@ -337,11 +351,32 @@ export function ClientCampaignsPage({ user, db }) {
 // ============================================================================
 export function ClientContentGallery({ user, db }) {
   const [platformFilter, setPlatformFilter] = useState('all');
+  const [clientProfile, setClientProfile] = useState(null);
+
+  // Load client profile so we can scope submissions to this client's campaigns.
+  useEffect(() => {
+    let active = true;
+    supabase
+      .from('clients')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => { if (active && data) setClientProfile(data); });
+    return () => { active = false; };
+  }, [user.id]);
+
+  // Only include submissions for campaigns that belong to this client.
+  const clientCampaignIds = useMemo(() => {
+    if (!clientProfile) return new Set();
+    return new Set((db.campaigns || []).filter(c => c.client_id === clientProfile.id).map(c => c.campaign_id || c.id));
+  }, [db.campaigns, clientProfile]);
 
   const filteredSubmissions = useMemo(() => {
-    if (platformFilter === 'all') return db.submissions;
-    return db.submissions.filter(s => s.platform === platformFilter);
-  }, [db.submissions, platformFilter]);
+    if (!clientProfile) return [];
+    const base = (db.submissions || []).filter(s => clientCampaignIds.has(s.campaign_id));
+    if (platformFilter === 'all') return base;
+    return base.filter(s => s.platform === platformFilter);
+  }, [db.submissions, clientCampaignIds, clientProfile, platformFilter]);
 
   // Helper to find metrics for a submission
   const getMetrics = (subId) => {

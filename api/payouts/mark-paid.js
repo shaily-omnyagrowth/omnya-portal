@@ -2,10 +2,19 @@ const { applyCors } = require('../_utils/cors');
 const { requireRole } = require('../_utils/auth');
 const { Errors, sendOk } = require('../_utils/errors');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
+const { applyRateLimit } = require('../_utils/rateLimit');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
   if (req.method !== 'POST') return Errors.methodNotAllowed(res);
+
+  // Rate limit: marking paid is a destructive financial write — 10 per minute.
+  const blocked = await applyRateLimit(req, res, {
+    max: 10,
+    windowSecs: 60,
+    endpoint: 'payouts-mark-paid',
+  });
+  if (blocked) return;
 
   const authCtx = await requireRole(req, res, ['owner', 'am', 'account_manager']);
   if (!authCtx) return;

@@ -6,6 +6,7 @@ const { applyCors } = require('./_utils/cors');
 const { requireAuth, getBearerToken } = require('./_utils/auth');
 const { Errors, sendOk } = require('./_utils/errors');
 const { getSupabaseAdminClient } = require('./_utils/supabaseAdmin');
+const { applyRateLimit } = require('./_utils/rateLimit');
 
 
 // Email templates per trigger type
@@ -144,7 +145,7 @@ const buildEmail = (type, data) => {
 
     case 'user_signup_waiting_approval':
       return {
-        to: 'shaily@omnyagrowth.com',
+        to: process.env.OWNER_NOTIFICATION_EMAIL,
         subject: `🔔 New User Signup: Waiting for Approval`,
         html: `
           <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
@@ -217,6 +218,14 @@ const buildEmail = (type, data) => {
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
   if (req.method !== 'POST') return Errors.methodNotAllowed(res);
+
+  // Rate limit: 10 email sends per minute per IP/user.
+  const blocked = await applyRateLimit(req, res, {
+    max: 10,
+    windowSecs: 60,
+    endpoint: 'send-email',
+  });
+  if (blocked) return;
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   if (!RESEND_API_KEY) {
@@ -314,15 +323,28 @@ module.exports = async (req, res) => {
         .replace(/\//g, '&#x2F;');
     };
 
-    if (data.notes) data.notes = escapeHtml(data.notes);
-    if (data.feedback) data.feedback = escapeHtml(data.feedback);
-    if (data.description) data.description = escapeHtml(data.description);
-    if (data.creatorName) data.creatorName = escapeHtml(data.creatorName);
-    if (data.campaignName) data.campaignName = escapeHtml(data.campaignName);
+    // Escape every user-controlled string that will be interpolated into HTML.
+    const userFields = [
+      'notes', 'feedback', 'description',
+      'creatorName', 'campaignName', 'clientName',
+      'amName', 'displayName', 'requestedRole',
+      'userEmail', 'submissionType', 'platform',
+      'method', 'deadline',
+    ];
+    for (const field of userFields) {
+      if (data[field] !== undefined && data[field] !== null) {
+        data[field] = escapeHtml(String(data[field]));
+      }
+    }
 
     const email = buildEmail(type, data);
     if (!email) return Errors.badRequest(res, `Unknown email type: ${type}`);
-    if (!email.to) return Errors.badRequest(res, 'No recipient email provided');
+    if (!email.to) {
+      if (type === 'user_signup_waiting_approval') {
+        console.error('[send-email] OWNER_NOTIFICATION_EMAIL env var is not set — signup notification skipped');
+      }
+      return Errors.badRequest(res, 'No recipient email provided');
+    }
 
     const payload = {
       from: FROM_EMAIL,

@@ -924,8 +924,7 @@ function Login({ onLogin }) {
           try {
             const u = data.user;
             const reqRole = requestedRole || "creator";
-            const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
-            const initialRole = OWNER_EMAILS.includes(email) ? "owner" : (reqRole === "client" ? "client" : "pending");
+            const initialRole = reqRole === "client" ? "client" : "pending";
             
             // Insert profile row immediately (RLS allows all)
             await supabase.from("user_profiles").insert({
@@ -4709,9 +4708,6 @@ export default function App() {
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(true); // Start as true for initial session check
   let rawRole = (user?.role || "pending").toLowerCase();
-  if (user?.email && ['shaily@omnyagrowth.com'].includes(user.email)) {
-    rawRole = "owner";
-  }
   let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
@@ -4816,8 +4812,7 @@ export default function App() {
                 } else {
                   // Profile is actually missing in the database!
                   // Create it immediately as a bulletproof backup.
-                  const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
-                  const fallbackRole = OWNER_EMAILS.includes(session.user.email) ? 'owner' : 'pending';
+                  const fallbackRole = 'pending';
                   const reqRole = session.user.user_metadata?.requested_role || "creator";
                   
                   try {
@@ -4903,8 +4898,8 @@ export default function App() {
 
   // Sync page validation.
   //
-  // Uses App's already-computed `role` (which has the OWNER_EMAILS shortcut
-  // + 'pending' fallback). We refuse to validate at all if role is not one
+  // Uses App's already-computed `role` (derived from user_profiles.role via
+  // normalizeRole). We refuse to validate at all if role is not one
   // of the known nav buckets — that keeps a transient state like
   // role="authenticated" from briefly resetting `page` to dashboard during
   // token refresh.
@@ -4991,25 +4986,39 @@ export default function App() {
 
   useEffect(()=>{ if(user&&!needsSetup) loadDB(); },[user,needsSetup,loadDB]);
 
-  // Global Realtime Sync (Delta Updates)
+  // Global Realtime Sync (role-scoped delta updates)
+  //
+  // Each role subscribes only to the tables it actually needs. Supabase
+  // Realtime enforces RLS on change events, so even if a role over-subscribes,
+  // rows they cannot read will be filtered server-side. We restrict
+  // subscriptions here as defence-in-depth and to avoid leaking metadata
+  // about sensitive tables (payments, user_profiles) to creators/clients.
   useEffect(() => {
     if (!user || needsSetup) return;
 
     const tableKeyMap = {
-      creators: 'creators',
-      clients: 'clients',
-      campaigns: 'campaigns',
-      submissions: 'submissions',
+      creators:         'creators',
+      clients:          'clients',
+      campaigns:        'campaigns',
+      submissions:      'submissions',
       account_managers: 'accountManagers',
-      payments: 'payments',
-      user_profiles: 'userProfiles'
+      payments:         'payments',
+      user_profiles:    'userProfiles',
     };
 
-    const channels = Object.keys(tableKeyMap).map(table => 
-      supabase.channel(`sync_${table}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: table }, payload => {
-          console.log(`Realtime Delta [${payload.eventType}] on ${table}`, payload);
-          
+    // Tables each role should receive live updates for.
+    const roleTableSets = {
+      owner:   ['creators', 'clients', 'campaigns', 'submissions', 'account_managers', 'payments', 'user_profiles'],
+      am:      ['creators', 'clients', 'campaigns', 'submissions'],
+      creator: ['campaigns', 'submissions'],
+      client:  ['campaigns', 'submissions'],
+    };
+
+    const tablesToSubscribe = roleTableSets[role] || [];
+
+    const channels = tablesToSubscribe.map(table =>
+      supabase.channel(`sync_${table}_${role}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table }, payload => {
           setDb(prev => {
             const listKey = tableKeyMap[table];
             if (!prev[listKey]) return prev;
@@ -5023,7 +5032,7 @@ export default function App() {
             } else if (payload.eventType === 'UPDATE') {
               const idx = currentArr.findIndex(item => item.id === payload.new.id);
               if (idx !== -1) currentArr[idx] = payload.new;
-              else currentArr.push(payload.new); // Safety net insert
+              else currentArr.push(payload.new);
             } else if (payload.eventType === 'DELETE') {
               return { ...prev, [listKey]: currentArr.filter(item => item.id !== payload.old.id) };
             }
@@ -5037,7 +5046,7 @@ export default function App() {
     return () => {
       channels.forEach(ch => supabase.removeChannel(ch));
     };
-  }, [user, needsSetup]);
+  }, [user, needsSetup, role]);
 
   const handleLogin = async(u) => {
     console.log("handleLogin: instant login for", u.id);
@@ -5059,8 +5068,7 @@ export default function App() {
           // Profile fetch returned null — could be a brand-new user OR a transient fetch failure.
           // SAFE: Use INSERT (not upsert) so we never overwrite an existing role (e.g. owner → pending).
           const requestedRole = u.user_metadata?.requested_role || "creator";
-          const OWNER_EMAILS = ['shaily@omnyagrowth.com'];
-          const initialRole = OWNER_EMAILS.includes(u.email) ? "owner" : "pending";
+          const initialRole = "pending";
           const { data: newProfile, error: insertError } = await supabase.from("user_profiles")
             .insert({ id: u.id, email: u.email, full_name: u.email.split("@")[0], role: initialRole, requested_role: requestedRole })
             .select().maybeSingle();

@@ -6,6 +6,7 @@
 //
 // Returns a structured summary instead of leaking token-bearing logs.
 
+const crypto = require('crypto');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 const { Errors, sendOk } = require('../_utils/errors');
 const { syncSubmissions, fetchAllFinalSubmissions } = require('../_utils/analytics');
@@ -17,8 +18,21 @@ module.exports = async (req, res) => {
     console.error('[analytics/sync] CRON_SECRET env var is not set');
     return Errors.internal(res, 'Cron not configured');
   }
-  if (req.headers.authorization !== `Bearer ${cronSecret}`) {
+
+  // Use constant-time hash comparison to prevent timing-oracle attacks.
+  // Hashing both sides to equal-length buffers avoids the timingSafeEqual
+  // requirement that inputs have the same byte length.
+  const incoming = req.headers.authorization || '';
+  const expected = `Bearer ${cronSecret}`;
+  const incomingHash = crypto.createHash('sha256').update(incoming).digest();
+  const expectedHash  = crypto.createHash('sha256').update(expected).digest();
+  if (!crypto.timingSafeEqual(incomingHash, expectedHash)) {
     return Errors.unauthorized(res, 'Invalid cron secret');
+  }
+
+  // Reject non-POST/GET requests (Vercel cron uses GET).
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    return Errors.methodNotAllowed(res);
   }
 
   const startedAt = Date.now();
