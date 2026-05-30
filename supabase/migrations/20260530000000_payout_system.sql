@@ -143,9 +143,12 @@ CREATE TABLE IF NOT EXISTS public.creator_earnings (
     CONSTRAINT creator_earnings_status_check CHECK (
         status IN (
             'pending',
+            'needs_review',
             'eligible',
             'locked',
             'approved',
+            'withdrawal_requested',
+            'batched',
             'paid',
             'forfeited',
             'cancelled'

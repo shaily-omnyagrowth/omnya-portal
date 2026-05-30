@@ -71,7 +71,7 @@ BEGIN
   v_payment_method := p_payment_method;
 
   IF v_payment_method IS NULL THEN
-    SELECT payout_preference
+    SELECT payment_method
     INTO   v_payment_method
     FROM   creators
     WHERE  id = p_creator_id;
@@ -117,8 +117,8 @@ BEGIN
     entity_type,
     entity_id,
     action,
-    performed_by,
-    details,
+    actor_user_id,
+    metadata,
     created_at
   )
   VALUES (
@@ -218,8 +218,8 @@ BEGIN
     entity_type,
     entity_id,
     action,
-    performed_by,
-    details,
+    actor_user_id,
+    metadata,
     created_at
   )
   VALUES (
@@ -311,8 +311,8 @@ BEGIN
     entity_type,
     entity_id,
     action,
-    performed_by,
-    details,
+    actor_user_id,
+    metadata,
     created_at
   )
   VALUES (
@@ -460,8 +460,8 @@ BEGIN
     entity_type,
     entity_id,
     action,
-    performed_by,
-    details,
+    actor_user_id,
+    metadata,
     created_at
   )
   VALUES (
@@ -547,8 +547,7 @@ BEGIN
   UPDATE payout_batches
   SET    status         = 'paid',
          marked_paid_by = p_marked_paid_by,
-         marked_paid_at = now(),
-         paid_at        = now()
+         marked_paid_at = now()
   WHERE  id = p_batch_id;
 
   -- Mark payments paid
@@ -580,8 +579,8 @@ BEGIN
     entity_type,
     entity_id,
     action,
-    performed_by,
-    details,
+    actor_user_id,
+    metadata,
     created_at
   )
   VALUES (

@@ -484,7 +484,7 @@ export default function CreatorEarnings({ user, db }) {
 
     // Check earnings rows for a paid/approved bonus entry tied to this submission
     const bonusEarning = earningsRows.find(
-      e => e.submission_id === sub.id && (e.type === "bonus" || e.type === "bonus_payment")
+      e => e.submission_id === sub.id && (e.earning_type === "performance_bonus" || e.earning_type === "bonus" || e.earning_type === "other")
     );
     if (bonusEarning) {
       if (bonusEarning.status === "paid")
@@ -1061,16 +1061,16 @@ export default function CreatorEarnings({ user, db }) {
               <tbody>
                 {earningsRows.map((row, i) => {
                   const campaignName = db.campaigns.find(c => c.id === row.campaign_id)?.name || "—";
-                  const tierLbl = row.view_count ? getBonusTierLabel(row.view_count) : null;
+                  const tierLbl = row.views_counted ? getBonusTierLabel(row.views_counted) : null;
                   return (
                     <tr key={row.id || i} style={{ borderBottom: "1px solid var(--border2)" }}>
                       <td style={{ padding: "12px 12px", whiteSpace: "nowrap" }}>{fmtDate(row.created_at)}</td>
-                      <td style={{ padding: "12px 12px", whiteSpace: "nowrap" }}>{fmtTypeName(row.type)}</td>
+                      <td style={{ padding: "12px 12px", whiteSpace: "nowrap" }}>{fmtTypeName(row.earning_type)}</td>
                       <td style={{ padding: "12px 12px", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{campaignName}</td>
                       <td style={{ padding: "12px 12px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink3)" }}>
                         {row.description || "—"}
                       </td>
-                      <td style={{ padding: "12px 12px" }}>{row.view_count ? fmtNum(row.view_count) : "—"}</td>
+                      <td style={{ padding: "12px 12px" }}>{row.views_counted ? fmtNum(row.views_counted) : "—"}</td>
                       <td style={{ padding: "12px 12px", whiteSpace: "nowrap" }}>{tierLbl || "—"}</td>
                       <td style={{ padding: "12px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>
                         {fmt2(row.amount)}

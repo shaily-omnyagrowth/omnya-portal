@@ -474,7 +474,7 @@ function BonusReviewSection() {
     try {
       const { error } = await supabase
         .from('creator_earnings')
-        .update({ status: 'forfeited', bonus_forfeit_reason: reason })
+        .update({ status: 'forfeited', description: reason })
         .eq('id', id);
       if (error) throw error;
       setMessage({ text: 'Bonus forfeited.', type: 'success' });
@@ -511,10 +511,10 @@ function BonusReviewSection() {
               <tr>
                 <th>Creator</th>
                 <th>Submission</th>
-                <th>Views Submitted</th>
-                <th>Views Verified</th>
+                <th>Views Counted</th>
+                <th>Bonus Tier</th>
                 <th>Bonus</th>
-                <th>Days Since Post</th>
+                <th>Days Since Eligible</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
@@ -538,10 +538,10 @@ function BonusReviewSection() {
                   <td style={{ fontSize: 12, fontFamily: 'monospace', color: 'var(--ink3)' }}>
                     {e.submission_id ? e.submission_id.substring(0, 8) : '—'}
                   </td>
-                  <td>{fmtNum(e.views_submitted)}</td>
-                  <td>{fmtNum(e.views_verified)}</td>
+                  <td>{fmtNum(e.views_counted)}</td>
+                  <td style={{ fontSize: 12, color: 'var(--ink3)' }}>{e.bonus_tier || '—'}</td>
                   <td style={{ fontWeight: 700, color: 'var(--green)' }}>{fmtMoney(e.amount)}</td>
-                  <td>{daysSince(e.post_date || e.created_at)}</td>
+                  <td>{daysSince(e.eligible_at || e.created_at)}</td>
                   <td><EarningStatusBadge status={e.status} /></td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
