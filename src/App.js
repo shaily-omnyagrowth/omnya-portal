@@ -14,7 +14,8 @@ const ClientContentGallery = React.lazy(() =>
 );
 const CreatorConnections = React.lazy(() => import('./CreatorConnections'));
 const AnalyticsDashboard = React.lazy(() => import('./AnalyticsDashboard'));
-const PayoutManager = React.lazy(() => import('./PayoutManager'));
+const CreatorEarningsPage = React.lazy(() => import('./components/CreatorEarnings'));
+const PayoutManager = React.lazy(() => import('./components/PayoutManager'));
 
 
 // ============================================================
@@ -5137,9 +5138,9 @@ export default function App() {
       if(page==="submissions") return <ErrorBoundary label="My Submissions"><MySubmissions user={user} db={db}/></ErrorBoundary>;
       if(page==="social-connections") return <ErrorBoundary label="Social Connections"><CreatorConnections currentUser={user} /></ErrorBoundary>;
       if(page==="campaign-analytics") return <ErrorBoundary label="Campaign Analytics"><AnalyticsDashboard /></ErrorBoundary>;
-      if(page==="payout-manager") return <ErrorBoundary label="Payout Manager"><PayoutManager /></ErrorBoundary>;
+      if(page==="payout-manager") return <ErrorBoundary label="Payout Manager"><CreatorEarningsPage user={user} db={db}/></ErrorBoundary>;
       if(page==="insights") return <ErrorBoundary label="Video Insights"><CreatorInsights user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="earnings") return <ErrorBoundary label="Earnings"><CreatorEarnings user={user} db={db}/></ErrorBoundary>;
+      if(page==="earnings") return <ErrorBoundary label="Earnings"><CreatorEarningsPage user={user} db={db}/></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="am"||role==="account_manager"){

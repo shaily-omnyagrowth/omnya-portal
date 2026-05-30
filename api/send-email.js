@@ -81,19 +81,15 @@ const buildEmail = (type, data) => {
     case 'payment_sent':
       return {
         to: data.creatorEmail,
-        subject: `💸 You've been paid $${data.amount} — ${data.campaignName}`,
+        subject: `Your Omnya payout has been processed`,
         html: `
           <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
             <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
-              <div style="font-size:36px;margin-bottom:12px;">💰</div>
-              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">Payment Sent!</div>
-              <div style="color:#888;font-size:13px;margin-bottom:20px;">Your payment has been processed</div>
-              <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px;">
-                <tr><td style="padding:6px 0;color:#555;width:140px;">Amount</td><td style="padding:6px 0;font-weight:700;font-size:18px;color:#1a7a4a;">$${data.amount}</td></tr>
-                <tr><td style="padding:6px 0;color:#555;">Method</td><td style="padding:6px 0;font-weight:600;">${data.method}</td></tr>
-                <tr><td style="padding:6px 0;color:#555;">Campaign</td><td style="padding:6px 0;">${data.campaignName}</td></tr>
-                <tr><td style="padding:6px 0;color:#555;">Videos</td><td style="padding:6px 0;">${data.videosApproved} approved</td></tr>
-              </table>
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">Payout Processed</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">Your payout has been marked as processed</div>
+              <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:20px;">
+                Hi ${data.creatorName}, your payout of <strong>$${data.amount}</strong> has been marked as processed via <strong>${data.paymentMethod}</strong>. Please allow a few business days for the transfer to arrive.
+              </p>
               <a href="${portalUrl}" style="display:inline-block;background:#0a0a0a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">View Payment History →</a>
             </div>
             <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
@@ -210,6 +206,124 @@ const buildEmail = (type, data) => {
       };
     }
 
+    case 'withdrawal_requested':
+      return {
+        to: data.adminEmail || data.to,
+        subject: `New withdrawal request from ${data.creatorName} — $${data.amount}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">New Withdrawal Request</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">Admin action required</div>
+              <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:20px;">
+                <strong>${data.creatorName}</strong> has requested a withdrawal of <strong>$${data.amount}</strong> via <strong>${data.paymentMethod}</strong>. Log into the admin dashboard to review and approve.
+              </p>
+              <a href="${portalUrl}" style="display:inline-block;background:#0a0a0a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">Review in Dashboard →</a>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+
+    case 'withdrawal_approved':
+      return {
+        to: data.creatorEmail,
+        subject: `Your Omnya withdrawal request was approved`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">Withdrawal Approved</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">Your request has been approved</div>
+              <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:20px;">
+                Hi ${data.creatorName}, your withdrawal request of <strong>$${data.amount}</strong> has been approved and will be processed via <strong>${data.paymentMethod}</strong> to <strong>${data.destination}</strong>. You will receive another notification once payment is completed.
+              </p>
+              <a href="${portalUrl}" style="display:inline-block;background:#1a7a4a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">View My Earnings →</a>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+
+    case 'withdrawal_rejected':
+      return {
+        to: data.creatorEmail,
+        subject: `Your Omnya withdrawal request needs attention`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">Withdrawal Not Approved</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">Your request requires attention</div>
+              <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:12px;">
+                Hi ${data.creatorName}, your withdrawal request of <strong>$${data.amount}</strong> was not approved.
+              </p>
+              <div style="background:#fff8e6;border:1px solid #ffe066;border-radius:8px;padding:16px;margin-bottom:20px;">
+                <div style="font-size:11px;font-weight:700;color:#b08800;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Reason</div>
+                <div style="font-size:14px;color:#333;line-height:1.6;">${data.reason}</div>
+              </div>
+              <p style="font-size:13px;color:#888;margin-bottom:20px;">You may submit a new request after ${data.nextEligibleDate}.</p>
+              <a href="${portalUrl}" style="display:inline-block;background:#0a0a0a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">View Portal →</a>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+
+    case 'bonus_approved':
+      return {
+        to: data.creatorEmail,
+        subject: `Your performance bonus has been approved — $${data.amount}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">Bonus Approved!</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">Your performance bonus has been added to your balance</div>
+              <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:20px;">
+                Hi ${data.creatorName}, your <strong>${data.bonusTier}</strong> performance bonus of <strong>$${data.amount}</strong> for <strong>${data.campaignName}</strong> has been approved and added to your available balance.
+              </p>
+              <a href="${portalUrl}" style="display:inline-block;background:#1a7a4a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">View My Earnings →</a>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+
+    case 'bonus_forfeited':
+      return {
+        to: data.creatorEmail,
+        subject: `Update on your performance bonus`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">Performance Bonus Update</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">An update on your bonus for ${data.campaignName}</div>
+              <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:12px;">
+                Hi ${data.creatorName}, your performance bonus for <strong>${data.campaignName}</strong> was not approved.
+              </p>
+              <div style="background:#fff8e6;border:1px solid #ffe066;border-radius:8px;padding:16px;margin-bottom:20px;">
+                <div style="font-size:11px;font-weight:700;color:#b08800;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Reason</div>
+                <div style="font-size:14px;color:#333;line-height:1.6;">${data.reason}</div>
+              </div>
+              <p style="font-size:13px;color:#888;margin-bottom:20px;">If you believe this is an error, contact your account manager.</p>
+              <a href="${portalUrl}" style="display:inline-block;background:#0a0a0a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">View Portal →</a>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+
+    case 'missing_payment_method':
+      return {
+        to: data.creatorEmail,
+        subject: `Action required: Add your payout details to receive earnings`,
+        html: `
+          <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#f9f9f9;">
+            <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e5e5;">
+              <div style="font-size:24px;font-weight:700;margin-bottom:4px;">Action Required</div>
+              <div style="color:#888;font-size:13px;margin-bottom:20px;">Add your payout details to receive your earnings</div>
+              <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:20px;">
+                Hi ${data.creatorName}, you have pending earnings but no payment method on file. Please log in to your creator portal and add your payment details to receive your payouts.
+              </p>
+              <a href="${portalUrl}" style="display:inline-block;background:#0a0a0a;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">Add Payment Details →</a>
+            </div>
+            <div style="text-align:center;margin-top:16px;font-size:11px;color:#aaa;">Omnya Growth · Creator Portal</div>
+          </div>`,
+      };
+
     default:
       return null;
   }
@@ -286,7 +400,9 @@ module.exports = async (req, res) => {
         if (!amProfile || (amProfile.role !== 'am' && amProfile.role !== 'owner' && amProfile.role !== 'account_manager')) {
           return Errors.forbidden(res, "Recipient is not an authorized manager");
         }
-      } else if (['revision_requested', 'final_approved', 'payment_sent', 'campaign_assigned'].includes(type)) {
+      } else if (['revision_requested', 'final_approved', 'payment_sent', 'campaign_assigned',
+                  'withdrawal_approved', 'withdrawal_rejected', 'bonus_approved', 'bonus_forfeited',
+                  'missing_payment_method'].includes(type)) {
         const { data: creatorProfile } = await supabase
           .from('user_profiles')
           .select('email')
@@ -294,6 +410,17 @@ module.exports = async (req, res) => {
           .single();
         if (!creatorProfile) {
           return Errors.forbidden(res, "Recipient is not a registered creator");
+        }
+      } else if (type === 'withdrawal_requested') {
+        // admin recipient — verify it resolves to an owner/am profile
+        const recipientEmail = data.adminEmail || data.to;
+        const { data: adminProfile } = await supabase
+          .from('user_profiles')
+          .select('email, role')
+          .eq('email', recipientEmail)
+          .single();
+        if (!adminProfile || (adminProfile.role !== 'am' && adminProfile.role !== 'owner' && adminProfile.role !== 'account_manager')) {
+          return Errors.forbidden(res, "Recipient is not an authorized admin");
         }
       } else if (type === 'user_approved') {
         const { data: userProfile } = await supabase
@@ -330,6 +457,9 @@ module.exports = async (req, res) => {
       'amName', 'displayName', 'requestedRole',
       'userEmail', 'submissionType', 'platform',
       'method', 'deadline',
+      // payment email fields
+      'paymentMethod', 'destination', 'reason', 'nextEligibleDate',
+      'bonusTier',
     ];
     for (const field of userFields) {
       if (data[field] !== undefined && data[field] !== null) {
