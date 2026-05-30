@@ -112,7 +112,7 @@ BEGIN
   WHERE  creator_id = p_creator_id
     AND  status = 'approved';
 
-  -- Audit log
+  -- Audit log (actor_user_id = auth.users.id of the requesting creator)
   INSERT INTO payment_audit_logs (
     entity_type,
     entity_id,
@@ -125,7 +125,7 @@ BEGIN
     'withdrawal_request',
     v_withdrawal_request_id,
     'withdrawal_requested',
-    p_creator_id,
+    auth.uid(),
     jsonb_build_object(
       'creator_id',     p_creator_id,
       'amount',         v_available_balance,

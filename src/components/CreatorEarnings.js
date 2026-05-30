@@ -146,6 +146,10 @@ export default function CreatorEarnings({ user, db }) {
   const [pmMsg, setPmMsg]                   = useState({ text: "", type: "" });
   const pmFormRef = useRef(null);
 
+  // ---- Stripe Connect ----
+  const [stripeStatus, setStripeStatus]     = useState(null);   // null | object
+  const [stripeLoading, setStripeLoading]   = useState(false);
+
   // ---- Withdrawal modal ----
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawWorking, setWithdrawWorking]     = useState(false);
@@ -299,9 +303,75 @@ export default function CreatorEarnings({ user, db }) {
   }, [creator?.id]);
 
   // ----------------------------------------------------------------
+  // Stripe Connect
+  // ----------------------------------------------------------------
+  async function loadStripeStatus() {
+    if (!creator?.id) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/stripe/connect-status", {
+        headers: { Authorization: `Bearer ${session?.access_token || ""}` },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setStripeStatus(json);
+      }
+    } catch (_) {}
+  }
+
+  async function handleStripeConnect() {
+    setStripeLoading(true);
+    setPmMsg({ text: "", type: "" });
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/stripe/connect-url", {
+        method: "POST",
+        headers: {
+          Authorization:  `Bearer ${session?.access_token || ""}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || json.message || "Failed to generate Stripe link");
+      if (json.alreadyActive) {
+        setPmMsg({ text: "Your Stripe account is already active and ready for payouts.", type: "success" });
+        setStripeStatus(prev => ({ ...prev, status: "active" }));
+        return;
+      }
+      // Redirect to Stripe hosted onboarding
+      window.location.href = json.url;
+    } catch (err) {
+      setPmMsg({ text: err.message, type: "error" });
+    } finally {
+      setStripeLoading(false);
+    }
+  }
+
+  // Check for Stripe callback params on mount
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("stripe_connected") === "true") {
+      loadStripeStatus();
+      // Clean up URL
+      window.history.replaceState({}, "", window.location.pathname + "?page=earnings");
+    }
+    if (params.get("stripe_refresh") === "true") {
+      setPmMsg({ text: "Stripe onboarding session expired. Please try connecting again.", type: "error" });
+      window.history.replaceState({}, "", window.location.pathname + "?page=earnings");
+    }
+  }, []);
+
+  // Load Stripe status when Stripe is selected
+  React.useEffect(() => {
+    if (pmMethod === "stripe" && !stripeStatus) loadStripeStatus();
+  }, [pmMethod]);
+
+  // ----------------------------------------------------------------
   // Payment method submit
   // ----------------------------------------------------------------
   function validatePaymentMethod() {
+    if (pmMethod === "stripe") return null; // Stripe handled via OAuth flow
     if (pmMethod === "bank_transfer") {
       if (!bankName.trim())               return "Bank name is required.";
       if (!/^\d{4}$/.test(bankLast4))     return "Account last 4 must be exactly 4 digits.";
@@ -645,10 +715,65 @@ export default function CreatorEarnings({ user, db }) {
                   background: "var(--bg)", color: "var(--ink)",
                 }}
               >
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="zelle">Zelle</option>
+                <option value="bank_transfer">Bank Transfer (manual, 1–3 days)</option>
+                <option value="zelle">Zelle (manual, same day)</option>
+                <option value="stripe">Stripe — Automatic ACH (2–3 business days)</option>
               </select>
             </div>
+
+            {/* Stripe Connect panel */}
+            {pmMethod === "stripe" && (
+              <div style={{
+                background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.2)",
+                borderRadius: "var(--radius-sm)", padding: 18, marginBottom: 16,
+              }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>
+                  Stripe Automatic Payouts
+                </div>
+                <div style={{ fontSize: 13, color: "var(--ink2)", marginBottom: 14, lineHeight: 1.5 }}>
+                  Connect your bank account through Stripe's secure onboarding. Once active,
+                  payouts are sent automatically when the owner approves — no manual bank
+                  transfer needed.
+                </div>
+
+                {stripeStatus?.status === "active" ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--green)", fontWeight: 600, fontSize: 13 }}>
+                    <span>✓</span> Stripe account connected and ready for payouts
+                  </div>
+                ) : stripeStatus?.status === "pending" ? (
+                  <div style={{ fontSize: 13, color: "var(--gold)", fontWeight: 600 }}>
+                    ⏳ Stripe review in progress — usually takes 1–2 business days
+                  </div>
+                ) : stripeStatus?.status === "onboarding" ? (
+                  <div style={{ fontSize: 13, color: "var(--ink2)", marginBottom: 10 }}>
+                    Onboarding started but not yet complete.
+                  </div>
+                ) : stripeStatus?.status === "disabled" ? (
+                  <div style={{ fontSize: 13, color: "var(--red)", fontWeight: 600, marginBottom: 10 }}>
+                    ⚠ Your Stripe account was disabled. Contact support.
+                  </div>
+                ) : null}
+
+                {stripeStatus?.status !== "active" && (
+                  <button
+                    type="button"
+                    onClick={handleStripeConnect}
+                    disabled={stripeLoading}
+                    style={{
+                      marginTop: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
+                      background: "#635bff", color: "#fff", border: "none",
+                      borderRadius: "var(--radius-sm)", cursor: stripeLoading ? "wait" : "pointer",
+                    }}
+                  >
+                    {stripeLoading ? "Redirecting…" : stripeStatus?.status === "onboarding" ? "Continue Stripe Setup" : "Connect Stripe Account"}
+                  </button>
+                )}
+
+                <div style={{ fontSize: 11, color: "var(--ink3)", marginTop: 10 }}>
+                  Powered by Stripe Connect. Your bank details are stored securely by Stripe, not by Omnya.
+                </div>
+              </div>
+            )}
 
             {/* Bank Transfer fields */}
             {pmMethod === "bank_transfer" && (
@@ -749,14 +874,16 @@ export default function CreatorEarnings({ user, db }) {
               </>
             )}
 
-            <button
-              type="submit"
-              disabled={pmWorking}
-              className="btn btn-primary"
-              style={{ marginTop: 4 }}
-            >
-              {pmWorking ? "Saving…" : "Save Payment Method"}
-            </button>
+            {pmMethod !== "stripe" && (
+              <button
+                type="submit"
+                disabled={pmWorking}
+                className="btn btn-primary"
+                style={{ marginTop: 4 }}
+              >
+                {pmWorking ? "Saving…" : "Save Payment Method"}
+              </button>
+            )}
           </form>
         )}
       </div>

@@ -14,6 +14,7 @@ const { Errors, sendOk } = require('../_utils/errors');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 const { applyRateLimit } = require('../_utils/rateLimit');
 const { requirePaymentPermission } = require('../_lib/paymentPermissions');
+const { getStripe } = require('../_lib/stripeClient');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -67,6 +68,57 @@ module.exports = async (req, res) => {
 
     const paidCount = (rpcData && rpcData.paid_count) || 0;
     const totalAmount = (rpcData && rpcData.total_amount) || 0;
+
+    // --- Auto-trigger Stripe transfers for Stripe-method payments ---
+    const { data: stripePayments } = await supabase
+      .from('payments')
+      .select(`
+        id, amount, currency, payment_method,
+        creators!inner (
+          id, name, email,
+          stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled
+        )
+      `)
+      .eq('batch_id', id)
+      .eq('payment_method', 'stripe')
+      .in('status', ['approved', 'batched']);
+
+    if (stripePayments && stripePayments.length > 0) {
+      const stripe = getStripe();
+      await Promise.allSettled(stripePayments.map(async (payment) => {
+        const creator = payment.creators;
+        if (!creator?.stripe_account_id || !creator.stripe_charges_enabled || !creator.stripe_payouts_enabled) {
+          console.warn(`[mark-paid] Skipping Stripe transfer for payment ${payment.id} — creator account not ready`);
+          return;
+        }
+        try {
+          const amountCents = Math.round(parseFloat(payment.amount) * 100);
+          const transfer = await stripe.transfers.create({
+            amount:      amountCents,
+            currency:    (payment.currency || 'usd').toLowerCase(),
+            destination: creator.stripe_account_id,
+            description: `Omnya payout — payment ${payment.id}`,
+            metadata:    { payment_id: payment.id, creator_id: payment.creators.id, platform: 'omnya' },
+          });
+          await supabase
+            .from('payments')
+            .update({
+              stripe_transfer_id:     transfer.id,
+              stripe_transfer_status: 'pending',
+              stripe_initiated_at:    new Date().toISOString(),
+              status:                 'processing',
+            })
+            .eq('id', payment.id);
+          console.log(`[mark-paid] Stripe transfer ${transfer.id} initiated for payment ${payment.id}`);
+        } catch (err) {
+          console.error(`[mark-paid] Stripe transfer failed for payment ${payment.id}:`, err.message);
+          await supabase
+            .from('payments')
+            .update({ stripe_transfer_status: 'failed', stripe_transfer_error: err.message, status: 'failed' })
+            .eq('id', payment.id);
+        }
+      }));
+    }
 
     // --- Fetch creator details for email notifications ---
     const { data: creatorRows, error: creatorFetchError } = await supabase
