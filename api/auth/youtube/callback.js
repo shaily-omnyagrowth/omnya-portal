@@ -1,9 +1,20 @@
 // api/auth/youtube/callback.js
 //
 // GET /api/auth/youtube/callback?code=...&state=...
+//
+// F-3: this route used to write plaintext into creator_tokens. Both tokens are
+// now AES-256-GCM encrypted by api/_utils/encryption.js and stored on the
+// canonical creator_social_accounts row.
+//
+// YouTube is the only provider here that issues a real refresh_token, and only
+// when the authorization request carried access_type=offline&prompt=consent —
+// which api/auth/youtube/start.js does. Without it Google returns an access
+// token that dies in an hour with no way to renew it, so has_refresh_token is
+// recorded in metadata to make that visible.
 
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
 const { consumeOAuthState } = require('../../_utils/oauth');
+const { upsertSocialAccount } = require('../../_utils/socialAccounts');
 
 function redirectBack(res, params) {
   const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
@@ -21,9 +32,14 @@ async function fetchChannel(accessToken) {
     if (!resp.ok) return null;
     const item = (data.items || [])[0];
     if (!item) return null;
+    const snippet = item.snippet || {};
+    const thumbs = snippet.thumbnails || {};
     return {
       id: item.id,
-      name: item.snippet && item.snippet.title,
+      name: snippet.title || null,
+      // customUrl is the @handle, when the channel has claimed one.
+      handle: snippet.customUrl ? String(snippet.customUrl).replace(/^@/, '') : null,
+      avatar: (thumbs.default && thumbs.default.url) || (thumbs.medium && thumbs.medium.url) || null,
     };
   } catch {
     return null;
@@ -81,36 +97,26 @@ module.exports = async (req, res) => {
       return redirectBack(res, { error: 'youtube_token_exchange_failed' });
     }
 
-    const expiresAt = tokenData.expires_in
-      ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
-      : null;
-
     const channel = await fetchChannel(tokenData.access_token);
 
     const supabase = getSupabaseAdminClient();
-    const { error: upsertErr } = await supabase
-      .from('creator_tokens')
-      .upsert(
-        {
-          user_id: stateRow.user_id,
-          platform: 'youtube',
-          access_token: tokenData.access_token,
-          refresh_token: tokenData.refresh_token || null,
-          token_type: tokenData.token_type || 'Bearer',
-          scope: tokenData.scope || null,
-          expires_at: expiresAt,
-          status: 'connected',
-          last_error: null,
-          platform_user_id: channel ? channel.id : null,
-          platform_username: channel ? channel.name : null,
-          metadata: {
-            provider: 'google',
-            has_refresh_token: !!tokenData.refresh_token,
-          },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,platform' }
-      );
+    const { error: upsertErr } = await upsertSocialAccount(supabase, {
+      userId: stateRow.user_id,
+      platform: 'youtube',
+      accessToken: tokenData.access_token,
+      refreshToken: tokenData.refresh_token || null,
+      expiresInSeconds: tokenData.expires_in,
+      platformUserId: channel ? channel.id : null,
+      username: channel ? channel.handle : null,
+      displayName: channel ? channel.name : null,
+      profileImageUrl: channel ? channel.avatar : null,
+      scopes: tokenData.scope ? String(tokenData.scope).split(' ') : [],
+      metadata: {
+        provider: 'google',
+        token_type: tokenData.token_type || 'Bearer',
+        has_refresh_token: !!tokenData.refresh_token,
+      },
+    });
 
     if (upsertErr) {
       console.error('[youtube/callback] upsert failed:', upsertErr.message);

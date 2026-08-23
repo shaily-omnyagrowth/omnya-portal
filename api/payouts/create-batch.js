@@ -50,6 +50,16 @@ module.exports = async (req, res) => {
 
     if (error) throw error;
 
+    // The RPC signals domain-level failure in the payload, not as an error.
+    // Returning that with a 200 makes callers treat a failure as a success.
+    if (data && data.success === false) {
+      return Errors.badRequest(
+        res,
+        data.message || 'Payout batch could not be created',
+        { error: data.error || null, invalid_count: data.invalid_count }
+      );
+    }
+
     return sendOk(res, data);
   } catch (err) {
     console.error('Payout Create-Batch Error:', err.message);

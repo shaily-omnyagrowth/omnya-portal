@@ -99,8 +99,8 @@ module.exports = async (req, res) => {
 
     if (withdrawalRow?.creator_id) {
       const { data: creatorProfile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('email, display_name')
+        .from('creators')
+        .select('email, name')
         .eq('id', withdrawalRow.creator_id)
         .maybeSingle();
 
@@ -124,7 +124,7 @@ module.exports = async (req, res) => {
             type: 'withdrawal_rejected',
             data: {
               creatorEmail: creatorProfile.email,
-              creatorName: creatorProfile.display_name || creatorProfile.email,
+              creatorName: creatorProfile.name || creatorProfile.email,
               amount: withdrawalRow.amount,
               method: withdrawalRow.method,
               reason: reason.trim(),

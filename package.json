@@ -37,5 +37,9 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.5",
+    "playwright-core": "^1.62.1"
   }
 }

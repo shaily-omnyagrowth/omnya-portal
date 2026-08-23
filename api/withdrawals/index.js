@@ -92,8 +92,8 @@ module.exports = async (req, res) => {
       // Fetch all creators assigned to this AM.
       const { data: assignedCreators, error: amErr } = await supabase
         .from('creators')
-        .select('id')
-        .eq('account_manager_id', user.id);
+        .select('id, account_managers!inner(user_id)')
+        .eq('account_managers.user_id', user.id);
 
       if (amErr) throw amErr;
 
@@ -130,9 +130,12 @@ module.exports = async (req, res) => {
         `id,
          creator_id,
          amount,
-         method,
+         currency,
+         payment_method,
+         payment_destination_summary,
          status,
-         notes,
+         admin_notes,
+         requested_at,
          created_at,
          updated_at,
          creators (

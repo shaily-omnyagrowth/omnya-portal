@@ -4,6 +4,67 @@ import { supabase } from '../supabaseClient';
 import { fmtMoney, fmtDate, fmtNum, getInitials, getAvatarColor } from '../utils';
 import LoadingSpinner from './LoadingSpinner';
 
+// ─── the API caller ──────────────────────────────────────────────────────────
+//
+// N-18. Every money-moving action goes through /api/* rather than calling
+// supabase.rpc() from the browser.
+//
+// This is not only about defence in depth. The RPC is one step of what the
+// endpoint does, and the browser path skipped all the rest:
+//
+//   /api/withdrawals/approve    writes the payment row, logs the action to
+//                               payment_audit_logs, emails the creator
+//   /api/withdrawals/reject     logs the action, emails the creator the reason
+//   /api/payouts/create-batch   checks can_export_batches before the RPC runs
+//   /api/payouts/mark-paid      executes the STRIPE TRANSFERS, then emails
+//
+// So calling the RPC directly meant a creator was approved and never told, or
+// rejected and never told, or a batch was marked paid and no money moved. The
+// audit trail was empty for all of it.
+//
+// The RPCs keep their own authorization (migration 20260821000000) -- this is
+// the outer gate, not a replacement for the inner one.
+
+async function callApi(path, body) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Your session has expired. Sign in again.');
+
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body || {}),
+  });
+
+  // react-scripts serves the SPA and knows nothing about /api/*, so a local
+  // run without the API layer returns index.html with a 200. Reading that as
+  // JSON throws something unhelpful; say what to do instead.
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      'The API server is not responding. Locally, run "vercel dev" or ' +
+      '"node tests/lib/devServer.cjs" rather than "npm start" alone.'
+    );
+  }
+
+  const json = await res.json().catch(() => null);
+
+  // The envelope is { ok: true, data } or { ok: false, error: { code, message } }.
+  // error is an OBJECT -- reading it straight into an Error renders the string
+  // "[object Object]" on screen, which is what handleRecalculate used to do.
+  if (!res.ok || !json || json.ok === false) {
+    const message =
+      (json && json.error && json.error.message) ||
+      (json && typeof json.error === 'string' ? json.error : null) ||
+      `Request failed (${res.status})`;
+    throw new Error(message);
+  }
+
+  return json.data;
+}
+
 // ─── tiny helpers ────────────────────────────────────────────────────────────
 
 function Msg({ message }) {
@@ -345,21 +406,8 @@ function OverviewSection({ userRole }) {
     setWorking(true);
     setMessage({ text: '', type: '' });
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch('/api/earnings/recalculate', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session?.access_token || ''}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      const ct = res.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) {
-        throw new Error('API server unavailable. Use "vercel dev" instead of "npm start" for local development.');
-      }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Recalculation failed');
-      setMessage({ text: data.message || 'Earnings recalculated successfully.', type: 'success' });
+      const data = await callApi('/api/earnings/recalculate');
+      setMessage({ text: data?.message || 'Earnings recalculated successfully.', type: 'success' });
       loadStats();
     } catch (err) {
       setMessage({ text: err.message, type: 'error' });
@@ -625,14 +673,10 @@ function WithdrawalsSection() {
     setWorking(true);
     setMessage({ text: '', type: '' });
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data, error } = await supabase.rpc('approve_withdrawal_request', {
-        p_request_id: id,
-        p_approved_by: user.id,
-      });
-      if (error) throw error;
-      if (data?.success === false) throw new Error(data.message || 'Approval failed');
-      setMessage({ text: 'Withdrawal approved.', type: 'success' });
+      // Also writes the payment row, logs to payment_audit_logs, and emails
+      // the creator -- none of which the direct RPC did.
+      await callApi('/api/withdrawals/approve', { withdrawalRequestId: id });
+      setMessage({ text: 'Withdrawal approved. The creator has been emailed.', type: 'success' });
       load(tab);
     } catch (err) {
       setMessage({ text: err.message, type: 'error' });
@@ -645,15 +689,8 @@ function WithdrawalsSection() {
     setWorking(true);
     setMessage({ text: '', type: '' });
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data, error } = await supabase.rpc('reject_withdrawal_request', {
-        p_request_id: id,
-        p_rejected_by: user.id,
-        p_reason: reason,
-      });
-      if (error) throw error;
-      if (data?.success === false) throw new Error(data.message || 'Rejection failed');
-      setMessage({ text: 'Withdrawal rejected.', type: 'success' });
+      await callApi('/api/withdrawals/reject', { withdrawalRequestId: id, reason });
+      setMessage({ text: 'Withdrawal rejected. The creator has been emailed the reason.', type: 'success' });
       setRejectTarget(null);
       load(tab);
     } catch (err) {
@@ -668,14 +705,10 @@ function WithdrawalsSection() {
     setWorking(true);
     setMessage({ text: '', type: '' });
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data, error } = await supabase.rpc('create_payout_batch', {
-        p_withdrawal_request_ids: selectedIds,
-        p_generated_by: user.id,
-        p_notes: null,
+      const data = await callApi('/api/payouts/create-batch', {
+        withdrawalRequestIds: selectedIds,
+        notes: null,
       });
-      if (error) throw error;
-      if (data?.success === false) throw new Error(data.message || 'Batch creation failed');
       const batchNum = data?.batch_number || '';
       setMessage({
         text: `Batch${batchNum ? ' #' + batchNum : ''} created with ${selectedIds.length} request(s).`,
@@ -913,14 +946,21 @@ function PayoutBatchesSection() {
     setWorking(true);
     setMessage({ text: '', type: '' });
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data, error } = await supabase.rpc('mark_payout_batch_paid', {
-        p_batch_id: batch.id,
-        p_marked_paid_by: user.id,
-      });
-      if (error) throw error;
-      if (data?.success === false) throw new Error(data.message || 'Mark paid failed');
-      setMessage({ text: `Batch marked as PAID. ${data?.paid_count || ''} payment(s) processed.`, type: 'success' });
+      // This is the call that actually moves money: the endpoint runs the
+      // Stripe transfers for every eligible creator, then emails them.
+      const data = await callApi('/api/payouts/mark-paid', { batchId: batch.id });
+
+      const parts = [`Batch marked as PAID. ${data?.paidCount ?? 0} payment(s) processed.`];
+      if (data?.emailsSent) parts.push(`${data.emailsSent} creator(s) emailed.`);
+      if (data?.emailsFailed) parts.push(`${data.emailsFailed} email(s) failed.`);
+
+      // A Stripe problem is not a reason to report failure -- the batch really
+      // is marked paid -- but it must not be silent either.
+      if (data?.warning) {
+        setMessage({ text: `${parts.join(' ')} ${data.warning}`, type: 'error' });
+      } else {
+        setMessage({ text: parts.join(' '), type: 'success' });
+      }
       load();
     } catch (err) {
       setMessage({ text: err.message, type: 'error' });
@@ -1084,18 +1124,19 @@ function PaymentManagersSection() {
         targetUserId = profile.id;
       }
 
-      const { error } = await supabase
-        .from('payment_managers')
-        .upsert({
-          user_id: targetUserId,
-          granted_by: user.id,
-          can_view_payouts: grantForm.can_view_payouts ?? true,
-          can_approve_withdrawals: grantForm.can_approve_payouts ?? false,
-          can_export_batches: grantForm.can_export ?? false,
-          can_mark_paid: grantForm.can_mark_paid ?? false,
-          active: true,
-        }, { onConflict: 'user_id' });
-      if (error) throw error;
+      // N-18. payment_managers decides who is allowed to move money, so the
+      // grant goes through the endpoint rather than being upserted from the
+      // browser. /api/payment-managers/grant is requireRole(['owner']) and
+      // writes a payment_manager_granted row to payment_audit_logs; the
+      // direct upsert did neither, and left no record of who was given
+      // approval rights or when.
+      await callApi('/api/payment-managers/grant', {
+        userId: targetUserId,
+        can_view_payouts: grantForm.can_view_payouts ?? true,
+        can_approve_withdrawals: grantForm.can_approve_payouts ?? false,
+        can_export_batches: grantForm.can_export ?? false,
+        can_mark_paid: grantForm.can_mark_paid ?? false,
+      });
       setMessage({ text: 'Payment manager access granted.', type: 'success' });
       setGrantForm({
         userIdOrEmail: '',
@@ -1118,11 +1159,7 @@ function PaymentManagersSection() {
     setWorking(true);
     setMessage({ text: '', type: '' });
     try {
-      const { error } = await supabase
-        .from('payment_managers')
-        .update({ active: false })
-        .eq('user_id', userId);
-      if (error) throw error;
+      await callApi('/api/payment-managers/revoke', { userId });
       setMessage({ text: 'Manager access revoked.', type: 'success' });
       load();
     } catch (err) {

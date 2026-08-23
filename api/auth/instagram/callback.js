@@ -9,11 +9,21 @@
 //   1. Validate state via oauth_states.
 //   2. Exchange code → short-lived token (api.instagram.com/oauth/access_token).
 //   3. Upgrade → long-lived token (graph.instagram.com/access_token, ~60d).
-//   4. Fetch /me for platform_user_id / platform_username.
-//   5. Upsert creator_tokens with platform='instagram'.
+//   4. Fetch /me for the profile fields the UI shows.
+//   5. Upsert creator_social_accounts with the token ENCRYPTED (F-3).
+//
+// F-3: this route used to write plaintext into creator_tokens. Tokens are now
+// AES-256-GCM encrypted by api/_utils/encryption.js before storage.
+//
+// metadata.provider='instagram' matters downstream: it tells the analytics
+// reader to use graph.instagram.com and the refresher to use ig_refresh_token,
+// rather than the Facebook-dialog paths.
 
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
 const { consumeOAuthState } = require('../../_utils/oauth');
+const { upsertSocialAccount } = require('../../_utils/socialAccounts');
+
+const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights'];
 
 function redirectBack(res, params) {
   const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
@@ -77,50 +87,44 @@ module.exports = async (req, res) => {
     });
     const longResp = await fetch(`https://graph.instagram.com/access_token?${longParams.toString()}`);
     const longData = await longResp.json().catch(() => ({}));
-    const accessToken = (longResp.ok && longData.access_token) ? longData.access_token : exchangeData.access_token;
-    const expiresAt = longData.expires_in
-      ? new Date(Date.now() + longData.expires_in * 1000).toISOString()
-      : null;
+    const isLongLived = !!(longResp.ok && longData.access_token);
+    const accessToken = isLongLived ? longData.access_token : exchangeData.access_token;
+    const expiresIn = isLongLived ? longData.expires_in : exchangeData.expires_in;
 
     // Step 3: fetch Instagram profile.
     let platformUserId = exchangeData.user_id ? String(exchangeData.user_id) : null;
-    let platformUsername = null;
+    let username = null;
+    let profileImageUrl = null;
     try {
       const profileResp = await fetch(
-        `https://graph.instagram.com/me?fields=id,username&access_token=${encodeURIComponent(accessToken)}`
+        `https://graph.instagram.com/me?fields=id,username,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
       );
       const profileData = await profileResp.json().catch(() => ({}));
       if (profileResp.ok) {
         platformUserId = platformUserId || profileData.id || null;
-        platformUsername = profileData.username || null;
+        username = profileData.username || null;
+        profileImageUrl = profileData.profile_picture_url || null;
       }
     } catch { /* non-fatal */ }
 
-    // Step 4: persist.
+    // Step 4: persist, encrypted.
     const supabase = getSupabaseAdminClient();
-    const { error: upsertErr } = await supabase
-      .from('creator_tokens')
-      .upsert(
-        {
-          user_id: stateRow.user_id,
-          platform: 'instagram',
-          access_token: accessToken,
-          refresh_token: null,
-          token_type: 'bearer',
-          scope: 'instagram_business_basic,instagram_business_manage_insights',
-          expires_at: expiresAt,
-          status: 'connected',
-          last_error: null,
-          platform_user_id: platformUserId,
-          platform_username: platformUsername,
-          metadata: {
-            provider: 'instagram',
-            long_lived: !!(longResp.ok && longData.access_token),
-          },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,platform' }
-      );
+    const { error: upsertErr } = await upsertSocialAccount(supabase, {
+      userId: stateRow.user_id,
+      platform: 'instagram',
+      accessToken,
+      refreshToken: null, // IG long-lived tokens are refreshed in place, not exchanged
+      expiresInSeconds: expiresIn,
+      platformUserId,
+      username,
+      displayName: username,
+      profileImageUrl,
+      scopes: SCOPES,
+      metadata: {
+        provider: 'instagram',
+        long_lived: isLongLived,
+      },
+    });
 
     if (upsertErr) {
       console.error('[instagram/callback] upsert failed:', upsertErr.message);

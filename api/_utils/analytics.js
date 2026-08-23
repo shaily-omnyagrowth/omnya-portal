@@ -7,15 +7,22 @@
 // Responsibilities:
 //   - detect platform from a posted-link URL
 //   - extract platform-specific video id
-//   - refresh per-platform OAuth tokens when expired (where supported)
+//   - refresh per-platform OAuth tokens lazily, on the read path (F-4)
 //   - fetch metrics per platform (TikTok, YouTube, Meta/IG, Facebook)
 //   - normalize into the canonical video_analytics shape
-//   - upsert and update creator_tokens.last_synced_at / last_error
+//   - upsert and update creator_social_accounts.last_synced_at / last_error
+//
+// F-3/F-4/F-13: tokens come from creator_social_accounts and are encrypted at
+// rest. They are decrypted here, in memory, immediately before the provider
+// call — and refreshed first if they are near expiry, which is the whole point
+// of doing it on the read path rather than hoping the cron got there first.
 //
 // Designed to never throw out of syncSubmissions(); errors are caught per
 // submission and returned in the result summary.
 
 const { getSupabaseAdminClient } = require('./supabaseAdmin');
+const { decrypt } = require('./encryption');
+const { refreshIfNeeded } = require('./tokenRefresh');
 
 // -----------------------------------------------------------------------------
 // URL parsing
@@ -88,139 +95,19 @@ function calculateEngagementRate({ views, likes, comments, shares, saves }) {
 
 // -----------------------------------------------------------------------------
 // Token expiry + refresh
+//
+// There is deliberately no refresh implementation in this file any more.
+//
+// There used to be one -- isExpired(), refreshTikTokToken(),
+// refreshYouTubeToken(), refreshInstagramToken(), refreshMetaToken() and
+// refreshTokenIfNeeded() -- writing plaintext back to creator_tokens. It was a
+// second, divergent copy of api/_utils/tokenRefresh.js: it lacked Instagram's
+// 24-hour minimum token age, it treated an unrefreshable Meta token as a hard
+// failure rather than a reconnect prompt, and it stored the tokens in the clear.
+//
+// Everything now goes through refreshIfNeeded(), which is covered by
+// tests/token-security.test.cjs. One refresh path, one set of rules.
 // -----------------------------------------------------------------------------
-
-function isExpired(token) {
-  if (!token || !token.expires_at) return false;
-  return new Date(token.expires_at).getTime() < Date.now();
-}
-
-// TikTok refresh:
-//   POST https://open.tiktokapis.com/v2/oauth/token/
-//   grant_type=refresh_token
-async function refreshTikTokToken(supabase, token) {
-  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY;
-  const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET;
-  if (!clientKey || !clientSecret || !token.refresh_token) return null;
-
-  const resp = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_key: clientKey,
-      client_secret: clientSecret,
-      grant_type: 'refresh_token',
-      refresh_token: token.refresh_token,
-    }),
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok || !data.access_token) return null;
-  return {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token || token.refresh_token,
-    expires_at: data.expires_in ? new Date(Date.now() + data.expires_in * 1000).toISOString() : null,
-    refresh_expires_at: data.refresh_expires_in
-      ? new Date(Date.now() + data.refresh_expires_in * 1000).toISOString()
-      : token.refresh_expires_at,
-  };
-}
-
-// YouTube refresh:
-//   POST https://oauth2.googleapis.com/token
-//   grant_type=refresh_token
-async function refreshYouTubeToken(supabase, token) {
-  const clientId = process.env.YOUTUBE_CLIENT_ID;
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
-  if (!clientId || !clientSecret || !token.refresh_token) return null;
-
-  const resp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: 'refresh_token',
-      refresh_token: token.refresh_token,
-    }),
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok || !data.access_token) return null;
-  return {
-    access_token: data.access_token,
-    refresh_token: token.refresh_token, // Google rarely re-issues refresh_token
-    expires_at: data.expires_in ? new Date(Date.now() + data.expires_in * 1000).toISOString() : null,
-  };
-}
-
-// Instagram Business long-lived tokens can be refreshed before they expire.
-// No client_id/secret required — just the current long-lived token.
-async function refreshInstagramToken(supabase, token) {
-  try {
-    const params = new URLSearchParams({
-      grant_type: 'ig_refresh_token',
-      access_token: token.access_token,
-    });
-    const resp = await fetch(`https://graph.instagram.com/refresh_access_token?${params.toString()}`);
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok || !data.access_token) return null;
-    return {
-      access_token: data.access_token,
-      refresh_token: null,
-      expires_at: data.expires_in ? new Date(Date.now() + data.expires_in * 1000).toISOString() : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-// Meta Facebook tokens (meta/facebook platforms) have no refresh flow; creator must reconnect.
-async function refreshMetaToken() {
-  return null;
-}
-
-async function refreshTokenIfNeeded(supabase, token) {
-  if (!token) return null;
-  if (!isExpired(token)) return token;
-
-  let refreshed = null;
-  if (token.platform === 'tiktok') refreshed = await refreshTikTokToken(supabase, token);
-  else if (token.platform === 'youtube') refreshed = await refreshYouTubeToken(supabase, token);
-  else if (token.platform === 'instagram' && token.metadata?.provider === 'instagram') {
-    refreshed = await refreshInstagramToken(supabase, token);
-  } else if (token.platform === 'meta' || token.platform === 'facebook') {
-    refreshed = await refreshMetaToken(supabase, token);
-  }
-
-  if (!refreshed) {
-    // Mark expired so the UI can show Reconnect.
-    await supabase
-      .from('creator_tokens')
-      .update({
-        status: 'expired',
-        last_error: 'Token expired and could not be refreshed',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', token.user_id)
-      .eq('platform', token.platform);
-    return null;
-  }
-
-  await supabase
-    .from('creator_tokens')
-    .update({
-      access_token: refreshed.access_token,
-      refresh_token: refreshed.refresh_token || token.refresh_token,
-      expires_at: refreshed.expires_at,
-      refresh_expires_at: refreshed.refresh_expires_at || token.refresh_expires_at,
-      status: 'connected',
-      last_error: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', token.user_id)
-    .eq('platform', token.platform);
-
-  return { ...token, ...refreshed };
-}
 
 // -----------------------------------------------------------------------------
 // Per-platform metric fetchers — each returns the normalized shape or null on
@@ -446,43 +333,69 @@ async function syncSubmissions(supabase, submissions) {
   const userIds = [...new Set([...groups.values()].map((g) => g.userId))];
   if (userIds.length === 0) return summary;
 
-  const { data: tokens, error: tokensErr } = await supabase
-    .from('creator_tokens')
-    .select('id, user_id, platform, access_token, refresh_token, expires_at, refresh_expires_at, status')
+  const { data: accounts, error: tokensErr } = await supabase
+    .from('creator_social_accounts')
+    .select(
+      'id, user_id, platform, access_token_encrypted, refresh_token_encrypted, ' +
+      'token_expires_at, refresh_token_expires_at, connection_status, metadata, ' +
+      'created_at, updated_at'
+    )
     .in('user_id', userIds)
-    .not('access_token', 'is', null);
+    .not('access_token_encrypted', 'is', null);
 
   if (tokensErr) {
     summary.errors.push({ reason: `tokens_fetch_failed: ${tokensErr.message}` });
     return summary;
   }
+
+  // The live CHECK constraint accepts tiktok | instagram | facebook | youtube.
+  // 'meta' is not storable, so a Facebook-flow connection lands on the
+  // 'facebook' row with metadata.provider = 'meta'. That one row is what serves
+  // Instagram *and* Facebook metric calls, which is why it is indexed under
+  // three keys here.
   const tokenIndex = new Map();
-  for (const t of tokens || []) {
-    // Meta token covers instagram + facebook calls.
-    if (t.platform === 'meta') {
-      tokenIndex.set(`${t.user_id}_instagram`, t);
-      tokenIndex.set(`${t.user_id}_facebook`, t);
-      tokenIndex.set(`${t.user_id}_meta`, t);
+  for (const a of accounts || []) {
+    const viaMeta = a.metadata && a.metadata.provider === 'meta';
+    if (a.platform === 'facebook') {
+      tokenIndex.set(`${a.user_id}_facebook`, a);
+      tokenIndex.set(`${a.user_id}_meta`, a);
+      // Only claim Instagram if a native Instagram connection has not already
+      // been indexed -- a direct instagram row is the better source.
+      if (viaMeta && !tokenIndex.has(`${a.user_id}_instagram`)) {
+        tokenIndex.set(`${a.user_id}_instagram`, a);
+      }
     } else {
-      tokenIndex.set(`${t.user_id}_${t.platform}`, t);
+      tokenIndex.set(`${a.user_id}_${a.platform}`, a);
     }
   }
 
   // 3. Process each group.
   for (const { userId, platform, submissions: groupSubs } of groups.values()) {
-    let token = tokenIndex.get(`${userId}_${platform}`);
-    if (!token) {
+    const account = tokenIndex.get(`${userId}_${platform}`);
+    if (!account) {
       summary.skipped += groupSubs.length;
       for (const s of groupSubs) summary.errors.push({ submission_id: s.id, reason: 'no_token' });
       continue;
     }
 
-    token = await refreshTokenIfNeeded(supabase, token);
-    if (!token) {
+    // Refresh on the read path, immediately before use. refreshIfNeeded() is a
+    // no-op unless the token is inside the expiry threshold, so the common case
+    // costs nothing; when it does refresh it re-encrypts and persists, and on a
+    // provider refusal it flags the row for reconnect rather than discarding it.
+    const refresh = await refreshIfNeeded(account, { supabase });
+    if (!refresh.accessToken) {
       summary.failed += groupSubs.length;
-      for (const s of groupSubs) summary.errors.push({ submission_id: s.id, reason: 'token_refresh_failed' });
+      const reason = refresh.status === 'failed'
+        ? `token_refresh_failed: ${refresh.error}`
+        : `token_unusable: ${refresh.status}`;
+      for (const s of groupSubs) summary.errors.push({ submission_id: s.id, reason });
       continue;
     }
+
+    // Decrypted in memory, for the length of this group's provider calls only.
+    // The fetchers below read token.access_token, so the plaintext is handed to
+    // them here rather than each one having to learn about encryption.
+    const token = { ...refresh.account, platform, access_token: refresh.accessToken };
 
     let groupHadError = null;
     for (const sub of groupSubs) {
@@ -523,17 +436,21 @@ async function syncSubmissions(supabase, submissions) {
       }
     }
 
-    // 4. Update the token's last_synced_at + last_error.
+    // 4. Record the sync outcome on the account row.
+    //
+    // Keyed by id, not (user_id, platform): the Meta row is indexed under three
+    // platform keys above, and matching on platform would miss it for two of
+    // them. 'sync_failed' is the value the live CHECK constraint accepts --
+    // 'error' is rejected.
     await supabase
-      .from('creator_tokens')
+      .from('creator_social_accounts')
       .update({
         last_synced_at: new Date().toISOString(),
         last_error: groupHadError || null,
-        status: groupHadError ? 'error' : 'connected',
+        connection_status: groupHadError ? 'sync_failed' : 'connected',
         updated_at: new Date().toISOString(),
       })
-      .eq('user_id', userId)
-      .eq('platform', token.platform);
+      .eq('id', account.id);
   }
 
   return summary;
@@ -586,9 +503,7 @@ module.exports = {
   extractVideoId,
   // Math
   calculateEngagementRate,
-  // Token refresh
-  isExpired,
-  refreshTokenIfNeeded,
+  // Token refresh lives in api/_utils/tokenRefresh.js -- see the note above.
   // Per-platform fetchers (exported for testing; sync uses fetchPlatformMetrics)
   fetchPlatformMetrics,
   // Storage

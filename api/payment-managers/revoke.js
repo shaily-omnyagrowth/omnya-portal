@@ -52,9 +52,10 @@ module.exports = async (req, res) => {
       .from('payment_audit_logs')
       .insert({
         action: 'payment_manager_revoked',
-        performed_by: authCtx.user.id,
-        target_user_id: userId.trim(),
-        details: {},
+        actor_user_id: authCtx.user.id,
+        entity_type: 'payment_manager',
+        entity_id: userId.trim(),
+        metadata: {},
       });
 
     if (auditError) {

@@ -35,7 +35,7 @@ module.exports = async (req, res) => {
     const { data: creator, error: creatorError } = await supabase
       .from('creators')
       .select(
-        'id, display_name, payout_method, payout_method_status, zelle_destination, bank_account_number'
+        'id, name, payment_method, payment_method_status, zelle_email, zelle_phone_last4, bank_account_last4, bank_name'
       )
       .eq('user_id', user.id)
       .maybeSingle();
@@ -47,7 +47,7 @@ module.exports = async (req, res) => {
     }
 
     // 2. Guard: payment method must be configured and not missing.
-    if (!creator.payout_method || creator.payout_method_status === 'missing') {
+    if (!creator.payment_method || creator.payment_method_status === 'missing') {
       return Errors.badRequest(
         res,
         'Please set up your payment method before requesting a withdrawal'
@@ -65,7 +65,7 @@ module.exports = async (req, res) => {
       {
         p_creator_id: creator.id,
         p_currency: 'USD',
-        p_payment_method: creator.payout_method,
+        p_payment_method: creator.payment_method,
         p_payment_destination_summary: payment_destination_summary,
       }
     );
@@ -97,7 +97,7 @@ module.exports = async (req, res) => {
       const fromEmail =
         process.env.RESEND_FROM_EMAIL || 'Omnya Growth <onboarding@resend.dev>';
       const portalUrl = 'https://www.portalomnyagrowth.com';
-      const creatorName = creator.display_name || profile.email;
+      const creatorName = creator.name || profile.email;
       const amountDisplay = amount != null ? `$${Number(amount).toFixed(2)}` : '—';
 
       const emailHtml = `

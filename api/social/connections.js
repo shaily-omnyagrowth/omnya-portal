@@ -4,33 +4,67 @@
 //   Headers: Authorization: Bearer <supabase-jwt>
 //   Query:   ?userId=<uuid> (optional; only honored for owner/AM with scope)
 //
-// Returns the safe projection of creator_tokens (no access_token / refresh_token)
-// for the calling user, or — for owner/AM with the right scope — for the
-// requested user.
+// The browser's only view of a creator's OAuth connections. It reads
+// creator_social_accounts and projects a fixed, token-free column list — the
+// browser must never see a token column, encrypted or not.
+//
+// F-3 guard: assertNoTokenColumns() runs over the projection on every request
+// and throws if a token column ever appears in it. A 500 here is loud and
+// obvious; a silently widened SELECT would not be.
 //
 //   Response:
 //   { ok: true, data: { connections: [ {
-//       platform, status, platformUsername, platformUserId,
+//       platform, status, connectionStatus, needsReauth,
+//       platformUserId, username, displayName, profileImageUrl, scopes,
 //       expiresAt, refreshExpiresAt, lastSyncedAt, lastError,
 //       createdAt, updatedAt
-//   } ] } }
+//   } ], viewedUserId } }
 
 const { applyCors } = require('../_utils/cors');
 const { requireAuth, normalizeRole } = require('../_utils/auth');
 const { Errors, sendOk } = require('../_utils/errors');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
+const {
+  PLATFORMS,
+  SAFE_COLUMNS,
+  assertNoTokenColumns,
+  needsReauth,
+} = require('../_utils/socialAccounts');
 
-const PLATFORMS = ['tiktok', 'instagram', 'facebook', 'meta', 'youtube'];
+// The projection this endpoint sends to the browser. Deliberately narrower
+// than SAFE_COLUMNS: metadata can carry provider detail the UI has no use for.
+const PUBLIC_COLUMNS = [
+  'platform',
+  'platform_user_id',
+  'username',
+  'display_name',
+  'profile_image_url',
+  'connection_status',
+  'scopes',
+  'token_expires_at',
+  'refresh_token_expires_at',
+  'last_synced_at',
+  'last_error',
+  'created_at',
+  'updated_at',
+];
 
 function shapeRow(row) {
-  if (!row) return null;
   return {
     platform: row.platform,
-    status: row.status || 'disconnected',
+    // `status` is kept for callers written against the creator_tokens shape.
+    status: row.connection_status || 'disconnected',
+    connectionStatus: row.connection_status || 'disconnected',
+    needsReauth: needsReauth(row),
     platformUserId: row.platform_user_id || null,
-    platformUsername: row.platform_username || null,
-    expiresAt: row.expires_at || null,
-    refreshExpiresAt: row.refresh_expires_at || null,
+    username: row.username || null,
+    // The old shape called this platformUsername.
+    platformUsername: row.username || row.display_name || null,
+    displayName: row.display_name || null,
+    profileImageUrl: row.profile_image_url || null,
+    scopes: row.scopes || [],
+    expiresAt: row.token_expires_at || null,
+    refreshExpiresAt: row.refresh_token_expires_at || null,
     lastSyncedAt: row.last_synced_at || null,
     lastError: row.last_error || null,
     createdAt: row.created_at || null,
@@ -88,11 +122,19 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // The guard, on every request. PUBLIC_COLUMNS must stay a subset of the
+    // token-free SAFE_COLUMNS, and must never name a token column itself.
+    assertNoTokenColumns(PUBLIC_COLUMNS, 'social/connections PUBLIC_COLUMNS');
+    const unknown = PUBLIC_COLUMNS.filter((c) => !SAFE_COLUMNS.includes(c));
+    if (unknown.length) {
+      throw new Error(
+        `social/connections projects column(s) not in the safe set: ${unknown.join(', ')}`
+      );
+    }
+
     const { data, error } = await supabase
-      .from('creator_tokens')
-      .select(
-        'platform, status, platform_user_id, platform_username, expires_at, refresh_expires_at, last_synced_at, last_error, created_at, updated_at'
-      )
+      .from('creator_social_accounts')
+      .select(PUBLIC_COLUMNS.join(', '))
       .eq('user_id', targetUserId);
 
     if (error) {
@@ -101,9 +143,9 @@ module.exports = async (req, res) => {
     }
 
     const byPlatform = new Map((data || []).map((r) => [r.platform, r]));
-    // Return one entry per known platform, with status='disconnected' for missing.
+    // One entry per known platform, 'not_connected' for the ones with no row.
     const connections = PLATFORMS.map((p) =>
-      shapeRow(byPlatform.get(p) || { platform: p, status: 'disconnected' })
+      shapeRow(byPlatform.get(p) || { platform: p, connection_status: 'not_connected' })
     );
 
     return sendOk(res, { connections, viewedUserId: targetUserId });

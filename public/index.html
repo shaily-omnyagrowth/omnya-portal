@@ -11,6 +11,62 @@
     <meta name="description" content="Omnya Growth - The Premium Creator Portal" />
     <link rel="apple-touch-icon" href="/omnya_logo.png" />
     <link rel="manifest" href="/manifest.json" />
+
+    <!--
+      Fonts are loaded here, not from CSS.
+
+      They used to arrive via `@import url(...)` at the top of the style block
+      in src/App.js. An @import is discovered only after the stylesheet
+      containing it has been downloaded and parsed, and that stylesheet is
+      injected by the JS bundle — so the chain was:
+
+          index.html -> main.js -> parse CSS -> fonts.googleapis.com -> woff2
+
+      Four serial round trips before a glyph existed. On a slow connection the
+      font landed long after first paint, the page reflowed as it swapped in,
+      and measured CLS went from 0 on wifi to 0.63 on 3G. Same defect produced
+      the LCP of 19s.
+
+      As <link> tags the browser starts both fetches while it is still parsing
+      the HTML, in parallel with the bundle. preconnect opens the TLS
+      connection to the font CDN ahead of the stylesheet naming it, which
+      removes one more round trip.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap"
+    />
+
+    <!--
+      The critical shell, inline so it applies before any JavaScript runs.
+
+      Measured cause of a 0.6264 CLS — a single layout shift, captured with a
+      PerformanceObserver reading entry.sources:
+
+          BODY   y,height   20,14   ->   0,900
+
+      Two things in one. `y: 20 -> 0` is the browser's default body margin
+      being removed once the app's reset lands; that reset lives in the style
+      block inside src/App.js, so it cannot apply until the bundle has parsed.
+      `height: 14 -> 900` is <div id="root"> standing empty — the noscript line
+      is the only thing on the page — until React mounts and fills it.
+
+      So the whole viewport jumped once, late, on every single load. It was
+      briefly mistaken for a webfont swap; switching the fonts to
+      font-display:optional left CLS at 0.6264 and disproved that.
+
+      Reserving the space here costs three rules and removes the shift
+      entirely. The background matches --bg in src/App.js so there is no
+      colour flash before the app paints; keep the two in step.
+    -->
+    <style>
+      html, body { margin: 0; padding: 0; }
+      body { background: #F7F5F4; }
+      #root { min-height: 100vh; }
+    </style>
+
     <title>Omnya — Creator Portal</title>
   </head>
   <body>

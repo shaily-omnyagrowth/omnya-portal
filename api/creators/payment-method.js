@@ -257,28 +257,15 @@ module.exports = async (req, res) => {
     })();
 
     // ---------------------------------------------------------------------------
-    // Build destination summary using formatPayoutDestination.
-    // The helper reads `payout_method`, `zelle_destination`, and
-    // `bank_account_number` (legacy column names).  We pass a shim that maps
-    // the new columns to the shape it expects so it can produce a masked label.
+    // Build destination summary using formatPayoutDestination, which now reads
+    // the same column names this endpoint writes.
     // ---------------------------------------------------------------------------
-    const creatorShim = {
-      // Primary method key used by formatPayoutDestination.
-      payout_method: payment_method,
-
-      // Bank transfer: the helper reads `bank_account_number` and slices last 4.
-      // We already have exactly last 4, so we pass it directly.
-      bank_account_number: updatePayload.bank_account_last4 || null,
-
-      // Zelle: the helper reads `zelle_destination` and branches on '@'.
-      zelle_destination:
-        updatePayload.zelle_email ||
-        (updatePayload.zelle_phone_last4
-          ? `****${updatePayload.zelle_phone_last4}`
-          : null),
-    };
-
-    const destination_summary = formatPayoutDestination(creatorShim);
+    const destination_summary = formatPayoutDestination({
+      payment_method,
+      bank_account_last4: updatePayload.bank_account_last4 || null,
+      zelle_email:        updatePayload.zelle_email || null,
+      zelle_phone_last4:  updatePayload.zelle_phone_last4 || null,
+    });
 
     return sendOk(res, {
       success: true,

@@ -14,14 +14,18 @@
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 const { getBearerToken, normalizeRole } = require('../_utils/auth');
 
-// Map permission string -> payment_managers column name
+// Map permission string -> payment_managers column name.
+// Only permissions with a real column belong here.
 const PERMISSION_COLUMN_MAP = {
-  view_payouts:            'can_view_payouts',
-  approve_withdrawals:     'can_approve_withdrawals',
-  export_batches:          'can_export_batches',
-  mark_paid:               'can_mark_paid',
-  manage_payment_managers: 'can_manage_payment_managers',
+  view_payouts:        'can_view_payouts',
+  approve_withdrawals: 'can_approve_withdrawals',
+  export_batches:      'can_export_batches',
+  mark_paid:           'can_mark_paid',
 };
+
+// Permissions the owner alone may ever hold. payment_managers has no column
+// for these, so they can never be delegated and must not be looked up there.
+const OWNER_ONLY_PERMISSIONS = new Set(['manage_payment_managers']);
 
 /**
  * Verify the caller holds the given payment permission.
@@ -75,7 +79,14 @@ async function requirePaymentPermission(req, res, permission) {
     return { user, role, isAM: true };
   }
 
-  // --- 5. payment_managers table check ---
+  // --- 5. Owner-only permissions cannot be delegated ---
+  //     (owner already returned at step 3, so reaching here means non-owner)
+  if (OWNER_ONLY_PERMISSIONS.has(permission)) {
+    res.status(403).json({ error: 'Forbidden', message: 'This action is restricted to the owner' });
+    return null;
+  }
+
+  // --- 6. payment_managers table check ---
   const column = PERMISSION_COLUMN_MAP[permission];
   if (!column) {
     // Unknown permission string — treat as forbidden

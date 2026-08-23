@@ -1,64 +1,24 @@
 // api/auth/tiktok/start.js
 //
 // POST /api/auth/tiktok/start
-//   Headers: Authorization: Bearer <supabase-jwt>
-//   Body:    (none required)
-//   Returns: 200 { ok: true, data: { authorizationUrl } }
 //
-// Generates a secure, server-stored OAuth state + PKCE verifier and returns
-// the TikTok authorization URL for the browser to redirect to.
+// DELEGATES to api/integrations/tiktok/connect.js. This file no longer builds
+// the authorization URL itself.
+//
+// WHY  (F-13)
+//
+// It used to construct its own TikTok authorization URL, whose callback wrote
+// plaintext tokens to creator_tokens. api/integrations/tiktok/connect.js does
+// the same job and its callback encrypts into creator_social_accounts.
+//
+// Two starts pointing at two callbacks is how the codebase ended up with two
+// TikTok integrations in the first place. Keeping the route but delegating the
+// behaviour means an old client calling this endpoint is now sent through the
+// encrypted flow, while nothing that already calls it breaks.
+//
+// Nothing in src/ calls this endpoint -- the UI uses
+// /api/integrations/tiktok/connect directly -- so this exists purely for any
+// caller outside the repo. See the companion note in ./callback.js for why the
+// pair is delegated rather than deleted.
 
-const { applyCors } = require('../../_utils/cors');
-const { requireAuth } = require('../../_utils/auth');
-const { Errors, sendOk } = require('../../_utils/errors');
-const {
-  storeOAuthState,
-  generateCodeVerifier,
-  generateCodeChallenge,
-} = require('../../_utils/oauth');
-
-module.exports = async (req, res) => {
-  if (applyCors(req, res)) return;
-  if (req.method !== 'POST') return Errors.methodNotAllowed(res);
-
-  const user = await requireAuth(req, res);
-  if (!user) return;
-
-  const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY;
-  const redirectUri =
-    process.env.TIKTOK_REDIRECT_URI ||
-    `${process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com'}/api/auth/tiktok/callback`;
-
-  if (!clientKey) {
-    return Errors.internal(res, 'TikTok OAuth is not configured (TIKTOK_CLIENT_KEY missing)');
-  }
-
-  try {
-    // PKCE — TikTok requires this for public/SPA clients.
-    const codeVerifier = generateCodeVerifier();
-    const codeChallenge = generateCodeChallenge(codeVerifier);
-
-    const state = await storeOAuthState({
-      userId: user.id,
-      platform: 'tiktok',
-      codeVerifier,
-      redirectAfter: '/?page=social-connections',
-    });
-
-    const params = new URLSearchParams({
-      client_key: clientKey,
-      response_type: 'code',
-      scope: 'user.info.basic,video.list',
-      redirect_uri: redirectUri,
-      state,
-      code_challenge: codeChallenge,
-      code_challenge_method: 'S256',
-    });
-
-    const authorizationUrl = `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`;
-    return sendOk(res, { authorizationUrl });
-  } catch (err) {
-    console.error('[tiktok/start] error:', err && err.code, err && err.message);
-    return Errors.internal(res, 'Failed to start TikTok OAuth');
-  }
-};
+module.exports = require('../../integrations/tiktok/connect');

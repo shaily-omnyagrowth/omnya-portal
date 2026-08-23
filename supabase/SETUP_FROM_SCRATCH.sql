@@ -292,20 +292,56 @@ using (
 -- file order.
 -- =============================================================================
 
--- Ensure creator_tokens table exists and has all necessary fields for TikTok and Meta/Instagram
-create table if not exists creator_tokens (
-  id uuid primary key default gen_random_uuid(),
-  creator_id uuid references creators(id) on delete cascade,
-  platform text not null, -- 'tiktok', 'meta', 'youtube', etc.
-  access_token text not null,
-  refresh_token text,
-  scopes text,
-  account_id text, -- Specific ID from the platform (e.g., IG Business Account ID)
-  account_name text, -- Username or display name
-  expires_at timestamptz,
-  updated_at timestamptz default now(),
-  unique(creator_id, platform)
-);
+-- THIS FILE DID NOT RUN BEFORE THIS BLOCK WAS ADDED.
+--
+-- The header note above is right that the CREATE TABLE below is a no-op —
+-- Section 2 already created creator_tokens keyed on user_id, and
+-- `IF NOT EXISTS` skips this second definition silently. What the note misses
+-- is that the second definition declares three columns Section 2 does not
+-- (creator_id, account_id, account_name), and the RLS policy immediately
+-- below references creator_tokens.creator_id.
+--
+-- So the script aborted here every time, with:
+--
+--     ERROR: column creator_tokens.creator_id does not exist
+--
+-- Which means there was no way to build this database from the repository at
+-- all: not from supabase/migrations/ (twelve core tables are created only
+-- here, never by a migration), and not from this file (it stopped at this
+-- line). Production exists as a hand-assembled artifact that nothing in the
+-- repo could reproduce — no staging, no Supabase branch, no disaster recovery.
+--
+-- The ALTERs below add exactly the columns the skipped definition would have
+-- contributed. They are additive and idempotent, and they match the shape
+-- production actually has (verified against the live table, which carries both
+-- user_id and creator_id).
+
+alter table creator_tokens add column if not exists creator_id   uuid references creators(id) on delete cascade;
+alter table creator_tokens add column if not exists account_id   text;  -- platform id, e.g. IG Business Account ID
+alter table creator_tokens add column if not exists account_name text;  -- username or display name
+
+-- Section 2 declares scopes as text[]; the meta_setup original declared it as
+-- text. Production carries text[]. Left as Section 2 created it rather than
+-- converted, because a type change on a live column is not something a
+-- setup script should do silently.
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'creator_tokens_creator_id_platform_key'
+  ) and exists (
+    select 1 from information_schema.columns
+    where table_name = 'creator_tokens' and column_name = 'creator_id'
+  ) then
+    begin
+      alter table creator_tokens
+        add constraint creator_tokens_creator_id_platform_key unique (creator_id, platform);
+    exception when others then
+      raise notice 'creator_tokens: could not add unique(creator_id, platform) -- %', sqlerrm;
+    end;
+  end if;
+end $$;
 
 -- Enable RLS
 alter table creator_tokens enable row level security;
@@ -1278,6 +1314,124 @@ $$;
 
 REVOKE ALL ON FUNCTION public.purge_expired_oauth_states() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.purge_expired_oauth_states() TO service_role;
+
+COMMIT;
+
+
+-- =============================================================================
+-- SECTION 7.5: COLUMNS PRODUCTION ACQUIRED WITHOUT A MIGRATION
+--
+-- Every column below exists in the live database and is created by NO file in
+-- this repository — not by the sections above, not by any migration. They were
+-- added to production by hand over time.
+--
+-- That is not a cosmetic problem. Migrations reference these columns, so the
+-- chain stops at whichever one it needs first: applying the set to an empty
+-- database halted at 20260527120000_client_system_integration.sql, whose
+-- client_safe_campaigns view selects c.brief_url.
+--
+-- Which meant the repository could not rebuild its own database, and therefore
+-- there was no staging, no Supabase branch, and no disaster recovery. This
+-- section is what closes that.
+--
+-- Types are taken from the live database, not inferred from column names —
+-- `node tests/live-column-types.cjs <table>` prints them. A type mismatch
+-- between the repo and production is worse than the missing column it was
+-- meant to fix.
+--
+-- Everything here is additive and idempotent, so it is a no-op against
+-- production and correct on an empty database.
+--
+-- Run `node tests/schema-drift-report.cjs` after changing this section. It
+-- applies the base script plus every migration and diffs the result against
+-- the live schema; the goal is zero missing columns.
+-- =============================================================================
+
+BEGIN;
+
+-- ---- campaigns --------------------------------------------------------------
+-- brief_url is the one that actually halted the chain: client_safe_campaigns
+-- in 20260527120000 selects it. The other four are its neighbours in
+-- production and are added here so the next reader does not rediscover them
+-- one error at a time.
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS brief_url        TEXT;
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS delivery_day     TEXT;
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS start_date       DATE;
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS due_date         DATE;
+ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS is_sales_sourced BOOLEAN DEFAULT false;
+
+-- ---- clients ----------------------------------------------------------------
+-- The brief/contract fields the client management screens read and write.
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS description        TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS goals              TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS target_audience    TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS content_guidelines TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS notes              TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS satisfaction_score INTEGER;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS contract_notes     TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS contract_url       TEXT;
+
+-- ---- account_managers -------------------------------------------------------
+-- Read by RevenueAnalytics to compute AM cost; defaulting to 0.1 matches the
+-- 10% the margin calculations assume.
+ALTER TABLE public.account_managers ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0.1;
+
+-- ---- creators ---------------------------------------------------------------
+ALTER TABLE public.creators ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'B';
+
+-- ---- submissions ------------------------------------------------------------
+-- The review and analytics timestamps. submitted_at defaults to now() in
+-- production, so a row inserted without it is still ordered correctly.
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS notes               TEXT;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS submitted_at        TIMESTAMPTZ DEFAULT now();
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS reviewed_at         TIMESTAMPTZ;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS due_date            DATE;
+ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS analytics_synced_at TIMESTAMPTZ;
+
+-- ---- user_profiles ----------------------------------------------------------
+-- The role a signup asked for, as opposed to the one it was granted. The N-20
+-- trigger writes it and the owner's Approve Users screen reads it, so without
+-- this column the approval workflow has nothing to show.
+ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS requested_role TEXT;
+
+-- ---- campaign_analytics -----------------------------------------------------
+-- A live table created by no file in the repository at all. Rolled up per
+-- campaign; cost_per_view is derived, not stored by the app.
+CREATE TABLE IF NOT EXISTS public.campaign_analytics (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  campaign_id       UUID REFERENCES public.campaigns(id) ON DELETE CASCADE,
+  total_views       BIGINT      DEFAULT 0,
+  total_spend       NUMERIC     DEFAULT 0,
+  cost_per_view     NUMERIC,
+  total_submissions INTEGER     DEFAULT 0,
+  approved_videos   INTEGER     DEFAULT 0,
+  updated_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_analytics_campaign_id
+  ON public.campaign_analytics(campaign_id);
+
+-- RLS, because every other table here has it and a rollup of spend per campaign
+-- is not something a creator or client should read.
+ALTER TABLE public.campaign_analytics ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS campaign_analytics_staff_select ON public.campaign_analytics;
+CREATE POLICY campaign_analytics_staff_select ON public.campaign_analytics
+  FOR SELECT TO authenticated
+  USING (
+    public.current_user_role() = 'owner'
+    OR (
+      public.current_user_role() = 'am'
+      AND EXISTS (
+        SELECT 1
+        FROM   public.campaigns ca
+        JOIN   public.clients   cl ON cl.id = ca.client_id
+        JOIN   public.account_managers am ON am.id = cl.am_id
+        WHERE  ca.id = campaign_analytics.campaign_id
+          AND  am.user_id = auth.uid()
+      )
+    )
+  );
 
 COMMIT;
 

@@ -6,20 +6,51 @@ export default function CreatorDashboard({ user, db, onNavigate }) {
   const creator = db.creators.find(c => c.user_id === user.id || c.email === user.email);
   const [connections, setConnections] = useState({ tiktok: false, instagram: false, facebook: false });
 
+  // Connection state comes from /api/social/connections, never from a table
+  // read here.
+  //
+  // This used to select straight from creator_tokens in the browser. Two
+  // problems with that: the row carries access_token and refresh_token
+  // alongside the platform, so the query was one edited column list away from
+  // shipping a creator's OAuth tokens to the client; and creator_tokens is now
+  // the legacy table, so after F-3/F-13 a freshly connected account would not
+  // have appeared here at all.
+  //
+  // The endpoint projects a token-free column set and asserts it on every
+  // request, so the tokens cannot leak even if this component asks wrongly.
   useEffect(() => {
+    let cancelled = false;
+
     async function checkConns() {
-        if (!user?.id) return;
-        const { data: creatorRec } = await supabase.from('creators').select('id').eq('user_id', user.id).single();
-        if (!creatorRec) return;
-        const { data } = await supabase.from('creator_tokens').select('platform').eq('creator_id', creatorRec.id);
-        const mapped = { tiktok: false, instagram: false, facebook: false };
-        data?.forEach(t => {
-          if (t.platform === 'meta') { mapped.instagram = true; mapped.facebook = true; }
-          else mapped[t.platform] = true;
+      if (!user?.id) return;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const res = await fetch('/api/social/connections', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
         });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok || !json.ok) return;
+
+        const mapped = { tiktok: false, instagram: false, facebook: false };
+        for (const conn of json.data.connections || []) {
+          // 'connected' is the only status that means usable. A row flagged
+          // expired or reauth_required exists but cannot sync, and showing it
+          // as connected is how a creator ends up wondering why their views
+          // stopped updating.
+          if (conn.connectionStatus !== 'connected') continue;
+          if (conn.platform in mapped) mapped[conn.platform] = true;
+        }
         setConnections(mapped);
+      } catch {
+        // A failed check leaves the badges as they are; this is a dashboard
+        // hint, not something worth surfacing an error banner for.
+      }
     }
+
     checkConns();
+    return () => { cancelled = true; };
   }, [user]);
 
   if (!creator) return <div className="content"><div className="empty"><div className="empty-icon">👋</div><h3>Profile being set up</h3><p>Your account manager will activate your profile shortly.</p></div></div>;

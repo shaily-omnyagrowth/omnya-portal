@@ -5,6 +5,22 @@ import { supabase } from "../supabaseClient";
 import { fmtDate, fmtMoney, fmtNum, statusBadge } from "../utils";
 import LoadingSpinner from "./LoadingSpinner";
 
+// The API envelope is { ok: true, data } or { ok: false, error: { code, message } }.
+//
+// `error` is an OBJECT. Four call sites in this file used to do
+// `new Error(json.error || json.message || "...")`, which stringifies it to
+// the literal "[object Object]" -- so a creator whose withdrawal was refused
+// was shown that instead of the reason. json.message never existed on the
+// envelope, so the fallback never rescued it either.
+function errMessage(json, fallback) {
+  if (json && json.error && typeof json.error === 'object' && json.error.message) {
+    return json.error.message;
+  }
+  if (json && typeof json.error === 'string' && json.error) return json.error;
+  if (json && typeof json.message === 'string' && json.message) return json.message;
+  return fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Bonus calculation logic (inlined from api/_lib/paymentCalculations.js)
 // Cannot import Node CJS modules directly in the React app.
@@ -333,7 +349,7 @@ export default function CreatorEarnings({ user, db }) {
         body: JSON.stringify({}),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || "Failed to generate Stripe link");
+      if (!res.ok) throw new Error(errMessage(json, "Failed to generate Stripe link"));
       if (json.alreadyActive) {
         setPmMsg({ text: "Your Stripe account is already active and ready for payouts.", type: "success" });
         setStripeStatus(prev => ({ ...prev, status: "active" }));
@@ -418,7 +434,7 @@ export default function CreatorEarnings({ user, db }) {
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || "Failed to save payment method");
+      if (!res.ok) throw new Error(errMessage(json, "Failed to save payment method"));
       setPmMsg({ text: "Payment method saved successfully.", type: "success" });
       setPmFormOpen(false);
       loadSummary();
@@ -445,7 +461,7 @@ export default function CreatorEarnings({ user, db }) {
         },
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || "Withdrawal failed");
+      if (!res.ok) throw new Error(errMessage(json, "Withdrawal failed"));
       setWithdrawMsg({ text: json.message || "Withdrawal request submitted!", type: "success" });
       loadSummary();
       // Refresh withdrawal history
@@ -488,7 +504,7 @@ export default function CreatorEarnings({ user, db }) {
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || "Failed to save");
+      if (!res.ok) throw new Error(errMessage(json, "Failed to save"));
       // Update local state with returned submission
       const updated = json.submission || {};
       setBonusSubs(prev => prev.map(s => s.id === subId ? { ...s, ...updated } : s));

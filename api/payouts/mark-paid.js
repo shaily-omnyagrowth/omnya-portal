@@ -55,7 +55,13 @@ module.exports = async (req, res) => {
       }
     );
 
-    if (rpcError) throw rpcError;
+    if (rpcError) {
+      // The RPC raises for an unknown batch; that is a 404, not a 500.
+      if (rpcError.code === 'P0001' && /not found/i.test(rpcError.message || '')) {
+        return Errors.notFound(res, rpcError.message);
+      }
+      throw rpcError;
+    }
 
     // RPC may signal a domain-level failure via success: false
     if (rpcData && rpcData.success === false) {
@@ -70,7 +76,10 @@ module.exports = async (req, res) => {
     const totalAmount = (rpcData && rpcData.total_amount) || 0;
 
     // --- Auto-trigger Stripe transfers for Stripe-method payments ---
-    const { data: stripePayments } = await supabase
+    // The batch is already marked paid by the RPC above, so a failure here must
+    // not fail the request -- but it must be visible, not swallowed.
+    let stripeWarning = null;
+    const { data: stripePayments, error: stripeQueryError } = await supabase
       .from('payments')
       .select(`
         id, amount, currency, payment_method,
@@ -83,6 +92,11 @@ module.exports = async (req, res) => {
       .eq('payment_method', 'stripe')
       .in('status', ['approved', 'batched']);
 
+    if (stripeQueryError) {
+      stripeWarning = 'Stripe transfers were not attempted: ' + stripeQueryError.message;
+      console.error('[mark-paid] Stripe payment lookup failed:', stripeQueryError.message);
+    }
+
     if (stripePayments && stripePayments.length > 0) {
       const stripe = getStripe();
       await Promise.allSettled(stripePayments.map(async (payment) => {
@@ -93,12 +107,16 @@ module.exports = async (req, res) => {
         }
         try {
           const amountCents = Math.round(parseFloat(payment.amount) * 100);
+          // F-1: same idempotency key as api/payouts/stripe-transfer.js, so the
+          // two paths cannot both issue a transfer for the same payment.
           const transfer = await stripe.transfers.create({
             amount:      amountCents,
             currency:    (payment.currency || 'usd').toLowerCase(),
             destination: creator.stripe_account_id,
             description: `Omnya payout — payment ${payment.id}`,
             metadata:    { payment_id: payment.id, creator_id: payment.creators.id, platform: 'omnya' },
+          }, {
+            idempotencyKey: `omnya-payout-${payment.id}`,
           });
           await supabase
             .from('payments')
@@ -218,6 +236,7 @@ module.exports = async (req, res) => {
       totalAmount,
       emailsSent,
       emailsFailed,
+      ...(stripeWarning ? { warning: stripeWarning } : {}),
     });
   } catch (err) {
     console.error('[mark-paid] Unexpected error:', err);

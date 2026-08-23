@@ -84,8 +84,8 @@ module.exports = async (req, res) => {
     }
 
     const { data: creatorProfile, error: cpError } = await supabase
-      .from('user_profiles')
-      .select('email, display_name')
+      .from('creators')
+      .select('email, name')
       .eq('id', withdrawalRow.creator_id)
       .single();
 
@@ -110,7 +110,7 @@ module.exports = async (req, res) => {
         type: 'withdrawal_approved',
         data: {
           creatorEmail: creatorProfile.email,
-          creatorName: creatorProfile.display_name || creatorProfile.email,
+          creatorName: creatorProfile.name || creatorProfile.email,
           amount: withdrawalRow.amount,
           paymentId,
         },

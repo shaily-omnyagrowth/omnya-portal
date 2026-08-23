@@ -78,7 +78,10 @@ const LOGO_MARK_URI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHgAAADXCAY
 // ============================================================
 
 const styles = `
-  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
+  /* Bebas Neue and DM Sans are loaded by <link> tags in public/index.html.
+     They were an @import here, which the browser could not discover until this
+     whole stylesheet had been shipped inside the JS bundle and parsed — four
+     serial round trips before any glyph existed. See the note in index.html. */
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1194,7 +1197,7 @@ function Login({ onLogin }) {
             </button>
           </div>
           <div style={{fontSize:12,color:"var(--ink3)",lineHeight:1.7}}>
-            After signing up, an admin will assign your role (Creator / AM / Owner). Contact your admin to get access.
+            After signing up, an admin will assign your role (Creator / Client / Account Manager). Contact your admin to get access.
           </div>
         </div>
       </div>
@@ -1212,7 +1215,9 @@ const navs = {
   creator: [
     {id:"dashboard",icon:"🏠",label:"Dashboard"},
     {id:"social-connections",icon:"🔗",label:"Social Channels"},
+    {id:"jobs",icon:"🧭",label:"Available Jobs"},
     {id:"active-jobs",icon:"🎯",label:"Active Projects"},
+    {id:"submit",icon:"⬆️",label:"Submit Content"},
     {id:"submissions",icon:"🎬",label:"My Submissions"},
     {id:"insights",icon:"📊",label:"Video Insights"},
     {id:"payout-manager",icon:"💳",label:"Payments"},
@@ -1226,6 +1231,9 @@ const navs = {
     {id:"clients",icon:"🏢",label:"My Clients"},
     {id:"content-library",icon:"🎬",label:"Content Library"},
     {id:"analytics",icon:"📊",label:"Analytics"},
+    {id:"revenue",icon:"📈",label:"Revenue"},
+    {id:"creator-performance",icon:"🏆",label:"Creator Performance"},
+    {id:"payout-manager",icon:"💸",label:"Payments",requires:"payouts"},
     {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
   owner: [
@@ -1236,6 +1244,7 @@ const navs = {
     {id:"revenue",icon:"📈",label:"Revenue Analytics"},
     {id:"payout-manager",icon:"💸",label:"Payment Management"},
     {id:"team",icon:"👥",label:"Team Performance"},
+    {id:"creator-performance",icon:"🏆",label:"Creator Performance"},
     {id:"review-queue",icon:"✅",label:"Review Queue"},
     {id:"campaigns",icon:"📢",label:"All Campaigns"},
     {id:"content-library",icon:"🎬",label:"Content Library"},
@@ -1249,7 +1258,19 @@ const navs = {
   ],
 };
 
-function Sidebar({ user, role, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
+// Nav entries may declare `requires`, naming a capability the caller has to
+// hold. This is a *display* filter only — it hides a door the user cannot open
+// so they are not offered a page that will only tell them no. The actual
+// authorization lives in RLS and in api/_lib/paymentPermissions.js, and both
+// still run regardless of what the sidebar shows.
+//
+// caps.payouts comes from the is_payment_manager('can_view_payouts') RPC, so
+// the answer is the database's, not the browser's.
+function navsFor(role, caps) {
+  return (navs[role] || []).filter(item => !item.requires || !!(caps && caps[item.requires]));
+}
+
+function Sidebar({ user, role, caps, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
   // role is computed by App.js with the email-promotion shortcut + 'pending' fallback.
   // We don't recompute here; the source of truth lives one level up. (Used to be
   // a local `(user?.role || "creator")` which raced on cold load and rendered an
@@ -1267,7 +1288,7 @@ function Sidebar({ user, role, page, setPage, reviewPendingCount, usersPendingCo
       </div>
       <div className="sidebar-nav">
         <div className="nav-section">
-          {(navs[role]||[]).map(item => (
+          {navsFor(role, caps).map(item => (
             <div key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>{setPage(item.id); setMobileMenuOpen(false);}}>
               <span className="icon">{item.icon}</span>
               <span>{item.label}</span>
@@ -1335,21 +1356,45 @@ function JobBoard({ user, db, onRefresh }) {
   const openJobs = db.campaigns.filter(c=>c.status==="Open"&&c.application_type==="Open Application");
   const [applying, setApplying] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [applyError, setApplyError] = useState("");
 
   const apply = async (campaignId) => {
     if (!creator) return;
     setLoading(true);
-    const camp = db.campaigns.find(c=>c.id===campaignId);
-    const updatedCreators = [...(camp.assigned_creators||[]), creator.id];
-    await supabase.from("campaigns").update({assigned_creators:updatedCreators,status:"In Progress"}).eq("id",campaignId);
+    // F-10. The assignment is a row in campaign_creators, which carries real
+    // foreign keys. campaigns.assigned_creators is now a mirror maintained by
+    // trigger -- writing it directly is what allowed ids naming no creator to
+    // accumulate there.
+    //
+    // ignoreDuplicates makes a second application a no-op rather than a 23505.
+    // The old array push would happily store the same id twice.
+    const { error: assignErr } = await supabase
+      .from("campaign_creators")
+      .upsert({ campaign_id: campaignId, creator_id: creator.id, assigned_by: user.id },
+              { onConflict: "campaign_id,creator_id", ignoreDuplicates: true });
+
+    if (assignErr) {
+      setApplyError("Could not apply for this job: " + assignErr.message);
+      setLoading(false);
+      return;
+    }
+
+    const { error: statusErr } = await supabase
+      .from("campaigns").update({ status: "In Progress" }).eq("id", campaignId);
+    if (statusErr) console.warn("apply: assigned, but campaign status not updated:", statusErr.message);
+
+    setApplyError("");
     await onRefresh();
     setApplying(null); setLoading(false);
   };
 
   if (!creator) return <div className="content"><ErrorMsg msg="Creator profile not found. Contact your account manager." /></div>;
 
+
+
   return (
     <div className="content">
+      {applyError && <ErrorMsg msg={applyError} />}
       <div className="mb-16" style={{fontSize:13,color:"var(--ink3)"}}>{openJobs.length} open position{openJobs.length!==1?"s":""} available</div>
       {openJobs.length===0&&<div className="empty"><div className="empty-icon">💼</div><h3>No open jobs right now</h3><p>Check back soon</p></div>}
       {openJobs.map(job=>{
@@ -1965,6 +2010,8 @@ function ReviewQueue({ db, onRefresh }) {
   const [modal, setModal] = useState(null);
   const [feedback, setFeedback] = useState("");
   const [saving, setSaving] = useState(false);
+  // Surfaces a write that did not land. See the note in action() below.
+  const [actionError, setActionError] = useState("");
 
   const concepts = db.submissions.filter(s=>s.concept_status==="Pending");
   const finals = db.submissions.filter(s=>s.final_status==="Pending");
@@ -2024,7 +2071,38 @@ function ReviewQueue({ db, onRefresh }) {
       }
     }
 
-    await supabase.from("submissions").update(updates).eq("id", subId);
+    // The result of this write used to be discarded. If RLS refused it, or a
+    // CHECK rejected the value, or the network dropped, the modal closed anyway
+    // and the reviewer was shown nothing — so an AM believed they had sent a
+    // revision request that never happened, and the creator was never told.
+    // tests/regression.test.cjs caught exactly that: the button was found, the
+    // modal filled, "Send Revision Request" clicked, and final_status stayed
+    // "Pending" with feedback null.
+    //
+    // .select() is what makes it detectable at all. Without it PostgREST
+    // reports success for an UPDATE that matched zero rows, which is precisely
+    // what an RLS refusal looks like: no error, no rows, no clue.
+    const { data: updated, error: updateErr } = await supabase
+      .from("submissions")
+      .update(updates)
+      .eq("id", subId)
+      .select("id");
+
+    if (updateErr) {
+      setActionError(`Could not save: ${updateErr.message}`);
+      setSaving(false);
+      return;                        // leave the modal open, feedback intact
+    }
+    if (!updated || updated.length === 0) {
+      setActionError(
+        "That submission was not updated — you may not have permission to review " +
+        "this creator's work. Check they are assigned to you."
+      );
+      setSaving(false);
+      return;
+    }
+
+    setActionError("");
     await onRefresh();
     setModal(null); setFeedback(""); setSaving(false);
   };
@@ -2139,6 +2217,7 @@ function ReviewQueue({ db, onRefresh }) {
               {modal.action==="revisions"||modal.action==="revisions-final"?"↺ Request Revisions":"✕ Deny Submission"}
             </div>
             <div className="modal-sub">This feedback will be visible to the creator</div>
+            {actionError && <ErrorMsg msg={actionError} />}
             <div className="form-group">
               <label className="form-label">Feedback <span style={{color:"var(--red)"}}>*</span></label>
               <textarea className="textarea" rows={4} placeholder="Be specific — what needs to change and why..." value={feedback} onChange={e=>setFeedback(e.target.value)}/>
@@ -2263,7 +2342,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
           </table>
         </div>
       </div>
-      {viewCampaign&&<CampaignDetail campaign={viewCampaign} db={db} onRefresh={async()=>{await onRefresh();setViewCampaign(db.campaigns.find(c=>c.id===viewCampaign.id)||null);}} onClose={()=>setViewCampaign(null)}/>}
+      {viewCampaign&&<CampaignDetail campaign={viewCampaign} db={db} user={user} onRefresh={async()=>{await onRefresh();setViewCampaign(db.campaigns.find(c=>c.id===viewCampaign.id)||null);}} onClose={()=>setViewCampaign(null)}/>}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -2290,8 +2369,9 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   );
 }
 
-function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
+function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
   const [saving, setSaving] = useState(false);
+  const [assignError, setAssignError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -2371,15 +2451,38 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
 
   const assignCreator = async (creatorId) => {
     setSaving(true);
-    const updated = [...(campaign.assigned_creators||[]), creatorId];
-    await supabase.from("campaigns").update({assigned_creators:updated, status:"In Progress"}).eq("id", campaign.id);
+    // F-10 -- see the note in JobBoard.apply. The junction table is the
+    // source of truth; campaigns.assigned_creators mirrors it by trigger.
+    const { error } = await supabase
+      .from("campaign_creators")
+      .upsert({ campaign_id: campaign.id, creator_id: creatorId, assigned_by: user?.id || null },
+              { onConflict: "campaign_id,creator_id", ignoreDuplicates: true });
+
+    if (error) {
+      setAssignError("Could not assign that creator: " + error.message);
+      setSaving(false);
+      return;
+    }
+    setAssignError("");
+
+    await supabase.from("campaigns").update({ status: "In Progress" }).eq("id", campaign.id);
     await onRefresh(); setSaving(false);
   };
 
   const removeCreator = async (creatorId) => {
     setSaving(true);
-    const updated = (campaign.assigned_creators||[]).filter(id=>id!==creatorId);
-    await supabase.from("campaigns").update({assigned_creators:updated}).eq("id", campaign.id);
+    const { error } = await supabase
+      .from("campaign_creators")
+      .delete()
+      .eq("campaign_id", campaign.id)
+      .eq("creator_id", creatorId);
+
+    if (error) {
+      setAssignError("Could not remove that creator: " + error.message);
+      setSaving(false);
+      return;
+    }
+    setAssignError("");
     await onRefresh(); setSaving(false);
   };
 
@@ -2398,7 +2501,9 @@ function CampaignDetail({ campaign, db, onRefresh, onClose, isOwner }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{maxWidth:640,maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
-        
+
+        {assignError && <ErrorMsg msg={assignError} />}
+
         {/* Header */}
         <div className="flex-between mb-16">
           <div>
@@ -2808,7 +2913,38 @@ function getRetentionScore(client, db) {
   return {score:"yellow", label:"🟡 Watch", desc:"Insufficient data", color:"#b08800", bg:"#fffbe6"};
 }
 
-function ClientsPage({ isOwner, db, onRefresh, user }) {
+function ClientForm({ data, setData, onSave, onCancel, title, db, err, saving }) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <div className="modal-title">{title}</div>
+        <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" placeholder="e.g. Eden Health" value={data.name||""} onChange={e=>setData({...data,name:e.target.value})}/></div>
+        <div className="grid-2">
+          <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={data.deal_type||"Monthly Retainer"} onChange={e=>setData({...data,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">Status</label><select className="select" value={data.status||"Active"} onChange={e=>setData({...data,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={data.videos_per_month||""} onChange={e=>setData({...data,videos_per_month:e.target.value})}/></div>
+          <div className="form-group"><label className="form-label">Monthly Budget ($)</label><input className="form-input" type="number" value={data.budget||""} onChange={e=>setData({...data,budget:e.target.value})}/></div>
+        </div>
+        <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" placeholder="Decision maker" value={data.contact_name||""} onChange={e=>setData({...data,contact_name:e.target.value})}/></div>
+        <div className="grid-2">
+          <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" type="email" value={data.contact_email||""} onChange={e=>setData({...data,contact_email:e.target.value})}/></div>
+          <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={data.contact_phone||""} onChange={e=>setData({...data,contact_phone:e.target.value})}/></div>
+        </div>
+        <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" rows={3} placeholder="Contract terms, payment schedule, special conditions..." value={data.contract_notes||""} onChange={e=>setData({...data,contract_notes:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Contract URL <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label><input className="form-input" placeholder="https://docs.google.com/..." value={data.contract_url||""} onChange={e=>setData({...data,contract_url:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Assign Account Manager</label><select className="select" value={data.am_id||""} onChange={e=>setData({...data,am_id:e.target.value||null})}><option value="">— Unassigned —</option>{db.accountManagers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+        {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-primary" onClick={onSave} disabled={saving}>{saving?"Saving...":"Save"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ClientsPage({ isOwner, db, onRefresh, user }) {
   const [showCreate, setShowCreate] = useState(false);
   const [editClient, setEditClient] = useState(null);
   const [viewClient, setViewClient] = useState(null);
@@ -2878,35 +3014,6 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
     await onRefresh(); setEditClient(null); setSaving(false);
   };
 
-  const ClientForm = ({ data, setData, onSave, onCancel, title, db }) => (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal" onClick={e=>e.stopPropagation()}>
-        <div className="modal-title">{title}</div>
-        <div className="form-group"><label className="form-label">Client Name</label><input className="form-input" placeholder="e.g. Eden Health" value={data.name||""} onChange={e=>setData({...data,name:e.target.value})}/></div>
-        <div className="grid-2">
-          <div className="form-group"><label className="form-label">Deal Type</label><select className="select" value={data.deal_type||"Monthly Retainer"} onChange={e=>setData({...data,deal_type:e.target.value})}>{["Monthly Retainer","One-Off","Trial"].map(d=><option key={d}>{d}</option>)}</select></div>
-          <div className="form-group"><label className="form-label">Status</label><select className="select" value={data.status||"Active"} onChange={e=>setData({...data,status:e.target.value})}>{["Active","Paused","Completed"].map(s=><option key={s}>{s}</option>)}</select></div>
-          <div className="form-group"><label className="form-label">Videos/Month</label><input className="form-input" type="number" value={data.videos_per_month||""} onChange={e=>setData({...data,videos_per_month:e.target.value})}/></div>
-          <div className="form-group"><label className="form-label">Monthly Budget ($)</label><input className="form-input" type="number" value={data.budget||""} onChange={e=>setData({...data,budget:e.target.value})}/></div>
-        </div>
-        <div className="form-group"><label className="form-label">Contact Name</label><input className="form-input" placeholder="Decision maker" value={data.contact_name||""} onChange={e=>setData({...data,contact_name:e.target.value})}/></div>
-        <div className="grid-2">
-          <div className="form-group"><label className="form-label">Contact Email</label><input className="form-input" type="email" value={data.contact_email||""} onChange={e=>setData({...data,contact_email:e.target.value})}/></div>
-          <div className="form-group"><label className="form-label">Contact Phone</label><input className="form-input" value={data.contact_phone||""} onChange={e=>setData({...data,contact_phone:e.target.value})}/></div>
-        </div>
-        <div className="form-group"><label className="form-label">Google Drive Link</label><input className="form-input" placeholder="https://drive.google.com/..." value={data.drive_link||""} onChange={e=>setData({...data,drive_link:e.target.value})}/></div>
-        <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" rows={3} placeholder="Contract terms, payment schedule, special conditions..." value={data.contract_notes||""} onChange={e=>setData({...data,contract_notes:e.target.value})}/></div>
-        <div className="form-group"><label className="form-label">Contract URL <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label><input className="form-input" placeholder="https://docs.google.com/..." value={data.contract_url||""} onChange={e=>setData({...data,contract_url:e.target.value})}/></div>
-        <div className="form-group"><label className="form-label">Assign Account Manager</label><select className="select" value={data.am_id||""} onChange={e=>setData({...data,am_id:e.target.value||null})}><option value="">— Unassigned —</option>{db.accountManagers.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-        {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
-          <button className="btn btn-primary" onClick={onSave} disabled={saving}>{saving?"Saving...":"Save"}</button>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <div className="content">
       <div className="flex-between mb-16">
@@ -2951,8 +3058,8 @@ function ClientsPage({ isOwner, db, onRefresh, user }) {
         </div>
       </div>
       {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact details visible to owner only.</div>}
-      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db}/>}
-      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db}/>}
+      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db} err={err} saving={saving}/>}
+      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db} err={err} saving={saving}/>}
       {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)} isOwner={isOwner} user={user}/>}
       {linkingClient&&(
         <div className="modal-overlay" onClick={()=>setLinkingClient(null)}>
@@ -4444,7 +4551,7 @@ function PendingUsers({ onRefresh }) {
     <div className="content">
       <div className="card mb-16" style={{background:"var(--bg2)"}}>
         <div style={{fontSize:13,color:"var(--ink3)"}}>
-          New signups waiting for role assignment. Enter their name, then click Creator or AM to give them access. They'll be able to log in immediately.
+          New signups waiting for role assignment. Enter their name, then click Creator, AM or Client to give them access. They'll be able to log in immediately.
         </div>
       </div>
       {users.length === 0 ? (
@@ -4454,7 +4561,7 @@ function PendingUsers({ onRefresh }) {
           <div key={u.id} className="card mb-12">
             <div className="flex-between" style={{flexWrap:"wrap",gap:12}}>
               <div style={{flex:1,minWidth:200}}>
-                <div style={{fontWeight:600,marginBottom:4}}>{u.email}{u.requested_role&&<span style={{marginLeft:8,fontSize:11,padding:"2px 8px",borderRadius:20,background:u.requested_role==="am"?"var(--blue)":"var(--green)",color:"#fff",fontWeight:500}}>{u.requested_role==="am"?"Account Manager":"Creator"}</span>}</div>
+                <div style={{fontWeight:600,marginBottom:4}}>{u.email}{u.requested_role&&<span style={{marginLeft:8,fontSize:11,padding:"2px 8px",borderRadius:20,background:u.requested_role==="am"?"var(--blue)":u.requested_role==="client"?"var(--orange)":"var(--green)",color:"#fff",fontWeight:500}}>{u.requested_role==="am"?"Account Manager":u.requested_role==="client"?"Client / Brand Partner":"Creator"}</span>}</div>
                 <input
                   className="form-input"
                   style={{marginTop:6,fontSize:13}}
@@ -4469,6 +4576,9 @@ function PendingUsers({ onRefresh }) {
                 </button>
                 <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "am")}>
                   {saving===u.id?"...":"✓ AM"}
+                </button>
+                <button className="btn btn-sm" style={{background:"var(--orange)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "client")}>
+                  {saving===u.id?"...":"✓ Client"}
                 </button>
                 <button className="btn btn-sm" style={{background:"var(--red)",color:"#fff"}} disabled={saving===u.id} onClick={()=>denyUser(u.id)}>
                   {saving===u.id?"...":"✗ Deny"}
@@ -4723,6 +4833,7 @@ export default function App() {
   const [dbError, setDbError] = useState("");
   const [needsSetup, setNeedsSetup] = useState(false);
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
+  const [caps, setCaps] = useState({});
 
   useEffect(() => {
     // 1. Initialize from URL on load
@@ -4919,6 +5030,36 @@ export default function App() {
     }
     setLoading(false);
   }, [user, page, role]);
+
+  // Optional nav entries are gated on a capability the *database* confirms.
+  //
+  // An owner always holds it. An AM holds it only with an active
+  // payment_managers grant, which is_payment_manager('can_view_payouts')
+  // answers server-side. On error we hide the entry: failing closed here costs
+  // an AM one menu item, whereas failing open offers a page that will refuse
+  // them anyway.
+  //
+  // Note this deliberately does NOT feed the page-validation effect below.
+  // That effect only asks "is this a route this role has", and gating it on an
+  // async capability would bounce a deep link to /payout-manager back to the
+  // dashboard during the round trip.
+  useEffect(() => {
+    let cancelled = false;
+    if (!user) { setCaps({}); return; }
+    if (role === "owner") { setCaps({ payouts: true }); return; }
+    if (role !== "am") { setCaps({}); return; }
+    (async () => {
+      const { data, error } = await supabase.rpc("is_payment_manager", { p_permission: "can_view_payouts" });
+      if (cancelled) return;
+      if (error) {
+        console.warn("caps: is_payment_manager failed, hiding gated nav —", error.message);
+        setCaps({});
+        return;
+      }
+      setCaps({ payouts: data === true });
+    })();
+    return () => { cancelled = true; };
+  }, [user, role]);
 
   const loadDB = useCallback(async()=>{
     if (!user) return;
@@ -5267,7 +5408,7 @@ export default function App() {
     <>
       <div className={`app ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-overlay" onClick={() => setMobileMenuOpen(false)}></div>
-        <Sidebar user={user} role={role} page={page} setPage={setPage} reviewPendingCount={reviewPendingCount} usersPendingCount={usersPendingCount} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}/>
+        <Sidebar user={user} role={role} caps={caps} page={page} setPage={setPage} reviewPendingCount={reviewPendingCount} usersPendingCount={usersPendingCount} onLogout={handleLogout} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen}/>
         <div className="main">
           <div className="topbar">
             <div className="flex-center gap-12">

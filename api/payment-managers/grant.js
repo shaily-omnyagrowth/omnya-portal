@@ -76,9 +76,10 @@ module.exports = async (req, res) => {
       .from('payment_audit_logs')
       .insert({
         action: 'payment_manager_granted',
-        performed_by: authCtx.user.id,
-        target_user_id: userId.trim(),
-        details: {
+        actor_user_id: authCtx.user.id,
+        entity_type: 'payment_manager',
+        entity_id: userId.trim(),
+        metadata: {
           can_view_payouts: upserted.can_view_payouts,
           can_approve_withdrawals: upserted.can_approve_withdrawals,
           can_export_batches: upserted.can_export_batches,

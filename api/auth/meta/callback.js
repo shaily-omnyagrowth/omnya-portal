@@ -2,21 +2,30 @@
 //
 // GET /api/auth/meta/callback?code=...&state=...
 //
-// Shared callback for instagram/start, facebook/start, and meta/start. Reads
-// the platform label from oauth_states (which was set by the start route) and
-// stores the resulting token under that label.
+// Shared callback for facebook/start and meta/start. Instagram has its own
+// callback (instagram/callback.js).
 //
 // Steps:
 //   1. Validate state via oauth_states.
 //   2. Exchange code for a short-lived access token.
 //   3. Upgrade to a long-lived token (fb_exchange_token, ~60d).
-//   4. Best-effort: fetch /me for platform_user_id / platform_username.
-//   5. Upsert creator_tokens.
+//   4. Best-effort: fetch /me for the profile fields the UI shows.
+//   5. Upsert creator_social_accounts with the token ENCRYPTED (F-3).
+//
+// F-3: this route used to write plaintext into creator_tokens. Tokens are now
+// AES-256-GCM encrypted by api/_utils/encryption.js before they touch the
+// database, and land on the canonical creator_social_accounts row.
+//
+// The generic 'meta' flow cannot be stored under that name — the live
+// platform CHECK accepts only tiktok/instagram/facebook/youtube — so both
+// flows land on the 'facebook' row with metadata.provider recording which
+// dialog issued the token. See api/_utils/socialAccounts.js.
 
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
 const { consumeOAuthState } = require('../../_utils/oauth');
+const { upsertSocialAccount } = require('../../_utils/socialAccounts');
 
-function redirectBack(res, platform, params) {
+function redirectBack(res, params) {
   const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
   const qs = new URLSearchParams({ page: 'social-connections', ...params }).toString();
   res.redirect(302, `${base}/?${qs}`);
@@ -40,11 +49,15 @@ async function fetchLongLivedToken({ appId, appSecret, shortToken }) {
 async function fetchProfile(token) {
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v19.0/me?fields=id,name&access_token=${encodeURIComponent(token)}`
+      `https://graph.facebook.com/v19.0/me?fields=id,name,picture.type(large)&access_token=${encodeURIComponent(token)}`
     );
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) return null;
-    return { id: data.id, name: data.name };
+    return {
+      id: data.id,
+      name: data.name,
+      picture: data.picture && data.picture.data ? data.picture.data.url : null,
+    };
   } catch {
     return null;
   }
@@ -55,27 +68,26 @@ module.exports = async (req, res) => {
 
   if (providerError) {
     console.warn('[meta/callback] provider returned error:', providerError, error_description);
-    return redirectBack(res, 'meta', { error: 'meta_auth_denied' });
+    return redirectBack(res, { error: 'meta_auth_denied' });
   }
   if (!code || !state) {
-    return redirectBack(res, 'meta', { error: 'meta_missing_params' });
+    return redirectBack(res, { error: 'meta_missing_params' });
   }
 
   // The state could have been issued by facebook/start or meta/start.
-  // Instagram now has its own callback (instagram/callback.js).
   let stateRow = null;
-  let platform = null;
+  let flowPlatform = null;
   for (const candidate of ['facebook', 'meta']) {
     const row = await consumeOAuthState({ platform: candidate, state });
     if (row) {
       stateRow = row;
-      platform = candidate;
+      flowPlatform = candidate;
       break;
     }
   }
   if (!stateRow) {
     console.warn('[meta/callback] invalid or expired state');
-    return redirectBack(res, 'meta', { error: 'meta_invalid_state' });
+    return redirectBack(res, { error: 'meta_invalid_state' });
   }
 
   const appId =
@@ -92,7 +104,7 @@ module.exports = async (req, res) => {
 
   if (!appId || !appSecret) {
     console.error('[meta/callback] Meta OAuth env vars not set');
-    return redirectBack(res, platform, { error: 'meta_misconfigured' });
+    return redirectBack(res, { error: 'meta_misconfigured' });
   }
 
   try {
@@ -114,7 +126,7 @@ module.exports = async (req, res) => {
         exchangeResp.status,
         exchangeData && exchangeData.error
       );
-      return redirectBack(res, platform, { error: 'meta_token_exchange_failed' });
+      return redirectBack(res, { error: 'meta_token_exchange_failed' });
     }
 
     // Step 2: upgrade to long-lived token (best-effort; fall back to short).
@@ -125,45 +137,37 @@ module.exports = async (req, res) => {
     });
     const accessToken = (longLived && longLived.access_token) || exchangeData.access_token;
     const expiresIn = (longLived && longLived.expires_in) || exchangeData.expires_in;
-    const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
 
     // Step 3: best-effort profile fetch for the UI.
     const profile = await fetchProfile(accessToken);
 
-    // Step 4: persist.
+    // Step 4: persist, encrypted.
     const supabase = getSupabaseAdminClient();
-    const { error: upsertErr } = await supabase
-      .from('creator_tokens')
-      .upsert(
-        {
-          user_id: stateRow.user_id,
-          platform,
-          access_token: accessToken,
-          refresh_token: null, // Meta does not issue refresh tokens; long-lived only
-          token_type: 'bearer',
-          scope: null,
-          expires_at: expiresAt,
-          status: 'connected',
-          last_error: null,
-          platform_user_id: profile ? profile.id : null,
-          platform_username: profile ? profile.name : null,
-          metadata: {
-            provider: 'meta',
-            long_lived: !!longLived,
-          },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'user_id,platform' }
-      );
+    const { error: upsertErr } = await upsertSocialAccount(supabase, {
+      userId: stateRow.user_id,
+      platform: flowPlatform, // 'meta' is mapped to 'facebook' for storage
+      accessToken,
+      refreshToken: null, // Meta issues no refresh token; the long-lived token is re-exchanged
+      expiresInSeconds: expiresIn,
+      platformUserId: profile ? profile.id : null,
+      displayName: profile ? profile.name : null,
+      profileImageUrl: profile ? profile.picture : null,
+      scopes: [],
+      metadata: {
+        provider: 'meta',
+        flow: flowPlatform,
+        long_lived: !!longLived,
+      },
+    });
 
     if (upsertErr) {
       console.error('[meta/callback] upsert failed:', upsertErr.message);
-      return redirectBack(res, platform, { error: 'meta_storage_failed' });
+      return redirectBack(res, { error: 'meta_storage_failed' });
     }
 
-    return redirectBack(res, platform, { connected: platform });
+    return redirectBack(res, { connected: 'facebook' });
   } catch (err) {
     console.error('[meta/callback] unexpected error:', err && err.message);
-    return redirectBack(res, platform || 'meta', { error: 'meta_server_error' });
+    return redirectBack(res, { error: 'meta_server_error' });
   }
 };

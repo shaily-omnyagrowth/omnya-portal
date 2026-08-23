@@ -91,6 +91,10 @@ module.exports = async function handler(req, res) {
   // Create the Stripe transfer
   let transfer;
   try {
+    // F-1: the idempotency key is derived from the payment id, so a retry --
+    // whether from this endpoint, from mark-paid, or from a client re-send --
+    // returns the original transfer instead of creating a second one. Stripe
+    // keys live 24h; the stripe_transfer_id check above covers the long term.
     transfer = await stripe.transfers.create({
       amount:      amountCents,
       currency:    (payment.currency || 'USD').toLowerCase(),
@@ -101,6 +105,8 @@ module.exports = async function handler(req, res) {
         creator_id:  payment.creator_id,
         platform:    'omnya',
       },
+    }, {
+      idempotencyKey: `omnya-payout-${payment.id}`,
     });
   } catch (stripeErr) {
     // Log and return failure — don't mark as paid

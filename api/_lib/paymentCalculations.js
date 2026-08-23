@@ -80,24 +80,17 @@ function maskEmail(email) {
 function formatPayoutDestination(creator) {
   if (!creator) return 'No payout method on file';
 
-  const method = creator.payout_method;
+  const method = creator.payment_method;
 
   if (method === 'zelle') {
-    const dest = creator.zelle_destination;
-    if (!dest) return 'Zelle (no destination on file)';
-    // Mask if it looks like an email, otherwise show last 4 digits
-    if (dest.includes('@')) {
-      return `Zelle: ${maskEmail(dest)}`;
-    }
-    const last4 = dest.slice(-4);
-    return `Zelle: ***-***-${last4}`;
+    if (creator.zelle_email) return `Zelle: ${maskEmail(creator.zelle_email)}`;
+    if (creator.zelle_phone_last4) return `Zelle: ***-***-${creator.zelle_phone_last4}`;
+    return 'Zelle (no destination on file)';
   }
 
   if (method === 'bank_transfer') {
-    const accountNum = creator.bank_account_number;
-    if (!accountNum) return 'Bank Transfer (no account on file)';
-    const last4 = String(accountNum).slice(-4);
-    return `Bank Transfer: ****${last4}`;
+    if (!creator.bank_account_last4) return 'Bank Transfer (no account on file)';
+    return `Bank Transfer: ****${creator.bank_account_last4}`;
   }
 
   return 'No payout method on file';
