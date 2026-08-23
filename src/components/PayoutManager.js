@@ -25,17 +25,22 @@ import LoadingSpinner from './LoadingSpinner';
 // The RPCs keep their own authorization (migration 20260821000000) -- this is
 // the outer gate, not a replacement for the inner one.
 
-async function callApi(path, body) {
+// method defaults to POST because everything that moves money is a POST. The
+// third argument exists for the read-only reports (reconciliation), which still
+// need the same auth header and the same error envelope handling — routing them
+// through here rather than a bare fetch is what keeps those two from drifting
+// apart between call sites.
+async function callApi(path, body, { method = 'POST' } = {}) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Your session has expired. Sign in again.');
 
   const res = await fetch(path, {
-    method: 'POST',
+    method,
     headers: {
       Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body || {}),
+    ...(method === 'GET' ? {} : { body: JSON.stringify(body || {}) }),
   });
 
   // react-scripts serves the SPA and knows nothing about /api/*, so a local
@@ -1287,6 +1292,116 @@ function PaymentManagersSection() {
 
 // ─── main export ──────────────────────────────────────────────────────────────
 
+// ─── section 6 — reconciliation ──────────────────────────────────────────────
+//
+// Scope §6.1 lists reconciliation alongside approvals, batches and exports as
+// something the owner operates. It was the only one of the four with no
+// surface: payout_ledger_reconcile() has existed since 20260822000004 and
+// nothing ever called it.
+//
+// §9.3 makes SUM(amount_delta) per creator the payable balance. Comparing that
+// against the earnings table is what proves the ledger is telling the truth —
+// a non-zero drift means a status was written without passing through the
+// ledger trigger, which is the single failure the design exists to detect.
+//
+// Nothing here corrects anything. A correction is a deliberate append-only
+// reversing entry, not something a page does on your behalf.
+function ReconciliationSection() {
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setReport(await callApi('/api/payouts/reconcile', null, { method: 'GET' }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <LoadingSpinner label="Reconciling…" />;
+
+  if (error) {
+    return (
+      <div style={{
+        background: 'rgba(192,57,43,0.08)', border: '1px solid var(--red)',
+        borderRadius: 'var(--radius-sm)', padding: '12px 16px', fontSize: 13, color: 'var(--red)',
+      }}>{error}</div>
+    );
+  }
+
+  const s = report?.summary || {};
+
+  return (
+    <div>
+      <div className="flex-between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ fontSize: 12, color: 'var(--ink3)', maxWidth: 520, lineHeight: 1.5 }}>
+          The append-only ledger against the earnings table, per creator. Drift
+          means a status changed without going through the ledger — investigate
+          it rather than adjusting a balance.
+        </div>
+        <button className="btn btn-sm btn-ghost" onClick={load}>↻ Re-check</button>
+      </div>
+
+      <div
+        style={{
+          background: s.balanced ? 'rgba(26,122,74,0.08)' : 'rgba(192,57,43,0.08)',
+          border: `1px solid ${s.balanced ? 'var(--green)' : 'var(--red)'}`,
+          borderRadius: 'var(--radius-sm)', padding: '12px 16px', marginBottom: 16,
+        }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 700, color: s.balanced ? 'var(--green)' : 'var(--red)' }}>
+          {s.balanced
+            ? '✓ Balanced — the ledger and the earnings table agree'
+            : `⚠ ${s.creatorsWithDrift} creator${s.creatorsWithDrift === 1 ? '' : 's'} out of balance`}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 5 }}>
+          {s.creators} creator{s.creators === 1 ? '' : 's'} checked ·
+          ledger {fmtMoney(s.totalLedger)} · table {fmtMoney(s.totalTable)}
+          {!s.balanced && ` · net drift ${fmtMoney(s.totalDrift)}`}
+        </div>
+      </div>
+
+      {(report?.drifted || []).length > 0 && (
+        <div className="table-wrap" style={{ marginBottom: 16 }}>
+          <table className="premium-table">
+            <thead>
+              <tr><th>Creator</th><th>Ledger</th><th>Earnings table</th><th>Drift</th></tr>
+            </thead>
+            <tbody>
+              {report.drifted.map((r) => (
+                <tr key={r.creator_id}>
+                  <td className="fw-600">{r.creator_name}</td>
+                  <td>{fmtMoney(r.ledger_balance)}</td>
+                  <td>{fmtMoney(r.table_balance)}</td>
+                  <td style={{ color: 'var(--red)', fontWeight: 700 }}>{fmtMoney(r.drift)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {report?.source === 'payout_ledger_reconcile' && (
+        <div style={{ fontSize: 11, color: 'var(--ink3)' }}>
+          Using the raw reconcile function — apply 20260823000000 for the named report.
+        </div>
+      )}
+      {report?.checkedAt && (
+        <div style={{ fontSize: 11, color: 'var(--ink3)' }}>
+          Checked {new Date(report.checkedAt).toLocaleString()}.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PayoutManager() {
   const [userRole, setUserRole] = useState('');
   const [openSections, setOpenSections] = useState({
@@ -1294,6 +1409,7 @@ export default function PayoutManager() {
     bonusReview: true,
     withdrawals: true,
     batches: true,
+    reconciliation: false,
     managers: false,
   });
   const [bonusPendingCount, setBonusPendingCount] = useState(null);
@@ -1396,7 +1512,19 @@ export default function PayoutManager() {
         </SectionBody>
       </div>
 
-      {/* Section 5 — Payment Managers (owner only) */}
+      {/* Section 5 — Reconciliation (§6.1) */}
+      <div style={{ marginBottom: 16 }}>
+        <SectionHeader
+          title="Reconciliation"
+          open={openSections.reconciliation}
+          onToggle={() => toggle('reconciliation')}
+        />
+        <SectionBody open={openSections.reconciliation}>
+          <ReconciliationSection />
+        </SectionBody>
+      </div>
+
+      {/* Section 6 — Payment Managers (owner only) */}
       {userRole === 'owner' && (
         <div style={{ marginBottom: 16 }}>
           <SectionHeader

@@ -16,6 +16,11 @@ const CreatorConnections = React.lazy(() => import('./CreatorConnections'));
 const AnalyticsDashboard = React.lazy(() => import('./AnalyticsDashboard'));
 const CreatorEarningsPage = React.lazy(() => import('./components/CreatorEarnings'));
 const PayoutManager = React.lazy(() => import('./components/PayoutManager'));
+// Owner administration (scope §6.1 / §5.2). Lazy for the same reason as the
+// rest: only owners ever load these, so they stay out of everyone's bundle.
+const UserManagement = React.lazy(() => import('./pages/UserManagement'));
+const AuditHistory = React.lazy(() => import('./pages/AuditHistory'));
+const SystemConfig = React.lazy(() => import('./pages/SystemConfig'));
 
 
 // ============================================================
@@ -669,6 +674,43 @@ const sendEmail = (type, data) => {
 };
 
 // ============================================================
+// API HELPER — for the owner administration routes
+//
+// The lifecycle actions (create/deactivate/restore a user, void a payment)
+// cannot be direct supabase calls from the browser. Creating a user needs the
+// service-role key; deactivating one revokes sessions; voiding a payment must
+// refuse a paid row. All of that lives server-side, so the browser asks.
+//
+// Unlike sendEmail this is NOT fire-and-forget: every caller shows the result,
+// because an owner who clicks "Deactivate" and is told nothing will assume it
+// worked.
+// ============================================================
+async function callApi(path, { method = "POST", body = null } = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Your session has expired. Sign in again.");
+
+  const res = await fetch(path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+
+  let payload = null;
+  try { payload = await res.json(); } catch (_) { /* non-JSON error page */ }
+
+  if (!res.ok || payload?.ok === false) {
+    throw new Error(
+      payload?.error?.message || payload?.message ||
+      `Request failed (${res.status})`
+    );
+  }
+  return payload?.data ?? payload;
+}
+
+// ============================================================
 // LOADING + ERROR COMPONENTS
 // ============================================================
 
@@ -1239,6 +1281,7 @@ const navs = {
   owner: [
     {id:"dashboard",icon:"🏠",label:"Dashboard"},
     {id:"pending-users",icon:"🔔",label:"Approve Users"},
+    {id:"user-management",icon:"👤",label:"User Management"},
     {id:"clients-full",icon:"🏢",label:"Client Management"},
     {id:"creators-manage",icon:"🎬",label:"Manage Creators"},
     {id:"revenue",icon:"📈",label:"Revenue Analytics"},
@@ -1248,6 +1291,12 @@ const navs = {
     {id:"review-queue",icon:"✅",label:"Review Queue"},
     {id:"campaigns",icon:"📢",label:"All Campaigns"},
     {id:"content-library",icon:"🎬",label:"Content Library"},
+    // §5.2 "Submit content: Owner Override/support"
+    {id:"submit",icon:"⬆️",label:"Submit for Creator"},
+    // §5.2 grants the owner "View audit history: Yes"; the events were being
+    // written all along with nothing to display them.
+    {id:"audit",icon:"📜",label:"Audit History"},
+    {id:"system-config",icon:"⚙️",label:"System Config"},
     {id:"legal",icon:"⚖️",label:"Legal Center"},
   ],
   client: [
@@ -1450,12 +1499,19 @@ function JobBoard({ user, db, onRefresh }) {
   );
 }
 
-function SubmitContent({ user, db, onRefresh, setPage }) {
-  const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
-  const myJobs = db.campaigns.filter(c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed");
-  const [form, setForm] = useState({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
-  if(!creator) return <div className="content"><div className="empty"><div className="empty-icon">👤</div><h3>Profile not found</h3><p>Your creator profile hasn't been set up yet. Contact your account manager.</p></div></div>;
-  if(myJobs.length===0) return <div className="content"><div className="empty"><div className="empty-icon">📋</div><h3>No active campaigns</h3><p>You haven't been assigned to any campaigns yet. Check Available Jobs or contact your account manager.</p><button className="btn btn-primary" style={{marginTop:16}} onClick={()=>setPage("jobs")}>Browse Jobs</button></div></div>;
+// isOverride: §5.2 grants the owner "Submit content: Override/support" — filing
+// a submission on a creator's behalf when something has to be recorded
+// out-of-band. The owner is not a creator, so in override mode the creator is
+// picked from a dropdown instead of resolved from the session.
+function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
+  const ownCreator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
+
+  // Every hook runs before any early return. The previous version returned
+  // "Profile not found" partway down and declared six more useState calls
+  // below it, so the hook order changed the moment a creator record appeared —
+  // which React treats as a fatal error, not a warning.
+  const [overrideCreatorId, setOverrideCreatorId] = useState("");
+  const [form, setForm] = useState({campaign_id:"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
   const [file, setFile] = useState(null);
   const [uploadMode, setUploadMode] = useState("file"); // "file" or "link"
   const [submitting, setSubmitting] = useState(false);
@@ -1463,6 +1519,63 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
   const [success, setSuccess] = useState(false);
   const [err, setErr] = useState("");
   const successRef = useRef(false);
+
+  const creator = isOverride
+    ? db.creators.find(c=>c.id===overrideCreatorId)
+    : ownCreator;
+
+  const myJobs = db.campaigns.filter(
+    c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed"&&c.status!=="Archived"
+  );
+
+  // Keep the selected campaign valid as the creator changes underneath it.
+  useEffect(() => {
+    if (!myJobs.some(j => j.id === form.campaign_id)) {
+      setForm(f => ({ ...f, campaign_id: myJobs[0]?.id || "" }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creator?.id, myJobs.length]);
+
+  if(isOverride && !creator) {
+    return (
+      <div className="content">
+        <div className="premium-card" style={{maxWidth:520}}>
+          <div className="card-title">Submit on a creator's behalf</div>
+          <div style={{fontSize:12,color:"var(--ink3)",marginBottom:16,lineHeight:1.5}}>
+            Use this when a submission has to be recorded out-of-band — the
+            creator sent it by email, or their account was not yet set up. It is
+            filed against their record exactly as if they had submitted it, and
+            the action appears on the audit trail.
+          </div>
+          <div className="form-group">
+            <label className="form-label">Creator</label>
+            <select className="select" value={overrideCreatorId} onChange={e=>setOverrideCreatorId(e.target.value)}>
+              <option value="">Select creator…</option>
+              {db.creators.filter(c=>c.status!=="Offboarded").map(c=>(
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if(!creator) return <div className="content"><div className="empty"><div className="empty-icon">👤</div><h3>Profile not found</h3><p>Your creator profile hasn't been set up yet. Contact your account manager.</p></div></div>;
+  if(myJobs.length===0) return (
+    <div className="content">
+      <div className="empty">
+        <div className="empty-icon">📋</div>
+        <h3>No active campaigns</h3>
+        <p>{isOverride
+          ? `${creator.name} is not assigned to any active campaign. Assign them first, then submit.`
+          : "You haven't been assigned to any campaigns yet. Check Available Jobs or contact your account manager."}</p>
+        {isOverride
+          ? <button className="btn btn-ghost" style={{marginTop:16}} onClick={()=>setOverrideCreatorId("")}>← Pick another creator</button>
+          : <button className="btn btn-primary" style={{marginTop:16}} onClick={()=>setPage("jobs")}>Browse Jobs</button>}
+      </div>
+    </div>
+  );
 
   const uploadToSupabase = async (fileObj, campaignId) => {
     const campaign = db.campaigns.find(c=>c.id===campaignId);
@@ -1521,7 +1634,12 @@ function SubmitContent({ user, db, onRefresh, setPage }) {
       final_status: form.type==="Final"?"Pending":null,
       posted_link: form.posted_link||null, platform: form.platform,
       payment_status: "Unpaid",
-      notes: form.comment||null,
+      // An override submission says so in its own notes, so nobody reading the
+      // review queue later has to wonder why the creator has no record of
+      // sending it.
+      notes: isOverride
+        ? `[Filed by ${user.email} on the creator's behalf] ${form.comment||""}`.trim()
+        : (form.comment||null),
       due_date: form.due_date||null
     };
 
@@ -2005,7 +2123,7 @@ function AMDashboard({ user, db }) {
   );
 }
 
-function ReviewQueue({ db, onRefresh }) {
+function ReviewQueue({ db, onRefresh, user }) {
   const [tab, setTab] = useState("concepts");
   const [modal, setModal] = useState(null);
   const [feedback, setFeedback] = useState("");
@@ -2024,7 +2142,14 @@ function ReviewQueue({ db, onRefresh }) {
 
   const action = async (subId, field, value) => {
     setSaving(true);
-    const updates = { [field]: value, feedback, reviewed_at: new Date().toISOString() };
+    const updates = {
+      [field]: value,
+      feedback,
+      reviewed_at: new Date().toISOString(),
+      // §5.1: approvals and rejections generate audit events.
+      // trg_audit_submission_review reads this column for the actor.
+      reviewed_by: user?.id || null,
+    };
     const sub = db.submissions.find(s=>s.id===subId);
     const campaign = db.campaigns.find(c=>c.id===sub?.campaign_id);
     const creator = db.creators.find(c=>c.id===sub?.creator_id);
@@ -2375,6 +2500,9 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
   const [deleting, setDeleting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [archiveError, setArchiveError] = useState("");
+  const isArchived = campaign.status === "Archived";
   const [uploadingBrief, setUploadingBrief] = useState(false);
   const [isSalesSourced, setIsSalesSourced] = useState(campaign.is_sales_sourced||false);
   const [editForm, setEditForm] = useState({
@@ -2492,9 +2620,61 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
     await onRefresh(); setEditing(false); setSaving(false);
   };
 
-  const deleteCampaign = async () => {
+  // Scope §7.1 step 13: "Campaign closes or archives while preserving history,
+  // financial links and audit records." This used to be a hard DELETE, which
+  // took the submissions, earnings and audit references with it. The database
+  // now refuses that outright (trg_campaigns_no_delete), so this is the only
+  // path — and it is reversible.
+  const archiveCampaign = async () => {
+    if (!archiveReason.trim()) {
+      setArchiveError("Give a reason — it is what the audit entry will say.");
+      return;
+    }
     setDeleting(true);
-    await supabase.from("campaigns").delete().eq("id", campaign.id);
+    setArchiveError("");
+
+    const { data, error } = await supabase
+      .from("campaigns")
+      .update({
+        status: "Archived",
+        archived_at: new Date().toISOString(),
+        archived_by: user?.id || null,
+        archive_reason: archiveReason.trim(),
+      })
+      .eq("id", campaign.id)
+      .select("id");
+
+    if (error) {
+      setArchiveError(`Could not archive: ${error.message}`);
+      setDeleting(false);
+      return;
+    }
+    // PostgREST reports success for an UPDATE that matched zero rows, which is
+    // exactly what an RLS refusal looks like. .select() is what makes the
+    // difference visible.
+    if (!data || data.length === 0) {
+      setArchiveError("That campaign was not archived — you may not have permission.");
+      setDeleting(false);
+      return;
+    }
+
+    await onRefresh(); onClose();
+  };
+
+  const restoreCampaign = async () => {
+    setDeleting(true);
+    setArchiveError("");
+    const { data, error } = await supabase
+      .from("campaigns")
+      .update({ status: "Open", archived_at: null, archived_by: null, archive_reason: null })
+      .eq("id", campaign.id)
+      .select("id");
+
+    if (error || !data || data.length === 0) {
+      setArchiveError(error ? `Could not restore: ${error.message}` : "That campaign was not restored — you may not have permission.");
+      setDeleting(false);
+      return;
+    }
     await onRefresh(); onClose();
   };
 
@@ -2522,19 +2702,48 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
           </div>
           <div style={{display:"flex",gap:8}}>
             {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
-            {!editing&&<button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} onClick={()=>setConfirmDelete(true)}>🗑 Delete</button>}
+            {!editing&&!isArchived&&<button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} onClick={()=>{setConfirmDelete(true);setArchiveReason("");setArchiveError("");}}>🗄 Archive</button>}
+            {!editing&&isArchived&&<button className="btn btn-sm btn-ghost" style={{color:"var(--green)"}} onClick={restoreCampaign} disabled={deleting}>{deleting?"Restoring…":"↩ Restore"}</button>}
             <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
           </div>
         </div>
 
-        {/* Confirm Delete */}
+        {/* Archived banner — the campaign is still fully readable, which is the
+            point of archiving rather than deleting. */}
+        {isArchived&&(
+          <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:16}}>
+            <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>🗄 Archived</div>
+            <div style={{fontSize:12,color:"var(--ink3)"}}>
+              {campaign.archive_reason ? `Reason: ${campaign.archive_reason}` : "No reason recorded."}
+              {campaign.archived_at ? ` · ${fmtDate(campaign.archived_at)}` : ""}
+            </div>
+            <div style={{fontSize:12,color:"var(--ink3)",marginTop:6}}>
+              Submissions, earnings and audit history are preserved. Restore returns it to Open.
+            </div>
+          </div>
+        )}
+
+        {/* Confirm Archive */}
         {confirmDelete&&(
-          <div style={{background:"#fff3f3",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:16}}>
-            <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>Delete this campaign?</div>
-            <div style={{fontSize:12,color:"var(--ink3)",marginBottom:12}}>This cannot be undone.</div>
+          <div style={{background:"var(--bg2)",border:"1px solid var(--orange)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:16}}>
+            <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>Archive this campaign?</div>
+            <div style={{fontSize:12,color:"var(--ink3)",marginBottom:12}}>
+              It stops appearing in active lists. Submissions, earnings and audit
+              records are kept, and you can restore it at any time.
+            </div>
+            {archiveError&&<ErrorMsg msg={archiveError} />}
+            <div className="form-group">
+              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+              <input
+                className="form-input"
+                placeholder="e.g. Client ended the retainer"
+                value={archiveReason}
+                onChange={e=>setArchiveReason(e.target.value)}
+              />
+            </div>
             <div style={{display:"flex",gap:8}}>
               <button className="btn btn-sm btn-ghost" onClick={()=>setConfirmDelete(false)}>Cancel</button>
-              <button className="btn btn-sm" style={{background:"var(--red)",color:"#fff"}} onClick={deleteCampaign} disabled={deleting}>{deleting?"Deleting...":"Yes, Delete"}</button>
+              <button className="btn btn-sm" style={{background:"var(--orange)",color:"#fff"}} onClick={archiveCampaign} disabled={deleting||!archiveReason.trim()}>{deleting?"Archiving…":"Archive Campaign"}</button>
             </div>
           </div>
         )}
@@ -3117,6 +3326,14 @@ function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
     contract_url: client.contract_url||""
   });
 
+  // §11.1 — soft deletion or inactive states where historical records must stay
+  // referentially intact. A client anchors campaigns, submissions and earnings,
+  // so it is archived rather than removed.
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [archiveError, setArchiveError] = useState("");
+  const isArchived = client.status === "Archived";
+
   const save = async () => {
     setSaving(true);
     await supabase.from("clients").update(form).eq("id", client.id);
@@ -3125,9 +3342,85 @@ function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
     setEditing(false);
   };
 
+  const setArchived = async (archived) => {
+    if (archived && !archiveReason.trim()) {
+      setArchiveError("Give a reason — it is what the audit entry will say.");
+      return;
+    }
+    setSaving(true);
+    setArchiveError("");
+
+    const patch = archived
+      ? {
+          status: "Archived",
+          archived_at: new Date().toISOString(),
+          archived_by: user?.id || null,
+          archive_reason: archiveReason.trim(),
+        }
+      : { status: "Active", archived_at: null, archived_by: null, archive_reason: null };
+
+    // .select() is what distinguishes an RLS refusal (no error, zero rows)
+    // from a real success.
+    const { data, error } = await supabase
+      .from("clients").update(patch).eq("id", client.id).select("id");
+
+    if (error || !data || data.length === 0) {
+      setArchiveError(error ? `Could not save: ${error.message}`
+                            : "That client was not updated — you may not have permission.");
+      setSaving(false);
+      return;
+    }
+
+    await onRefresh();
+    setSaving(false);
+    setConfirmArchive(false);
+    onClose();
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{maxWidth:600,maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        {isArchived&&(
+          <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:16}}>
+            <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>🗄 Archived</div>
+            <div style={{fontSize:12,color:"var(--ink3)"}}>
+              {client.archive_reason ? `Reason: ${client.archive_reason}` : "No reason recorded."}
+              {client.archived_at ? ` · ${fmtDate(client.archived_at)}` : ""}
+            </div>
+          </div>
+        )}
+
+        {isOwner&&(
+          <div style={{marginBottom:16}}>
+            {!confirmArchive ? (
+              isArchived
+                ? <button className="btn btn-sm btn-green" onClick={()=>setArchived(false)} disabled={saving}>{saving?"Restoring…":"↩ Restore Client"}</button>
+                : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} onClick={()=>{setConfirmArchive(true);setArchiveReason("");setArchiveError("");}}>🗄 Archive Client</button>
+            ) : (
+              <div style={{background:"var(--bg2)",border:"1px solid var(--orange)",borderRadius:"var(--radius-sm)",padding:12}}>
+                <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>Archive this client?</div>
+                <div style={{fontSize:12,color:"var(--ink3)",marginBottom:12}}>
+                  Their campaigns, submissions and financial history are kept and
+                  stay linked. You can restore them at any time.
+                </div>
+                {archiveError&&<ErrorMsg msg={archiveError} />}
+                <div className="form-group">
+                  <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+                  <input className="form-input" placeholder="e.g. Contract ended August 2026"
+                         value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button className="btn btn-sm btn-ghost" onClick={()=>setConfirmArchive(false)}>Cancel</button>
+                  <button className="btn btn-sm" style={{background:"var(--orange)",color:"#fff"}}
+                          onClick={()=>setArchived(true)} disabled={saving||!archiveReason.trim()}>
+                    {saving?"Archiving…":"Archive Client"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex-between mb-16">
           <div>
             <div className="modal-title" style={{marginBottom:2}}>{client.name}</div>
@@ -3508,6 +3801,9 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({creator_id:"",campaign_id:"",videos_approved:1,amount_owed:"",payment_method:"Venmo",notes:""});
   const [creatorFilter, setCreatorFilter] = useState("");
+  const [voidTarget, setVoidTarget] = useState(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidError, setVoidError] = useState("");
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -3587,9 +3883,36 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
     await onRefresh(); setSaving(false);
   };
 
-  const deletePayment = async (id) => {
-    await supabase.from("payments").delete().eq("id",id);
-    await onRefresh();
+  // Scope §9.5: "No hard deletion of financial records."
+  //
+  // This used to be supabase.from("payments").delete() fired straight from the
+  // ✕ button — no confirmation, no audit entry, no check on the result. The
+  // record simply vanished and nothing recorded that it ever existed.
+  //
+  // The database now refuses a DELETE on payments outright, so voiding is the
+  // only path. It goes through /api/payments/void because the server has to
+  // refuse a row that is already paid or has a Stripe transfer against it,
+  // which the browser cannot be trusted to check.
+  const voidPayment = async () => {
+    if (!voidTarget) return;
+    if (!voidReason.trim()) {
+      setVoidError("Give a reason — it is the only explanation the audit trail carries.");
+      return;
+    }
+    setSaving(true);
+    setVoidError("");
+    try {
+      await callApi("/api/payments/void", {
+        body: { paymentId: voidTarget.id, reason: voidReason.trim() },
+      });
+      setVoidTarget(null);
+      setVoidReason("");
+      await onRefresh();
+    } catch (err) {
+      setVoidError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const createPayment = async () => {
@@ -3737,7 +4060,16 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
                     <td>
                       <div style={{display:"flex",gap:6}}>
                         {p.status==="Pending"&&isOwner&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Pay</button>}
-                        {isOwner&&<button className="btn btn-sm btn-ghost" style={{color:"var(--red)",fontSize:11}} onClick={()=>deletePayment(p.id)}>✕</button>}
+                        {/* Void, not delete. A paid payment is refused server-side. */}
+                        {isOwner&&!p.voided_at&&p.status!=="Paid"&&(
+                          <button
+                            className="btn btn-sm btn-ghost"
+                            style={{color:"var(--orange)",fontSize:11}}
+                            title="Void this payment"
+                            onClick={()=>{setVoidTarget(p);setVoidReason("");setVoidError("");}}
+                          >Void</button>
+                        )}
+                        {p.voided_at&&<span className="badge badge-gray" title={p.void_reason||""}>Voided</span>}
                       </div>
                     </td>
                   </tr>
@@ -3792,6 +4124,44 @@ function PaymentManagement({ db, onRefresh, user, isOwner }) {
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setShowCreate(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={createPayment} disabled={saving||!createForm.creator_id||!createForm.amount_owed}>{saving?"Saving...":"Add Payment"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Void payment modal — replaces the old one-click hard delete (§9.5) */}
+      {voidTarget&&(
+        <div className="modal-overlay" onClick={()=>setVoidTarget(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Void this payment?</div>
+            <div className="modal-sub">
+              The record is kept. Voiding marks it cancelled and writes the reason
+              to the audit trail — financial records are never deleted.
+            </div>
+            {voidError&&<ErrorMsg msg={voidError} />}
+            <div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:16,fontSize:13}}>
+              <div><strong>{db.creators.find(c=>c.id===voidTarget.creator_id)?.name||"Unknown creator"}</strong></div>
+              <div style={{color:"var(--ink3)",marginTop:4}}>
+                {fmtMoney(voidTarget.amount??voidTarget.amount_owed)} · {voidTarget.status} · {fmtDate(voidTarget.week_ending)}
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+              <textarea
+                className="textarea" rows={3}
+                placeholder="e.g. Duplicate of the 12 Aug payment"
+                value={voidReason}
+                onChange={e=>setVoidReason(e.target.value)}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setVoidTarget(null)}>Cancel</button>
+              <button
+                className="btn"
+                style={{background:"var(--orange)",color:"#fff"}}
+                onClick={voidPayment}
+                disabled={saving||!voidReason.trim()}
+              >{saving?"Voiding…":"Void Payment"}</button>
             </div>
           </div>
         </div>
@@ -4595,11 +4965,80 @@ function PendingUsers({ onRefresh }) {
 // ============================================================
 // CREATORS MANAGE - OWNER VIEW TO MANAGE ALL CREATORS & AMs
 // ============================================================
-function CreatorsManage({ db, onRefresh }) {
+function CreatorsManage({ db, onRefresh, user }) {
   const [tab, setTab] = useState("creators");
   const [editCreator, setEditCreator] = useState(null);
   const [editAM, setEditAM] = useState(null);
   const [saving, setSaving] = useState(false);
+  // §6.1 "Manage creators, Account Managers and clients". Account Managers
+  // could previously only be edited — never created, never removed. Creating
+  // one goes through /api/admin/users/create because it needs an auth account
+  // as well as an account_managers row; without both, the manager exists in
+  // the assignment dropdown but cannot sign in.
+  const [showCreateAM, setShowCreateAM] = useState(false);
+  const [amForm, setAmForm] = useState({ email: "", fullName: "" });
+  const [amBusy, setAmBusy] = useState(false);
+  const [amMsg, setAmMsg] = useState({ type: "", text: "" });
+  const [archiveAMTarget, setArchiveAMTarget] = useState(null);
+  const [archiveAMReason, setArchiveAMReason] = useState("");
+
+  const createAM = async () => {
+    setAmBusy(true);
+    setAmMsg({ type: "", text: "" });
+    try {
+      const data = await callApi("/api/admin/users/create", {
+        body: {
+          email: amForm.email.trim(),
+          fullName: amForm.fullName.trim(),
+          role: "am",
+          sendInvite: true,
+        },
+      });
+      setAmMsg({ type: "success", text: data.message });
+      setAmForm({ email: "", fullName: "" });
+      setShowCreateAM(false);
+      await onRefresh();
+    } catch (err) {
+      setAmMsg({ type: "error", text: err.message });
+    } finally {
+      setAmBusy(false);
+    }
+  };
+
+  // Archive, not delete: creators point at their AM through am_id, and
+  // removing the row would orphan every one of those assignments (§7.2 —
+  // "Removal/deactivation must preserve historical references").
+  const setAMArchived = async (am, archived, reason) => {
+    setSaving(true);
+    setAmMsg({ type: "", text: "" });
+
+    const patch = archived
+      ? {
+          status: "Archived",
+          archived_at: new Date().toISOString(),
+          archived_by: user?.id || null,
+          archive_reason: (reason || "").trim(),
+        }
+      : { status: "Active", archived_at: null, archived_by: null, archive_reason: null };
+
+    const { data, error } = await supabase
+      .from("account_managers").update(patch).eq("id", am.id).select("id");
+
+    if (error || !data || data.length === 0) {
+      setAmMsg({
+        type: "error",
+        text: error ? `Could not save: ${error.message}`
+                    : "That manager was not updated — you may not have permission.",
+      });
+      setSaving(false);
+      return;
+    }
+
+    setArchiveAMTarget(null);
+    setArchiveAMReason("");
+    await onRefresh();
+    setSaving(false);
+  };
 
   const saveCreator = async () => {
     setSaving(true);
@@ -4678,25 +5117,115 @@ function CreatorsManage({ db, onRefresh }) {
 
       {tab==="ams"&&(
         <div className="premium-card">
+          <div className="flex-between mb-16" style={{flexWrap:"wrap",gap:10}}>
+            <div style={{fontSize:12,color:"var(--ink3)"}}>
+              Archiving keeps the manager's record so assignment history stays intact.
+            </div>
+            <button className="btn btn-sm btn-primary" onClick={()=>{setShowCreateAM(true);setAmMsg({type:"",text:""});}}>+ Add Account Manager</button>
+          </div>
+
+          {amMsg.text&&(
+            <div style={{
+              background: amMsg.type==="error"?"rgba(192,57,43,0.08)":"rgba(26,122,74,0.08)",
+              border:`1px solid ${amMsg.type==="error"?"var(--red)":"var(--green)"}`,
+              borderRadius:"var(--radius-sm)",padding:"10px 14px",marginBottom:14,
+              fontSize:13,color:amMsg.type==="error"?"var(--red)":"var(--green)"
+            }}>{amMsg.text}</div>
+          )}
+
           <div className="table-wrap">
             <table className="premium-table">
-              <thead><tr><th>Name</th><th>Email</th><th>Creators</th><th>Edit</th></tr></thead>
+              <thead><tr><th>Name</th><th>Email</th><th>Creators</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
               <tbody>
                 {db.accountManagers.map(am=>{
                   const count = db.creators.filter(c=>c.am_id===am.id).length;
+                  const archived = am.status === "Archived";
                   return (
-                    <tr key={am.id}>
+                    <tr key={am.id} style={archived?{opacity:0.62}:undefined}>
                       <td className="fw-600">{am.name||"—"}</td>
                       <td style={{fontSize:12,color:"var(--ink3)"}}>{am.email}</td>
                       <td>{count} creators</td>
-                      <td><button className="btn btn-sm btn-ghost" onClick={()=>setEditAM({...am})}>Edit</button></td>
+                      <td>
+                        <span className={`badge ${archived?"badge-gray":"badge-green"}`}>{archived?"Archived":"Active"}</span>
+                        {archived&&am.archive_reason&&(
+                          <div style={{fontSize:11,color:"var(--ink3)",marginTop:3,maxWidth:200}}>{am.archive_reason}</div>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                          <button className="btn btn-sm btn-ghost" onClick={()=>setEditAM({...am})}>Edit</button>
+                          {archived
+                            ? <button className="btn btn-sm btn-green" disabled={saving} onClick={()=>setAMArchived(am,false)}>Restore</button>
+                            : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} disabled={saving}
+                                      onClick={()=>{setArchiveAMTarget(am);setArchiveAMReason("");}}>Archive</button>}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)"}}>Invite account managers using your portal URL.</p></div>}
+          {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)"}}>Add one above, or invite them using your portal URL.</p></div>}
+        </div>
+      )}
+
+      {/* Create Account Manager */}
+      {showCreateAM&&(
+        <div className="modal-overlay" onClick={()=>setShowCreateAM(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Add Account Manager</div>
+            <div className="modal-sub">
+              Creates their sign-in account and their manager record together, then
+              emails an invitation so they set their own password.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Email <span style={{color:"var(--red)"}}>*</span></label>
+              <input className="form-input" type="email" placeholder="manager@example.com"
+                     value={amForm.email} onChange={e=>setAmForm({...amForm,email:e.target.value})}/>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Full name</label>
+              <input className="form-input" placeholder="Optional"
+                     value={amForm.fullName} onChange={e=>setAmForm({...amForm,fullName:e.target.value})}/>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setShowCreateAM(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={createAM} disabled={amBusy||!amForm.email.trim()}>
+                {amBusy?"Creating…":"Create & Invite"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Archive Account Manager */}
+      {archiveAMTarget&&(
+        <div className="modal-overlay" onClick={()=>setArchiveAMTarget(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Archive {archiveAMTarget.name||archiveAMTarget.email}?</div>
+            <div className="modal-sub">
+              {db.creators.filter(c=>c.am_id===archiveAMTarget.id).length > 0
+                ? `${db.creators.filter(c=>c.am_id===archiveAMTarget.id).length} creator(s) are still assigned to them. Those assignments are preserved — reassign the creators separately if someone else should take over.`
+                : "No creators are currently assigned to them."}
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+              <input className="form-input" placeholder="e.g. Left the agency"
+                     value={archiveAMReason} onChange={e=>setArchiveAMReason(e.target.value)}/>
+            </div>
+            <div style={{fontSize:11,color:"var(--ink3)",marginBottom:12}}>
+              To also stop them signing in, deactivate their user account in User Management.
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setArchiveAMTarget(null)}>Cancel</button>
+              <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
+                      onClick={()=>setAMArchived(archiveAMTarget,true,archiveAMReason)}
+                      disabled={saving||!archiveAMReason.trim()}>
+                {saving?"Archiving…":"Archive"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -5286,7 +5815,7 @@ export default function App() {
     }
     if(role==="am"||role==="account_manager"){
       if(page==="dashboard") return <ErrorBoundary label="AM Dashboard"><AMDashboard user={user} db={db}/></ErrorBoundary>;
-      if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="my-creators") return <ErrorBoundary label="My Creators"><MyCreators user={user} db={db}/></ErrorBoundary>;
       if(page==="campaigns") return <ErrorBoundary label="Campaigns"><CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={false}/></ErrorBoundary>;
       if(page==="clients") return <ErrorBoundary label="Clients"><ClientsPage isOwner={false} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
@@ -5305,8 +5834,15 @@ export default function App() {
       if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="team") return <ErrorBoundary label="Team Performance"><TeamPerformance db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="pending-users") return <ErrorBoundary label="Pending Users"><PendingUsers onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="creators-manage") return <ErrorBoundary label="Manage Creators"><CreatorsManage db={db} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="user-management") return <ErrorBoundary label="User Management"><UserManagement currentUser={user} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="audit") return <ErrorBoundary label="Audit History"><AuditHistory/></ErrorBoundary>;
+      if(page==="system-config") return <ErrorBoundary label="System Config"><SystemConfig/></ErrorBoundary>;
+      {/* §5.2 "Submit content: Owner Override/support" — the owner can file a
+          submission on a creator's behalf when something has to be recorded
+          out-of-band. Same form the creator uses. */}
+      if(page==="submit") return <ErrorBoundary label="Submit Content"><SubmitContent user={user} db={db} onRefresh={loadDB} setPage={setPage} isOverride={true}/></ErrorBoundary>;
+      if(page==="creators-manage") return <ErrorBoundary label="Manage Creators"><CreatorsManage db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
+      if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="campaigns") return <ErrorBoundary label="Campaigns"><CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={true}/></ErrorBoundary>;
       if(page==="content-library") return <ErrorBoundary label="Content Library"><ContentLibrary db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
