@@ -1630,8 +1630,8 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     const newSub = {
       creator_id: creator.id, campaign_id: form.campaign_id,
       submission_type: form.type, concept_link: fileLink,
-      concept_status: "Pending",
-      final_status: form.type==="Final"?"Pending":null,
+      status: "Pending",
+      status: form.type==="Final"?"Pending":null,
       posted_link: form.posted_link||null, platform: form.platform,
       payment_status: "Unpaid",
       // An override submission says so in its own notes, so nobody reading the
@@ -1820,17 +1820,17 @@ function MySubmissions({ user, db }) {
 
   const filtered = mySubs.filter(s=>{
     if(tab==="All") return true;
-    if(tab==="Pending") return s.concept_status==="Pending"||s.final_status==="Pending";
-    if(tab==="Approved") return s.final_status==="Approved";
-    if(tab==="Revisions") return s.concept_status==="Revisions Needed";
-    if(tab==="Denied") return s.final_status==="Denied"||s.concept_status==="Denied";
+    if(tab==="Pending") return s.status==="Submitted"||s.status==="Under Review";
+    if(tab==="Approved") return s.status==="Approved";
+    if(tab==="Revisions") return s.status==="Revision Requested";
+    if(tab==="Rejected") return s.status==="Rejected";
     return true;
   });
 
   return (
     <div className="content">
       <div className="tabs mb-24">
-        {["All","Pending","Approved","Revisions","Denied"].map(t=>(
+        {["All","Pending","Approved","Revisions","Rejected"].map(t=>(
           <div key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</div>
         ))}
       </div>
@@ -1839,9 +1839,9 @@ function MySubmissions({ user, db }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
           {filtered.map(s => {
             const camp = db.campaigns.find(c => c.id === s.campaign_id);
-            const isApproved = s.final_status === "Approved";
-            const needsRevisions = s.concept_status === "Revisions Needed";
-            const isPending = s.concept_status === "Pending" || s.final_status === "Pending";
+            const isApproved = s.status === "Approved";
+            const needsRevisions = s.concept_status === "Revision Requested";
+            const isPending = s.status === "Submitted" || s.status === "Under Review";
             
             // Build aesthetic status dots
             let statusColor = "var(--ink2)";
@@ -1861,7 +1861,7 @@ function MySubmissions({ user, db }) {
                   <div className="flex-center gap-8">
                     <div className={`dot ${pulseClass}`} style={{background: statusColor, width: 8, height: 8}}></div>
                     <span className="fs-12 fw-600" style={{color: statusColor, textTransform: 'uppercase', letterSpacing: 0.5}}>
-                      {s.final_status || s.concept_status}
+                      {s.status}
                     </span>
                   </div>
                 </div>
@@ -1960,7 +1960,7 @@ function CreatorEarnings({ user, db }) {
 
 function CreatorInsights({ user, db, onRefresh }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
-  const approvedSubs = creator?db.submissions.filter(s=>s.creator_id===creator.id&&s.final_status==="Approved"):[];
+  const approvedSubs = creator?db.submissions.filter(s=>s.creator_id===creator.id&&s.status==="Approved"):[];
   const [selected, setSelected] = useState(approvedSubs[0]?.id||null);
 
   const updateSub = async (updatedSub) => {
@@ -2007,12 +2007,12 @@ function AMClientSummaryBar({ client, db }) {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const totalApprovedMonth = db.submissions.filter(s=>{
-    return campaigns.some(c=>c.id===s.campaign_id) && s.final_status==="Approved" && new Date(s.created_at)>=startOfMonth;
+    return campaigns.some(c=>c.id===s.campaign_id) && s.status==="Approved" && new Date(s.created_at)>=startOfMonth;
   }).length;
 
   const totalTarget = campaigns.reduce((t,c)=>t+Number(c.videos_needed||0),0);
   const revenue = Number(client.budget||0);
-  const creatorCost = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.final_status==="Approved")
+  const creatorCost = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.status==="Approved")
     .reduce((t,s)=>{ const camp=db.campaigns.find(c=>c.id===s.campaign_id); return t+Number(camp?.pay_per_video||0); },0);
   const amCost = revenue * 0.10;
   const margin = revenue>0?Math.round(((revenue-creatorCost-amCost)/revenue)*100):0;
@@ -2055,9 +2055,9 @@ function AMDashboard({ user, db }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
   const myCreators = am?db.creators.filter(c=>c.am_id===am.id):[];
   const myClients = am?db.clients.filter(c=>c.am_id===am.id):[];
-  const pendingC = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.concept_status==="Pending").length;
-  const pendingF = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.final_status==="Pending").length;
-  const approvedWeek = db.submissions.filter(s=>s.final_status==="Approved"&&new Date(s.approved_date)>new Date(Date.now()-7*86400000)).length;
+  const pendingC = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.status==="Submitted").length;
+  const pendingF = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.status==="Under Review").length;
+  const approvedWeek = db.submissions.filter(s=>s.status==="Approved"&&new Date(s.approved_date)>new Date(Date.now()-7*86400000)).length;
   if(!am) return <div className="content"><div className="empty"><div className="empty-icon">⚙️</div><h3>Account not fully set up</h3><p>Your account manager profile isn't linked yet. Contact Shai to get assigned to clients and creators.</p></div></div>;
   return (
     <div className="content">
@@ -2072,7 +2072,7 @@ function AMDashboard({ user, db }) {
           <div className="card-title">Creator Performance</div>
           {myCreators.map(c=>{
             const subs=db.submissions.filter(s=>s.creator_id===c.id);
-            const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
+            const rate=subs.length>0?Math.round((subs.filter(s=>s.status==="Approved").length/subs.length)*100):0;
             return (
               <div key={c.id} className="perf-row">
                 <div className="perf-label fs-12">{c.name.split(" ")[0]}</div>
@@ -2089,10 +2089,10 @@ function AMDashboard({ user, db }) {
             const campaigns = db.campaigns.filter(c=>c.client_id===cl.id);
             const now = new Date();
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            const approvedMonth = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.final_status==="Approved"&&new Date(s.created_at)>=startOfMonth).length;
+            const approvedMonth = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.status==="Approved"&&new Date(s.created_at)>=startOfMonth).length;
             const target = campaigns.reduce((t,c)=>t+Number(c.videos_needed||0),0);
             const revenue = Number(cl.budget||0);
-            const creatorCost = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.final_status==="Approved").reduce((t,s)=>{const camp=db.campaigns.find(c=>c.id===s.campaign_id);return t+Number(camp?.pay_per_video||0);},0);
+            const creatorCost = db.submissions.filter(s=>campaigns.some(c=>c.id===s.campaign_id)&&s.status==="Approved").reduce((t,s)=>{const camp=db.campaigns.find(c=>c.id===s.campaign_id);return t+Number(camp?.pay_per_video||0);},0);
             const margin = revenue>0?Math.round(((revenue-creatorCost-revenue*0.10)/revenue)*100):0;
             const marginColor = margin>=50?"var(--green)":margin>=25?"#b08800":"var(--red)";
             return (
@@ -2131,9 +2131,9 @@ function ReviewQueue({ db, onRefresh, user }) {
   // Surfaces a write that did not land. See the note in action() below.
   const [actionError, setActionError] = useState("");
 
-  const concepts = db.submissions.filter(s=>s.concept_status==="Pending");
-  const finals = db.submissions.filter(s=>s.final_status==="Pending");
-  const revisions = db.submissions.filter(s=>s.concept_status==="Revisions Needed");
+  const concepts = db.submissions.filter(s=>s.status==="Submitted");
+  const finals = db.submissions.filter(s=>s.status==="Under Review");
+  const revisions = db.submissions.filter(s=>s.status==="Revision Requested");
 
   const getDaysWaiting = (dateStr) => {
     if (!dateStr) return 0;
@@ -2154,7 +2154,7 @@ function ReviewQueue({ db, onRefresh, user }) {
     const campaign = db.campaigns.find(c=>c.id===sub?.campaign_id);
     const creator = db.creators.find(c=>c.id===sub?.creator_id);
 
-    if (value === "Approved" && field === "final_status") {
+    if (value === "Approved" && field === "status") {
       updates.approved_date = new Date().toISOString().split("T")[0];
       // Auto-generate payment record
       if (sub && campaign) {
@@ -2184,7 +2184,7 @@ function ReviewQueue({ db, onRefresh, user }) {
     }
 
     // Email: revision requested on concept or final
-    if ((field === "concept_status" || field === "final_status") && value === "Revisions Needed") {
+    if ((field === "status" || field === "status") && value === "Revision Requested") {
       if (creator?.email && feedback) {
         sendEmail("revision_requested", {
           creatorEmail: creator.email,
@@ -2286,13 +2286,15 @@ function ReviewQueue({ db, onRefresh, user }) {
         {/* Actions */}
         <div className="review-actions">
           {tab==="concepts"&&<>
-            <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"concept_status","Approved")}>✓ Approve Concept</button>
-            <button className="btn btn-orange btn-sm" onClick={()=>{setModal({s,action:"revisions"});setFeedback("");}}>↺ Request Revisions</button>
+            <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"status","Approved")}>✓ Approve</button>
+            <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff"}} onClick={()=>action(s.id,"status","Under Review")}>👁️ Mark Under Review</button>
+            <button className="btn btn-orange btn-sm" onClick={()=>{setModal({s,action:"revisions"});setFeedback("");}}>↺ Revisions</button>
             <button className="btn btn-red btn-sm" onClick={()=>{setModal({s,action:"deny"});setFeedback("");}}>✕ Deny</button>
           </>}
           {tab==="finals"&&<>
-            <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"final_status","Approved")}>✓ Approve Final</button>
-            <button className="btn btn-orange btn-sm" onClick={()=>{setModal({s,action:"revisions-final"});setFeedback("");}}>↺ Request Changes</button>
+            <button className="btn btn-green btn-sm" onClick={()=>action(s.id,"status","Approved")}>✓ Approve</button>
+            <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff"}} onClick={()=>action(s.id,"status","Under Review")}>👁️ Mark Under Review</button>
+            <button className="btn btn-orange btn-sm" onClick={()=>{setModal({s,action:"revisions-final"});setFeedback("");}}>↺ Changes</button>
             <button className="btn btn-red btn-sm" onClick={()=>{setModal({s,action:"deny-final"});setFeedback("");}}>✕ Deny</button>
           </>}
           {tab==="revisions"&&<>
@@ -2353,10 +2355,10 @@ function ReviewQueue({ db, onRefresh, user }) {
                 className={`btn ${modal.action==="revisions"||modal.action==="revisions-final"?"btn-orange":"btn-red"}`}
                 disabled={saving||!feedback.trim()}
                 onClick={()=>{
-                  if(modal.action==="revisions") action(modal.s.id,"concept_status","Revisions Needed");
-                  else if(modal.action==="revisions-final") action(modal.s.id,"final_status","Revisions Needed");
-                  else if(modal.action==="deny") action(modal.s.id,"concept_status","Denied");
-                  else action(modal.s.id,"final_status","Denied");
+                  if(modal.action==="revisions") action(modal.s.id,"status","Revision Requested");
+                  else if(modal.action==="revisions-final") action(modal.s.id,"status","Revision Requested");
+                  else if(modal.action==="deny") action(modal.s.id,"status","Rejected");
+                  else action(modal.s.id,"status","Rejected");
                 }}
               >{saving?"Saving...":modal.action==="revisions"||modal.action==="revisions-final"?"Send Revision Request":"Confirm Denial"}</button>
             </div>
@@ -2380,7 +2382,7 @@ function MyCreators({ user, db }) {
             <tbody>
               {creators.map(c=>{
                 const subs=db.submissions.filter(s=>s.creator_id===c.id);
-                const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
+                const rate=subs.length>0?Math.round((subs.filter(s=>s.status==="Approved").length/subs.length)*100):0;
                 return (
                   <tr key={c.id}>
                     <td>
@@ -2397,7 +2399,7 @@ function MyCreators({ user, db }) {
                         <span style={{fontSize:12}}>{rate}%</span>
                       </div>
                     </td>
-                    <td>{subs.filter(s=>s.final_status==="Approved").length}</td>
+                    <td>{subs.filter(s=>s.status==="Approved").length}</td>
                     <td>{statusBadge(c.payment_status||"Current")}</td>
                   </tr>
                 );
@@ -2425,7 +2427,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   const create = async () => {
     if (!form.name||!form.client_id) { setErr("Name and client are required"); return; }
     setSaving(true); setErr("");
-    const { error } = await supabase.from("campaigns").insert({...form,videos_needed:Number(form.videos_needed),pay_per_video:Number(form.pay_per_video),assigned_creators:[]});
+    const { error } = await supabase.from("campaigns").insert({...form,videos_needed:Number(form.videos_needed),pay_per_video:Number(form.pay_per_video),deadline:form.deadline||null,assigned_creators:[]});
     if (error) { setErr(error.message); setSaving(false); return; }
     await onRefresh();
     setShowCreate(false); setSaving(false);
@@ -2442,11 +2444,11 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
       <div className="premium-card">
         <div className="table-wrap">
           <table className="premium-table">
-            <thead><tr><th>Campaign</th><th>Client</th><th>AM</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th></tr></thead>
+            <thead><tr><th>Campaign</th><th>Client</th><th>AM</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
             <tbody>
               {campaigns.map(c=>{
                 const client=db.clients.find(cl=>cl.id===c.client_id);
-                const approved=db.submissions.filter(s=>s.campaign_id===c.id&&s.final_status==="Approved").length;
+                const approved=db.submissions.filter(s=>s.campaign_id===c.id&&s.status==="Approved").length;
                 const pct=Math.round((approved/(c.videos_needed||1))*100);
                 return (
                   <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setViewCampaign(c)}>
@@ -2460,6 +2462,12 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
                     </td>
                     <td className="text-muted">{fmtDate(c.deadline)}</td>
                     <td>{statusBadge(c.status)}</td>
+                    <td style={{textAlign:"right"}}>
+                      <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
+                        <button className="btn btn-sm btn-ghost" onClick={e=>{e.stopPropagation();setViewCampaign(c);}}>✏️</button>
+                        {c.status!=="Archived"&&<button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} onClick={e=>{e.stopPropagation();setViewCampaign(c);}}>🗄</button>}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -2519,7 +2527,7 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
   const clientAM = db.accountManagers.find(a=>a.id===client?.am_id);
   const assignedCreators = db.creators.filter(c=>(campaign.assigned_creators||[]).includes(c.id));
   const availableCreators = db.creators.filter(c=>!(campaign.assigned_creators||[]).includes(c.id)&&c.status==="Active");
-  const approved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved").length;
+  const approved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.status==="Approved").length;
 
   // Profitability calculations
   const revenue = Number(client?.budget||0);
@@ -2539,7 +2547,7 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
   const cpvFlag = costPerVideo===0?"":costPerVideo<=50?"🟢":costPerVideo<=60?"⚠️":"🚨";
 
   // At Risk flags
-  const pendingSubs = db.submissions.filter(s=>s.campaign_id===campaign.id&&(s.concept_status==="Pending"||s.final_status==="Pending"));
+  const pendingSubs = db.submissions.filter(s=>s.campaign_id===campaign.id&&(s.status==="Submitted"||s.status==="Under Review"));
   const staleSubs = pendingSubs.filter(s=>{
     const days = (Date.now()-new Date(s.created_at).getTime())/(1000*60*60*24);
     return days>3;
@@ -2551,7 +2559,7 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
   const startOfLastWeek = new Date(startOfWeek); startOfLastWeek.setDate(startOfWeek.getDate()-7);
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const allApproved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.final_status==="Approved");
+  const allApproved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.status==="Approved");
   const thisWeekApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfWeek).length;
   const lastWeekApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfLastWeek&&new Date(s.created_at)<startOfWeek).length;
   const thisMonthApproved = allApproved.filter(s=>new Date(s.created_at)>=startOfMonth).length;
@@ -2616,7 +2624,7 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
 
   const saveEdit = async () => {
     setSaving(true);
-    await supabase.from("campaigns").update({...editForm, videos_needed:Number(editForm.videos_needed), pay_per_video:Number(editForm.pay_per_video)}).eq("id", campaign.id);
+    await supabase.from("campaigns").update({...editForm, videos_needed:Number(editForm.videos_needed), pay_per_video:Number(editForm.pay_per_video), deadline:editForm.deadline||null}).eq("id", campaign.id);
     await onRefresh(); setEditing(false); setSaving(false);
   };
 
@@ -3095,7 +3103,7 @@ function CampaignForum({ campaign, user, db, canPin }) {
 function getRetentionScore(client, db) {
   const clientCampaigns = db.campaigns.filter(c=>c.client_id===client.id);
   const allApproved = db.submissions.filter(s=>{
-    return clientCampaigns.some(c=>c.id===s.campaign_id) && s.final_status==="Approved";
+    return clientCampaigns.some(c=>c.id===s.campaign_id) && s.status==="Approved";
   });
 
   const now = new Date();
@@ -3501,7 +3509,7 @@ function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
 }
 
 function ContentLibrary({ db, onRefresh }) {
-  const approved = db.submissions.filter(s=>s.final_status==="Approved");
+  const approved = db.submissions.filter(s=>s.status==="Approved");
   const [selected, setSelected] = useState(null);
   const sub = db.submissions.find(s=>s.id===selected);
   const campaign = sub?db.campaigns.find(c=>c.id===sub.campaign_id):null;
@@ -3556,22 +3564,22 @@ function ContentLibrary({ db, onRefresh }) {
 function Analytics({ db }) {
   const creators = [...db.creators].sort((a,b)=>{
     const ra=db.submissions.filter(s=>s.creator_id===a.id), rb=db.submissions.filter(s=>s.creator_id===b.id);
-    const pa=ra.length>0?Math.round((ra.filter(s=>s.final_status==="Approved").length/ra.length)*100):0;
-    const pb=rb.length>0?Math.round((rb.filter(s=>s.final_status==="Approved").length/rb.length)*100):0;
+    const pa=ra.length>0?Math.round((ra.filter(s=>s.status==="Approved").length/ra.length)*100):0;
+    const pb=rb.length>0?Math.round((rb.filter(s=>s.status==="Approved").length/rb.length)*100):0;
     return pb-pa;
   });
   return (
     <div className="content">
       <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
-        <div className="stat-card"><div className="stat-label">Total Approved</div><div className="stat-value">{db.submissions.filter(s=>s.final_status==="Approved").length}</div></div>
-        <div className="stat-card stat-highlight"><div className="stat-label">Pending Review</div><div className="stat-value">{db.submissions.filter(s=>s.concept_status==="Pending"||s.final_status==="Pending").length}</div></div>
+        <div className="stat-card"><div className="stat-label">Total Approved</div><div className="stat-value">{db.submissions.filter(s=>s.status==="Approved").length}</div></div>
+        <div className="stat-card stat-highlight"><div className="stat-label">Pending Review</div><div className="stat-value">{db.submissions.filter(s=>s.status==="Submitted"||s.status==="Under Review").length}</div></div>
         <div className="stat-card"><div className="stat-label">Active Creators</div><div className="stat-value">{db.creators.filter(c=>c.status==="Active").length}</div></div>
       </div>
       <div className="premium-card">
         <div className="card-title">Creator Leaderboard</div>
         {creators.map((c,i)=>{
           const subs=db.submissions.filter(s=>s.creator_id===c.id);
-          const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
+          const rate=subs.length>0?Math.round((subs.filter(s=>s.status==="Approved").length/subs.length)*100):0;
           return (
             <div key={c.id} className="perf-row" style={{padding:"8px 0",borderBottom:"1px solid var(--border2)"}}>
               <div style={{width:24,fontSize:13,color:i<3?"var(--gold)":"var(--ink3)",fontWeight:700}}>#{i+1}</div>
@@ -3651,7 +3659,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
   const creatorCost = db.creators.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.weekly_rate||0)*4,0);
   const profit = totalRevenue - creatorCost;
   const margin = totalRevenue>0?Math.round((profit/totalRevenue)*100):0;
-  const pendingReviews = db.submissions.filter(s => s.concept_status === "Pending" || s.final_status === "Pending");
+  const pendingReviews = db.submissions.filter(s => s.status === "Submitted" || s.status === "Under Review");
   const activeCampaigns = db.campaigns.filter(c => c.status === "Active" || c.status === "Draft");
 
   return (
@@ -3776,7 +3784,7 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
           <div className="card-title">Team</div>
           {db.accountManagers.map(am=>{
             const amCreators=db.creators.filter(c=>c.am_id===am.id);
-            const pending=db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&(s.concept_status==="Pending"||s.final_status==="Pending");}).length;
+            const pending=db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&(s.status==="Submitted"||s.status==="Under Review");}).length;
             return (
               <div key={am.id} style={{padding:"12px 0",borderBottom:"1px solid var(--border2)"}}>
                 <div className="flex-between mb-8"><div className="fw-600">{am.name}</div>{pending>0&&<span className="badge badge-orange">{pending} pending</span>}</div>
@@ -4191,7 +4199,7 @@ function RevenueTrendChart({ db, clientData }) {
     const monthSubs = db.submissions.filter(s=>{
       if (!s.created_at) return false;
       const d = new Date(s.created_at);
-      return d.getFullYear()===year && d.getMonth()===month && s.final_status==="Approved";
+      return d.getFullYear()===year && d.getMonth()===month && s.status==="Approved";
     });
     const creatorCost = monthSubs.reduce((total,s)=>{
       const camp = db.campaigns.find(c=>c.id===s.campaign_id);
@@ -4250,8 +4258,8 @@ function CreatorPerformance({ db, isOwner, user }) {
     const subs = db.submissions.filter(s=>s.creator_id===creator.id);
     if (subs.length===0) return { approvalRate:0, revisionRate:0, onTimeRate:0, totalRevenue:0, score:0, tier:"—", subs:0 };
     
-    const approved = subs.filter(s=>s.final_status==="Approved").length;
-    const revisions = subs.filter(s=>s.concept_status==="Revisions Needed").length;
+    const approved = subs.filter(s=>s.status==="Approved").length;
+    const revisions = subs.filter(s=>s.status==="Revision Requested").length;
     const onTime = subs.filter(s=>{
       if (!s.due_date) return true; // no due date = not tracked
       return new Date(s.created_at)<=new Date(s.due_date);
@@ -4264,7 +4272,7 @@ function CreatorPerformance({ db, isOwner, user }) {
     
     // Revenue = approved videos × pay_per_video from their campaigns
     const totalRevenue = subs.reduce((total,s)=>{
-      if (s.final_status!=="Approved") return total;
+      if (s.status!=="Approved") return total;
       const camp = db.campaigns.find(c=>c.id===s.campaign_id);
       return total + Number(camp?.pay_per_video||0);
     }, 0);
@@ -4349,8 +4357,28 @@ function CreatorPerformance({ db, isOwner, user }) {
   );
 }
 
-function RevenueAnalytics({ db, user, isOwner }) {
+function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
   const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
+  const [editTarget, setEditTarget] = useState(null);
+  const [editBudget, setEditBudget] = useState("");
+  const [editCommission, setEditCommission] = useState(0.10);
+  const [editSaving, setEditSaving] = useState(false);
+
+  const openEdit = (clientRow) => {
+    setEditTarget(clientRow);
+    setEditBudget(clientRow.revenue);
+    setEditCommission(clientRow.amRate);
+  };
+  const saveRevEdit = async () => {
+    setEditSaving(true);
+    await supabase.from("clients").update({ budget: Number(editBudget) }).eq("id", editTarget.client.id);
+    if (editTarget.clientAM) {
+      await supabase.from("account_managers").update({ commission_rate: Number(editCommission) }).eq("id", editTarget.clientAM.id);
+    }
+    if (onRefresh) await onRefresh();
+    setEditTarget(null);
+    setEditSaving(false);
+  };
 
   // AM commission rate — 20% for senior, 10% default
   const getAMRate = (amRecord) => {
@@ -4367,7 +4395,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
       
       // Creator costs = sum of (approved videos × pay_per_video) across all campaigns
       const creatorCost = clientCampaigns.reduce((total, camp) => {
-        const approved = db.submissions.filter(s=>s.campaign_id===camp.id&&s.final_status==="Approved").length;
+        const approved = db.submissions.filter(s=>s.campaign_id===camp.id&&s.status==="Approved").length;
         return total + (approved * Number(camp.pay_per_video||0));
       }, 0);
 
@@ -4379,7 +4407,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
       const salesCost = hasSalesSourced ? revenue * 0.30 : 0;
       const grossProfit = revenue - creatorCost - amCost - salesCost;
       const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
-      const totalApproved = clientCampaigns.reduce((t,camp)=>t+db.submissions.filter(s=>s.campaign_id===camp.id&&s.final_status==="Approved").length,0);
+      const totalApproved = clientCampaigns.reduce((t,camp)=>t+db.submissions.filter(s=>s.campaign_id===camp.id&&s.status==="Approved").length,0);
       const costPerVideo = totalApproved > 0 ? Math.round((creatorCost+amCost+salesCost)/totalApproved) : 0;
 
       return { client:c, clientAM, revenue, creatorCost, amCost, amRate, salesCost, hasSalesSourced, grossProfit, margin, totalApproved, costPerVideo, campaigns:clientCampaigns.length };
@@ -4425,6 +4453,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
                 <th>Videos</th>
                 <th>Cost/Video</th>
                 <th>Retention Risk</th>
+                {isOwner&&<th style={{textAlign:"right"}}>Edit</th>}
               </tr>
             </thead>
             <tbody>
@@ -4456,6 +4485,7 @@ function RevenueAnalytics({ db, user, isOwner }) {
                       </div>
                     ); })()}
                   </td>
+                  {isOwner&&<td style={{textAlign:"right"}}>{editTarget?.client.id===client.id ? <><button className="btn btn-sm btn-primary" onClick={saveRevEdit} disabled={editSaving}>Save</button><button className="btn btn-sm btn-ghost" onClick={()=>setEditTarget(null)}>Cancel</button></> : <button className="btn btn-sm btn-ghost" onClick={()=>openEdit({client,clientAM,revenue,creatorCost,amCost,salesCost,hasSalesSourced,grossProfit,margin,totalApproved,costPerVideo,amRate:clientAM?getAMRate(clientAM):0.10})}>✏️ Edit</button>}</td>}
                 </tr>
               ))}
             </tbody>
@@ -4512,6 +4542,8 @@ function RevenueAnalytics({ db, user, isOwner }) {
           </div>
         </div>
       )}
+
+      
     </div>
   );
 }
@@ -4519,6 +4551,73 @@ function RevenueAnalytics({ db, user, isOwner }) {
 function TeamPerformance({ db, onRefresh }) {
   const [editingSatisfaction, setEditingSatisfaction] = useState(null);
   const [satValue, setSatValue] = useState(0);
+
+  const [editCreator, setEditCreator] = useState(null);
+  const [editAM, setEditAM] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [archiveAMTarget, setArchiveAMTarget] = useState(null);
+  const [archiveAMReason, setArchiveAMReason] = useState("");
+  const [amMsg, setAmMsg] = useState({ type: "", text: "" });
+
+  const setAMArchived = async (am, archived, reason) => {
+    setSaving(true);
+    setAmMsg({ type: "", text: "" });
+    const patch = archived
+      ? {
+          status: "Archived",
+          archived_at: new Date().toISOString(),
+          archived_by: db._currentUser?.id || null,
+          archive_reason: (reason || "").trim(),
+        }
+      : { status: "Active", archived_at: null, archived_by: null, archive_reason: null };
+
+    const { data, error } = await supabase
+      .from("account_managers").update(patch).eq("id", am.id).select("id");
+
+    if (error || !data || data.length === 0) {
+      setAmMsg({
+        type: "error",
+        text: error ? `Could not save: ${error.message}` : "That manager was not updated — you may not have permission.",
+      });
+      setSaving(false);
+      return;
+    }
+
+    setArchiveAMTarget(null);
+    setArchiveAMReason("");
+    await onRefresh();
+    setSaving(false);
+  };
+
+  const saveCreator = async () => {
+    setSaving(true);
+    await supabase.from("creators").update({
+      name: editCreator.name,
+      tiktok_handle: editCreator.tiktok_handle,
+      instagram_handle: editCreator.instagram_handle,
+      weekly_rate: Number(editCreator.weekly_rate||0),
+      videos_per_week: Number(editCreator.videos_per_week||0),
+      payment_method: editCreator.payment_method,
+      payment_handle: editCreator.payment_handle,
+      status: editCreator.status,
+      am_id: editCreator.am_id||null,
+    }).eq("id", editCreator.id);
+    await onRefresh();
+    setEditCreator(null);
+    setSaving(false);
+  };
+
+  const saveAM = async () => {
+    setSaving(true);
+    await supabase.from("account_managers").update({
+      name: editAM.name,
+      email: editAM.email,
+      commission_rate: Number(editAM.commission_rate||0.10),
+    }).eq("id", editAM.id);
+    await onRefresh();
+    setEditAM(null);
+    setSaving(false);
+  };
 
   const saveSatisfaction = async (clientId, score) => {
     await supabase.from("clients").update({satisfaction_score: score}).eq("id", clientId);
@@ -4553,7 +4652,7 @@ function TeamPerformance({ db, onRefresh }) {
           const amRevenue = amClients.reduce((t,c)=>t+Number(c.budget||0),0);
           const amCreatorCost = db.submissions.filter(s=>{
             const cr=db.creators.find(c=>c.id===s.creator_id);
-            return cr?.am_id===am.id&&s.final_status==="Approved";
+            return cr?.am_id===am.id&&s.status==="Approved";
           }).reduce((t,s)=>{
             const camp=db.campaigns.find(c=>c.id===s.campaign_id);
             return t+Number(camp?.pay_per_video||0);
@@ -4569,7 +4668,7 @@ function TeamPerformance({ db, onRefresh }) {
             ? (ratedClients.reduce((t,c)=>t+c.satisfaction_score,0)/ratedClients.length).toFixed(1)
             : null;
 
-          const totalApproved = db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&s.final_status==="Approved";}).length;
+          const totalApproved = db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&s.status==="Approved";}).length;
 
           return (
             <div key={am.id} className="premium-card">
@@ -4579,7 +4678,11 @@ function TeamPerformance({ db, onRefresh }) {
                   <div className={`creator-avatar ${getAvatarColor(am.name)}`} style={{width:48,height:48,fontSize:18}}>{getInitials(am.name)}</div>
                   <div>
                     <div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20}}>{am.name}</div>
-                    <div style={{fontSize:12,color:"var(--ink3)"}}>{am.email} · {amRate*100}% commission</div>
+                    <div style={{fontSize:12,color:"var(--ink3)",marginBottom:4}}>{am.email} · {amRate*100}% commission</div>
+                    <div style={{display:"flex",gap:4}}>
+                      <button className="btn btn-sm btn-ghost" onClick={()=>setEditAM({...am})}>✏️ Edit</button>
+                      <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} onClick={()=>{setArchiveAMTarget(am);setArchiveAMReason("");}}>🗄 Archive</button>
+                    </div>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -4641,10 +4744,13 @@ function TeamPerformance({ db, onRefresh }) {
                 <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>Creator Approval Rates</div>
                 {amCreators.map(c=>{
                   const subs=db.submissions.filter(s=>s.creator_id===c.id);
-                  const rate=subs.length>0?Math.round((subs.filter(s=>s.final_status==="Approved").length/subs.length)*100):0;
+                  const rate=subs.length>0?Math.round((subs.filter(s=>s.status==="Approved").length/subs.length)*100):0;
                   return (
                     <div key={c.id} className="flex-between" style={{padding:"4px 0",fontSize:13}}>
-                      <span>{c.name}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span>{c.name}</span>
+                        <button className="btn btn-sm btn-ghost" style={{padding:"2px 4px",height:"auto",fontSize:11}} onClick={()=>setEditCreator({...c})}>✏️ Edit</button>
+                      </div>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <div style={{width:60,background:"var(--bg2)",borderRadius:4,height:4}}>
                           <div style={{width:`${rate}%`,background:rate>80?"var(--green)":"var(--gold)",height:4,borderRadius:4}}/>
@@ -4660,6 +4766,77 @@ function TeamPerformance({ db, onRefresh }) {
         })}
         {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Have Account Managers sign up using this URL, and assign their role in the 'Team/Roles' tab.</p></div>}
       </div>
+
+      {/* Archive Account Manager Modal */}
+      {archiveAMTarget&&(
+        <div className="modal-overlay" onClick={()=>setArchiveAMTarget(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Archive {archiveAMTarget.name||archiveAMTarget.email}?</div>
+            <div className="modal-sub">
+              {db.creators.filter(c=>c.am_id===archiveAMTarget.id).length > 0
+                ? `${db.creators.filter(c=>c.am_id===archiveAMTarget.id).length} creator(s) are still assigned to them. Those assignments are preserved — reassign the creators separately if someone else should take over.`
+                : "No creators are currently assigned to them."}
+            </div>
+            {amMsg.text&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{amMsg.text}</div>}
+            <div className="form-group">
+              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+              <input className="form-input" placeholder="e.g. Left the agency" value={archiveAMReason} onChange={e=>setArchiveAMReason(e.target.value)}/>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setArchiveAMTarget(null)}>Cancel</button>
+              <button className="btn" style={{background:"var(--orange)",color:"#fff"}} onClick={()=>setAMArchived(archiveAMTarget,true,archiveAMReason)} disabled={saving||!archiveAMReason.trim()}>
+                {saving?"Archiving…":"Archive"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Creator Modal */}
+      {editCreator&&(
+        <div className="modal-overlay" onClick={()=>setEditCreator(null)}>
+          <div className="modal" style={{maxWidth:500}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit Creator</div>
+            <div className="modal-sub">{editCreator.email}</div>
+            <div className="form-group"><label className="form-label">Display Name</label><input className="form-input" value={editCreator.name||""} onChange={e=>setEditCreator({...editCreator,name:e.target.value})}/></div>
+            <div className="grid-2">
+              <div className="form-group"><label className="form-label">TikTok Handle</label><input className="form-input" placeholder="@handle" value={editCreator.tiktok_handle||""} onChange={e=>setEditCreator({...editCreator,tiktok_handle:e.target.value.replace("@","")})}/></div>
+              <div className="form-group"><label className="form-label">Instagram Handle</label><input className="form-input" placeholder="@handle" value={editCreator.instagram_handle||""} onChange={e=>setEditCreator({...editCreator,instagram_handle:e.target.value.replace("@","")})}/></div>
+              <div className="form-group"><label className="form-label">Weekly Rate ($)</label><input className="form-input" type="number" value={editCreator.weekly_rate||""} onChange={e=>setEditCreator({...editCreator,weekly_rate:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Videos/Week</label><input className="form-input" type="number" value={editCreator.videos_per_week||""} onChange={e=>setEditCreator({...editCreator,videos_per_week:e.target.value})}/></div>
+              <div className="form-group"><label className="form-label">Payment Method</label><select className="select" value={editCreator.payment_method||""} onChange={e=>setEditCreator({...editCreator,payment_method:e.target.value})}><option value="">Select...</option>{["PayPal","Venmo","Zelle","Bank Transfer","Cash App","Crypto"].map(m=><option key={m}>{m}</option>)}</select></div>
+              <div className="form-group"><label className="form-label">Payment Handle/Email</label><input className="form-input" placeholder="e.g. @venmo or email" value={editCreator.payment_handle||""} onChange={e=>setEditCreator({...editCreator,payment_handle:e.target.value})}/></div>
+            </div>
+            <div className="form-group"><label className="form-label">Assign to Account Manager</label><select className="select" value={editCreator.am_id||""} onChange={e=>setEditCreator({...editCreator,am_id:e.target.value})}><option value="">No AM assigned</option>{db.accountManagers.map(am=><option key={am.id} value={am.id}>{am.name}</option>)}</select></div>
+            <div className="form-group"><label className="form-label">Status</label><select className="select" value={editCreator.status||"Active"} onChange={e=>setEditCreator({...editCreator,status:e.target.value})}>{["Active","Paused","Offboarded"].map(s=><option key={s}>{s}</option>)}</select></div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditCreator(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveCreator} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit AM Modal */}
+      {editAM&&(
+        <div className="modal-overlay" onClick={()=>setEditAM(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit Account Manager</div>
+            <div className="form-group"><label className="form-label">Name</label><input className="form-input" value={editAM.name||""} onChange={e=>setEditAM({...editAM,name:e.target.value})}/></div>
+            <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editAM.email||""} onChange={e=>setEditAM({...editAM,email:e.target.value})}/></div>
+            <div className="form-group">
+              <label className="form-label">Commission Rate</label>
+              <select className="select" value={editAM.commission_rate||0.10} onChange={e=>setEditAM({...editAM,commission_rate:Number(e.target.value)})}>
+                {[0.05,0.08,0.10,0.12,0.15,0.18,0.20,0.25].map(r=><option key={r} value={r}>{r*100}%{r===0.10?" (default)":""}</option>)}
+              </select>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditAM(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveAM} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -5347,8 +5524,10 @@ export default function App() {
   const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
   const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(true); // Start as true for initial session check
+  const [overrideRole, setOverrideRole] = useState(null);
   let rawRole = (user?.role || "pending").toLowerCase();
-  let role = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
+  let baseRole = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
+  let role = (baseRole === "owner" && overrideRole) ? overrideRole : baseRole;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState("Initializing...");
   const [showBypass, setShowBypass] = useState(false);
@@ -5772,7 +5951,7 @@ export default function App() {
   const handleSetupComplete = ()=>{ setNeedsSetup(false); loadDB(); };
 
 
-  const reviewPendingCount = db.submissions.filter(s=>s.concept_status==="Pending"||s.final_status==="Pending").length;
+  const reviewPendingCount = db.submissions.filter(s=>s.status==="Submitted"||s.status==="Under Review").length;
 
   const pageTitles = {
     dashboard:"Dashboard",jobs:"Available Jobs","active-jobs":"My Active Jobs",
@@ -5821,7 +6000,7 @@ export default function App() {
       if(page==="clients") return <ErrorBoundary label="Clients"><ClientsPage isOwner={false} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="content-library") return <ErrorBoundary label="Content Library"><ContentLibrary db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="analytics") return <ErrorBoundary label="Analytics"><Analytics db={db}/></ErrorBoundary>;
-      if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={false}/></ErrorBoundary>;
+      if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={false} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={false} user={user}/></ErrorBoundary>;
       if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
@@ -5829,7 +6008,7 @@ export default function App() {
     if(role==="owner"){
       if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser}/></ErrorBoundary>;
       if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"}/></ErrorBoundary>;
+      if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user}/></ErrorBoundary>;
       if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="team") return <ErrorBoundary label="Team Performance"><TeamPerformance db={db} onRefresh={loadDB}/></ErrorBoundary>;
@@ -5957,6 +6136,14 @@ export default function App() {
               </div>
             </div>
             <div className="flex-center gap-8">
+              {baseRole==="owner"&&(
+                <select className="select desktop-only" style={{height:32,fontSize:12,padding:"0 12px 0 8px",marginRight:8}} value={overrideRole||""} onChange={e=>{setOverrideRole(e.target.value||null);setPage("dashboard");}}>
+                  <option value="">👑 View as Owner</option>
+                  <option value="creator">👁️ View as Creator</option>
+                  <option value="am">👁️ View as AM</option>
+                  <option value="client">👁️ View as Client</option>
+                </select>
+              )}
               {role==="owner"&&<button className="btn btn-ghost btn-sm desktop-only" onClick={()=>setShowSQL(true)}>🗄️ DB Setup</button>}
               <button className="btn btn-ghost btn-sm desktop-only" onClick={handleLogout}>Sign out</button>
             </div>
