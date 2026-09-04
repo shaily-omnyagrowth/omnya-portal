@@ -3171,6 +3171,62 @@ export function ClientsPage({ isOwner, db, onRefresh, user }) {
   const [linkEmail, setLinkEmail] = useState("");
   const [linkMsg, setLinkMsg] = useState({ type: "", text: "" });
   const [linkBusy, setLinkBusy] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [archiveErr, setArchiveErr] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteErr, setDeleteErr] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  // Permanent, unlike archive. The database is the real guard here:
+  // campaigns.client_id has no ON DELETE clause, so Postgres refuses (23503)
+  // for any client that has campaigns — nothing cascades and nothing is
+  // orphaned. Owner-only, and audited before the row goes.
+  const deleteClient = async () => {
+    setDeleteBusy(true);
+    setDeleteErr("");
+    const { error } = await supabase.from("clients").delete().eq("id", deleteTarget.id);
+    if (error) {
+      const isLinked = error.code === "23503" || /foreign key/i.test(error.message || "");
+      setDeleteErr(isLinked
+        ? `${deleteTarget.name} still has campaigns linked to it, so it can't be deleted. Archive it instead — that keeps the history and can be undone.`
+        : `Could not delete: ${error.message}`);
+      setDeleteBusy(false);
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleteConfirm("");
+    await onRefresh();
+    setDeleteBusy(false);
+  };
+
+  // Archive, not delete: a client anchors campaigns, submissions and payment
+  // history, so removing it here means the reversible archive/restore in
+  // ClientProfile — this is the same flow, just reachable from the row
+  // directly instead of only after opening the client's profile.
+  const setClientArchived = async (client, archived, reason) => {
+    if (archived && !(reason || "").trim()) {
+      setArchiveErr("Give a reason — it is what the audit entry will say.");
+      return;
+    }
+    setArchiveBusy(true);
+    setArchiveErr("");
+    const patch = archived
+      ? { status: "Archived", archived_at: new Date().toISOString(), archived_by: user?.id || null, archive_reason: (reason || "").trim() }
+      : { status: "Active", archived_at: null, archived_by: null, archive_reason: null };
+    const { data, error } = await supabase.from("clients").update(patch).eq("id", client.id).select("id");
+    if (error || !data || data.length === 0) {
+      setArchiveErr(error ? `Could not save: ${error.message}` : "That client was not updated — you may not have permission.");
+      setArchiveBusy(false);
+      return;
+    }
+    setArchiveTarget(null);
+    setArchiveReason("");
+    await onRefresh();
+    setArchiveBusy(false);
+  };
 
   const handleLinkAccount = async () => {
     if (!linkEmail.trim()) return;
@@ -3245,12 +3301,12 @@ export function ClientsPage({ isOwner, db, onRefresh, user }) {
                 <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
                 {isOwner?<><th>Budget</th><th>Contact</th><th>Email</th></>:<th>Monthly Value</th>}
                 <th>AM</th><th>Portal</th><th>Drive</th>
-                {isOwner&&<th>Edit</th>}
+                {isOwner&&<th style={{textAlign:"right"}}>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {db.clients.map(c=>(
-                <tr key={c.id}>
+                <tr key={c.id} style={c.status==="Archived"?{opacity:0.62}:undefined}>
                   <td className="fw-600" style={{cursor:"pointer",color:"var(--blue)"}} onClick={()=>setViewClient(c)}>{c.name}</td>
                   <td>{statusBadge(c.deal_type)}</td>
                   <td>{c.videos_per_month}</td>
@@ -3267,7 +3323,17 @@ export function ClientsPage({ isOwner, db, onRefresh, user }) {
                       : <button className="btn btn-sm btn-ghost" style={{fontSize:11,padding:"3px 8px"}} onClick={()=>{setLinkingClient({id:c.id,name:c.name});setLinkEmail("");setLinkMsg({type:"",text:""});}}>🔗 Link</button>}
                   </td>
                   <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
-                  {isOwner&&<td><button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button></td>}
+                  {isOwner&&<td>
+                    <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                      <button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button>
+                      {c.status==="Archived"
+                        ? <button className="btn btn-sm btn-green" disabled={archiveBusy} onClick={()=>setClientArchived(c,false)}>Restore</button>
+                        : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} disabled={archiveBusy}
+                                  onClick={()=>{setArchiveTarget(c);setArchiveReason("");setArchiveErr("");}}>🗄 Archive</button>}
+                      <button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} disabled={deleteBusy}
+                              onClick={()=>{setDeleteTarget(c);setDeleteConfirm("");setDeleteErr("");}}>Delete</button>
+                    </div>
+                  </td>}
                 </tr>
               ))}
             </tbody>
@@ -3317,6 +3383,72 @@ export function ClientsPage({ isOwner, db, onRefresh, user }) {
           </div>
         </div>
       )}
+      {archiveTarget&&(
+        <div className="modal-overlay" onClick={()=>setArchiveTarget(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Archive {archiveTarget.name}?</div>
+            <div className="modal-sub">Their campaigns, submissions and financial history are kept and stay linked. You can restore them at any time.</div>
+            {archiveErr&&<ErrorMsg msg={archiveErr}/>}
+            <div className="form-group">
+              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+              <input className="form-input" placeholder="e.g. Contract ended August 2026"
+                     value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setArchiveTarget(null)}>Cancel</button>
+              <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
+                      onClick={()=>setClientArchived(archiveTarget,true,archiveReason)}
+                      disabled={archiveBusy||!archiveReason.trim()}>
+                {archiveBusy?"Archiving…":"Archive Client"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {deleteTarget&&(()=>{
+        const linked = db.campaigns.filter(c=>c.client_id===deleteTarget.id).length;
+        return (
+        <div className="modal-overlay" onClick={()=>setDeleteTarget(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title" style={{color:"var(--red)"}}>Delete {deleteTarget.name}?</div>
+            <div className="modal-sub">
+              This is permanent — unlike Archive, it cannot be undone and the client's
+              record will not be recoverable.
+            </div>
+            {linked>0?(
+              <div style={{background:"rgba(192,57,43,0.08)",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:"10px 14px",margin:"12px 0",fontSize:13,color:"var(--red)"}}>
+                {linked} campaign{linked===1?" is":"s are"} still linked to this client, so it cannot be deleted.
+                Archive it instead — that keeps the history and can be undone.
+              </div>
+            ):(
+              <>
+                {deleteErr&&<ErrorMsg msg={deleteErr}/>}
+                <div className="form-group">
+                  <label className="form-label">
+                    Type <strong>{deleteTarget.name.trim()}</strong> to confirm
+                  </label>
+                  <input className="form-input" placeholder={deleteTarget.name.trim()}
+                         value={deleteConfirm} onChange={e=>setDeleteConfirm(e.target.value)}/>
+                </div>
+              </>
+            )}
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setDeleteTarget(null)}>Cancel</button>
+              {linked>0
+                ? <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
+                          onClick={()=>{const t=deleteTarget;setDeleteTarget(null);setArchiveTarget(t);setArchiveReason("");setArchiveErr("");}}>
+                    🗄 Archive Instead
+                  </button>
+                : <button className="btn" style={{background:"var(--red)",color:"#fff"}}
+                          onClick={deleteClient}
+                          disabled={deleteBusy||deleteConfirm.trim()!==deleteTarget.name.trim()}>
+                    {deleteBusy?"Deleting…":"Delete Permanently"}
+                  </button>}
+            </div>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }
@@ -4357,28 +4489,12 @@ function CreatorPerformance({ db, isOwner, user }) {
   );
 }
 
-function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
+function RevenueAnalytics({ db, user, isOwner }) {
   const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
-  const [editTarget, setEditTarget] = useState(null);
-  const [editBudget, setEditBudget] = useState("");
-  const [editCommission, setEditCommission] = useState(0.10);
-  const [editSaving, setEditSaving] = useState(false);
 
-  const openEdit = (clientRow) => {
-    setEditTarget(clientRow);
-    setEditBudget(clientRow.revenue);
-    setEditCommission(clientRow.amRate);
-  };
-  const saveRevEdit = async () => {
-    setEditSaving(true);
-    await supabase.from("clients").update({ budget: Number(editBudget) }).eq("id", editTarget.client.id);
-    if (editTarget.clientAM) {
-      await supabase.from("account_managers").update({ commission_rate: Number(editCommission) }).eq("id", editTarget.clientAM.id);
-    }
-    if (onRefresh) await onRefresh();
-    setEditTarget(null);
-    setEditSaving(false);
-  };
+  // Pure read/compute — budget and commission-rate edits live on Client
+  // Management and Manage Creators (owner-only) so there's a single place
+  // that writes these numbers instead of three.
 
   // AM commission rate — 20% for senior, 10% default
   const getAMRate = (amRecord) => {
@@ -4453,7 +4569,6 @@ function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
                 <th>Videos</th>
                 <th>Cost/Video</th>
                 <th>Retention Risk</th>
-                {isOwner&&<th style={{textAlign:"right"}}>Edit</th>}
               </tr>
             </thead>
             <tbody>
@@ -4485,7 +4600,6 @@ function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
                       </div>
                     ); })()}
                   </td>
-                  {isOwner&&<td style={{textAlign:"right"}}>{editTarget?.client.id===client.id ? <><button className="btn btn-sm btn-primary" onClick={saveRevEdit} disabled={editSaving}>Save</button><button className="btn btn-sm btn-ghost" onClick={()=>setEditTarget(null)}>Cancel</button></> : <button className="btn btn-sm btn-ghost" onClick={()=>openEdit({client,clientAM,revenue,creatorCost,amCost,salesCost,hasSalesSourced,grossProfit,margin,totalApproved,costPerVideo,amRate:clientAM?getAMRate(clientAM):0.10})}>✏️ Edit</button>}</td>}
                 </tr>
               ))}
             </tbody>
@@ -5158,6 +5272,9 @@ function CreatorsManage({ db, onRefresh, user }) {
   const [amMsg, setAmMsg] = useState({ type: "", text: "" });
   const [archiveAMTarget, setArchiveAMTarget] = useState(null);
   const [archiveAMReason, setArchiveAMReason] = useState("");
+  const [archiveCreatorTarget, setArchiveCreatorTarget] = useState(null);
+  const [archiveCreatorReason, setArchiveCreatorReason] = useState("");
+  const [creatorMsg, setCreatorMsg] = useState({ type: "", text: "" });
 
   const createAM = async () => {
     setAmBusy(true);
@@ -5185,6 +5302,41 @@ function CreatorsManage({ db, onRefresh, user }) {
   // Archive, not delete: creators point at their AM through am_id, and
   // removing the row would orphan every one of those assignments (§7.2 —
   // "Removal/deactivation must preserve historical references").
+  //
+  // archived_at is independent of status: status keeps governing day-to-day
+  // (Active/Paused/Offboarded), archived_at is the sole soft-delete signal —
+  // see 20260825000000_creator_submission_archival.sql.
+  const setCreatorArchived = async (creator, archived, reason) => {
+    setSaving(true);
+    setCreatorMsg({ type: "", text: "" });
+
+    const patch = archived
+      ? {
+          archived_at: new Date().toISOString(),
+          archived_by: user?.id || null,
+          archive_reason: (reason || "").trim(),
+        }
+      : { archived_at: null, archived_by: null, archive_reason: null };
+
+    const { data, error } = await supabase
+      .from("creators").update(patch).eq("id", creator.id).select("id");
+
+    if (error || !data || data.length === 0) {
+      setCreatorMsg({
+        type: "error",
+        text: error ? `Could not save: ${error.message}`
+                    : "That creator was not updated — you may not have permission.",
+      });
+      setSaving(false);
+      return;
+    }
+
+    setArchiveCreatorTarget(null);
+    setArchiveCreatorReason("");
+    await onRefresh();
+    setSaving(false);
+  };
+
   const setAMArchived = async (am, archived, reason) => {
     setSaving(true);
     setAmMsg({ type: "", text: "" });
@@ -5267,21 +5419,43 @@ function CreatorsManage({ db, onRefresh, user }) {
 
       {tab==="creators"&&(
         <div className="premium-card">
+          {creatorMsg.text&&(
+            <div style={{
+              background: creatorMsg.type==="error"?"rgba(192,57,43,0.08)":"rgba(26,122,74,0.08)",
+              border:`1px solid ${creatorMsg.type==="error"?"var(--red)":"var(--green)"}`,
+              borderRadius:"var(--radius-sm)",padding:"10px 14px",marginBottom:14,
+              fontSize:13,color:creatorMsg.type==="error"?"var(--red)":"var(--green)"
+            }}>{creatorMsg.text}</div>
+          )}
           <div className="table-wrap">
             <table className="premium-table">
-              <thead><tr><th>Name</th><th>Email</th><th>Handles</th><th>Rate</th><th>AM</th><th>Status</th><th>Edit</th></tr></thead>
+              <thead><tr><th>Name</th><th>Email</th><th>Handles</th><th>Rate</th><th>AM</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
               <tbody>
                 {db.creators.map(c=>{
                   const am = db.accountManagers.find(a=>a.id===c.am_id);
+                  const archived = !!c.archived_at;
                   return (
-                    <tr key={c.id}>
+                    <tr key={c.id} style={archived?{opacity:0.62}:undefined}>
                       <td className="fw-600">{c.name||"—"}</td>
                       <td style={{fontSize:12,color:"var(--ink3)"}}>{c.email}</td>
                       <td style={{fontSize:12}}>{c.tiktok_handle?"@"+c.tiktok_handle:""}{c.instagram_handle?" / @"+c.instagram_handle:""}</td>
                       <td className="text-green">{c.weekly_rate?`$${c.weekly_rate}/wk`:"—"}</td>
                       <td style={{fontSize:12}}>{am?.name||<span style={{color:"var(--orange)"}}>Unassigned</span>}</td>
-                      <td>{statusBadge(c.status||"Active")}</td>
-                      <td><button className="btn btn-sm btn-ghost" onClick={()=>setEditCreator({...c})}>Edit</button></td>
+                      <td>
+                        {archived?<span className="badge badge-gray">Archived</span>:statusBadge(c.status||"Active")}
+                        {archived&&c.archive_reason&&(
+                          <div style={{fontSize:11,color:"var(--ink3)",marginTop:3,maxWidth:200}}>{c.archive_reason}</div>
+                        )}
+                      </td>
+                      <td>
+                        <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                          <button className="btn btn-sm btn-ghost" onClick={()=>setEditCreator({...c})}>Edit</button>
+                          {archived
+                            ? <button className="btn btn-sm btn-green" disabled={saving} onClick={()=>setCreatorArchived(c,false)}>Restore</button>
+                            : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} disabled={saving}
+                                      onClick={()=>{setArchiveCreatorTarget(c);setArchiveCreatorReason("");}}>Archive</button>}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -5399,6 +5573,34 @@ function CreatorsManage({ db, onRefresh, user }) {
               <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
                       onClick={()=>setAMArchived(archiveAMTarget,true,archiveAMReason)}
                       disabled={saving||!archiveAMReason.trim()}>
+                {saving?"Archiving…":"Archive"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Archive Creator */}
+      {archiveCreatorTarget&&(
+        <div className="modal-overlay" onClick={()=>setArchiveCreatorTarget(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Archive {archiveCreatorTarget.name||archiveCreatorTarget.email}?</div>
+            <div className="modal-sub">
+              Their submissions, campaign history and earnings are kept and stay linked. You can restore them at any time.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+              <input className="form-input" placeholder="e.g. No longer active"
+                     value={archiveCreatorReason} onChange={e=>setArchiveCreatorReason(e.target.value)}/>
+            </div>
+            <div style={{fontSize:11,color:"var(--ink3)",marginBottom:12}}>
+              To also stop them signing in, deactivate their user account in User Management.
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setArchiveCreatorTarget(null)}>Cancel</button>
+              <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
+                      onClick={()=>setCreatorArchived(archiveCreatorTarget,true,archiveCreatorReason)}
+                      disabled={saving||!archiveCreatorReason.trim()}>
                 {saving?"Archiving…":"Archive"}
               </button>
             </div>
@@ -6007,7 +6209,7 @@ export default function App() {
     }
     if(role==="owner"){
       if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser}/></ErrorBoundary>;
-      if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user}/></ErrorBoundary>;
       if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;

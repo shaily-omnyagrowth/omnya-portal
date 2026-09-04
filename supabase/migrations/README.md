@@ -7,6 +7,18 @@ Supabase database. The earlier loose SQL files in the repo root
 but are **not** the source of truth going forward — new schema changes belong
 here, with numeric timestamps in the filename.
 
+## ⚠️ Only forward migrations belong in this directory
+
+`npx supabase db push` applies **every** `<timestamp>_name.sql` file here, in
+filename order. Rollback scripts therefore live in
+[`supabase/rollbacks/`](../rollbacks/README.md) — never here. Left in this
+directory, `<version>.rollback.sql` sorts *before* `<version>.sql` and gets
+applied first, which on 2026-09-04 meant a `db push` began by trying to undo
+the security hardening on production. See that README for the full account.
+
+Wrap every migration in `BEGIN; … COMMIT;`. That is what made the above a
+no-op rather than an incident.
+
 ## Files
 
 | File | Purpose |
