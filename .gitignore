@@ -30,3 +30,6 @@ yarn-error.log*
 # generated test output
 /tests/artifacts
 /tests/coverage
+
+# Supabase CLI local state (contains project ref and pooler URL)
+supabase/.temp/
