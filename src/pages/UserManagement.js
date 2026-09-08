@@ -39,10 +39,15 @@ async function callApi(path, { method = 'POST', body = null } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('API_NOT_AVAILABLE');
+  }
+
   let payload = null;
   try { payload = await res.json(); } catch (_) {}
 
-  if (!res.ok || payload?.ok === false) {
+  if (!res.ok || !payload || payload?.ok === false) {
     throw new Error(payload?.error?.message || payload?.message || `Request failed (${res.status})`);
   }
   return payload?.data ?? payload;
@@ -121,9 +126,59 @@ export default function UserManagement({ currentUser, onRefresh }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await callApi('/api/admin/users', { method: 'GET' });
-      setUsers(data.users || []);
-      setCounts(data.counts || {});
+      let data = null;
+      try {
+        data = await callApi('/api/admin/users', { method: 'GET' });
+      } catch (apiErr) {
+        console.warn('[UserManagement] /api/admin/users unavailable, falling back to direct Supabase query:', apiErr.message);
+      }
+
+      if (data && data.users) {
+        setUsers(data.users || []);
+        setCounts(data.counts || {});
+        return;
+      }
+
+      // Direct Supabase fallback: Owner has full read access to user_profiles and domain tables
+      const { data: profiles, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const ids = (profiles || []).map((p) => p.id).filter(Boolean);
+
+      const [{ data: creators }, { data: managers }, { data: clients }] = await Promise.all([
+        supabase.from('creators').select('id, user_id, name, status').in('user_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
+        supabase.from('account_managers').select('id, user_id, name, status').in('user_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
+        supabase.from('clients').select('id, user_id, name, status').in('user_id', ids.length ? ids : ['00000000-0000-0000-0000-000000000000']),
+      ]);
+
+      const creatorByUser = new Map((creators || []).map((c) => [c.user_id, c]));
+      const managerByUser = new Map((managers || []).map((m) => [m.user_id, m]));
+      const clientByUser = new Map((clients || []).map((c) => [c.user_id, c]));
+
+      const resolvedUsers = (profiles || []).map((p) => ({
+        ...p,
+        status: p.status || 'active',
+        linked_creator: creatorByUser.get(p.id) || null,
+        linked_manager: managerByUser.get(p.id) || null,
+        linked_client: clientByUser.get(p.id) || null,
+      }));
+
+      const activeOwners = resolvedUsers.filter(
+        (u) => ['owner', 'admin'].includes(u.role) && (u.status === 'active' || !u.status)
+      ).length;
+
+      setUsers(resolvedUsers);
+      setCounts({
+        total: resolvedUsers.length,
+        active: resolvedUsers.filter((u) => (u.status || 'active') === 'active').length,
+        deactivated: resolvedUsers.filter((u) => u.status === 'deactivated').length,
+        pending: resolvedUsers.filter((u) => u.role === 'pending').length,
+        activeOwners,
+      });
     } catch (err) {
       setMsg({ text: `Could not load users: ${err.message}`, type: 'error' });
     } finally {
@@ -138,6 +193,11 @@ export default function UserManagement({ currentUser, onRefresh }) {
     if (onRefresh) await onRefresh();
   };
 
+  // ─── derived helpers ───────────────────────────────────────────────────────
+  const isSelf = (u) => u?.id === currentUser?.id;
+  const onlyOwner = (u) =>
+    ['owner', 'admin'].includes(u?.role) && (counts.activeOwners ?? 0) <= 1;
+
   // ─── actions ───────────────────────────────────────────────────────────────
 
   const createUser = async () => {
@@ -150,7 +210,14 @@ export default function UserManagement({ currentUser, onRefresh }) {
       setCreateForm({ email: '', fullName: '', role: 'creator', sendInvite: true });
       await refreshAll();
     } catch (err) {
-      setMsg({ text: err.message, type: 'error' });
+      if (err.message === 'API_NOT_AVAILABLE') {
+        setMsg({
+          text: 'User invitation requires the backend API server. In local dev, run "node tests/lib/devServer.cjs" (port 3100) or deploy to Vercel to send user invites.',
+          type: 'error',
+        });
+      } else {
+        setMsg({ text: err.message, type: 'error' });
+      }
     } finally {
       setWorking(false);
     }
@@ -160,10 +227,58 @@ export default function UserManagement({ currentUser, onRefresh }) {
     setWorking(true);
     setMsg({ text: '', type: '' });
     try {
-      const data = await callApi('/api/admin/users/role', {
-        body: { userId: roleTarget.id, role: newRole },
-      });
-      setMsg({ text: data.message, type: 'success' });
+      let successMsg = '';
+      try {
+        const data = await callApi('/api/admin/users/role', {
+          body: { userId: roleTarget.id, role: newRole },
+        });
+        successMsg = data.message;
+      } catch (apiErr) {
+        console.warn('[UserManagement] API unavailable for role change, falling back to direct Supabase:', apiErr.message);
+
+        if (isSelf(roleTarget)) {
+          throw new Error('You cannot change your own role.');
+        }
+        if (!['owner', 'admin'].includes(newRole) && onlyOwner(roleTarget)) {
+          throw new Error('Cannot demote the only active owner.');
+        }
+
+        const patch = {
+          role: newRole,
+          role_changed_by: currentUser?.id,
+          role_changed_at: new Date().toISOString(),
+        };
+        const { data: updated, error } = await supabase
+          .from('user_profiles')
+          .update(patch)
+          .eq('id', roleTarget.id)
+          .select('id, email, full_name, role')
+          .maybeSingle();
+
+        if (error) throw error;
+
+        const displayName = updated?.full_name || roleTarget.full_name || (roleTarget.email || '').split('@')[0];
+
+        if (newRole === 'creator') {
+          await supabase.from('creators').upsert(
+            { user_id: roleTarget.id, email: roleTarget.email, name: displayName, status: 'Active' },
+            { onConflict: 'email' }
+          );
+        } else if (newRole === 'am' || newRole === 'account_manager') {
+          await supabase.from('account_managers').upsert(
+            { user_id: roleTarget.id, email: roleTarget.email, name: displayName, status: 'Active' },
+            { onConflict: 'email' }
+          );
+        } else if (newRole === 'client') {
+          await supabase.from('clients').upsert(
+            { user_id: roleTarget.id, contact_email: roleTarget.email, name: displayName, status: 'Active' },
+            { onConflict: 'user_id' }
+          );
+        }
+        successMsg = `${roleTarget.email} is now ${ROLE_LABEL[newRole] || newRole}.`;
+      }
+
+      setMsg({ text: successMsg, type: 'success' });
       setRoleTarget(null);
       await refreshAll();
     } catch (err) {
@@ -177,10 +292,47 @@ export default function UserManagement({ currentUser, onRefresh }) {
     setWorking(true);
     setMsg({ text: '', type: '' });
     try {
-      const data = await callApi('/api/admin/users/deactivate', {
-        body: { userId: deactivateTarget.id, reason: deactivateReason.trim() },
-      });
-      setMsg({ text: data.message, type: 'success' });
+      let successMsg = '';
+      try {
+        const data = await callApi('/api/admin/users/deactivate', {
+          body: { userId: deactivateTarget.id, reason: deactivateReason.trim() },
+        });
+        successMsg = data.message;
+      } catch (apiErr) {
+        console.warn('[UserManagement] API unavailable for deactivation, falling back to direct Supabase:', apiErr.message);
+
+        if (isSelf(deactivateTarget)) {
+          throw new Error('You cannot deactivate your own account.');
+        }
+        if (onlyOwner(deactivateTarget)) {
+          throw new Error('Cannot deactivate the only active owner.');
+        }
+
+        const patch = {
+          status: 'deactivated',
+          role_before_deactivation: deactivateTarget.role,
+          deactivated_at: new Date().toISOString(),
+          deactivated_by: currentUser?.id,
+          deactivation_reason: deactivateReason.trim(),
+        };
+        const { error } = await supabase.from('user_profiles').update(patch).eq('id', deactivateTarget.id);
+        if (error) throw error;
+
+        await Promise.allSettled([
+          supabase.from('creators').update({ status: 'Offboarded' }).eq('user_id', deactivateTarget.id),
+          supabase.from('account_managers').update({
+            status: 'Archived',
+            archived_at: new Date().toISOString(),
+            archived_by: currentUser?.id,
+            archive_reason: deactivateReason.trim(),
+          }).eq('user_id', deactivateTarget.id),
+          supabase.from('clients').update({ status: 'Inactive' }).eq('user_id', deactivateTarget.id),
+        ]);
+
+        successMsg = `${deactivateTarget.email} is deactivated. Their records are kept and they can be restored.`;
+      }
+
+      setMsg({ text: successMsg, type: 'success' });
       setDeactivateTarget(null);
       setDeactivateReason('');
       await refreshAll();
@@ -195,8 +347,54 @@ export default function UserManagement({ currentUser, onRefresh }) {
     setWorking(true);
     setMsg({ text: '', type: '' });
     try {
-      const data = await callApi('/api/admin/users/restore', { body: { userId: u.id } });
-      setMsg({ text: data.message, type: 'success' });
+      let successMsg = '';
+      try {
+        const data = await callApi('/api/admin/users/restore', { body: { userId: u.id } });
+        successMsg = data.message;
+      } catch (apiErr) {
+        console.warn('[UserManagement] API unavailable for restore, falling back to direct Supabase:', apiErr.message);
+
+        const restoredRole = u.role_before_deactivation || (u.role === 'pending' ? 'creator' : u.role) || 'pending';
+        const patch = {
+          status: 'active',
+          role: restoredRole,
+          deactivated_at: null,
+          deactivated_by: null,
+          deactivation_reason: null,
+          role_before_deactivation: null,
+        };
+        if (restoredRole !== u.role) {
+          patch.role_changed_by = currentUser?.id;
+          patch.role_changed_at = new Date().toISOString();
+        }
+        const { error } = await supabase.from('user_profiles').update(patch).eq('id', u.id);
+        if (error) throw error;
+
+        const displayName = u.full_name || (u.email || '').split('@')[0];
+        if (restoredRole === 'creator') {
+          await supabase.from('creators').upsert(
+            { user_id: u.id, email: u.email, name: displayName, status: 'Active' },
+            { onConflict: 'email' }
+          );
+        } else if (restoredRole === 'am' || restoredRole === 'account_manager') {
+          await supabase.from('account_managers').upsert(
+            {
+              user_id: u.id, email: u.email, name: displayName,
+              status: 'Active', archived_at: null, archived_by: null, archive_reason: null,
+            },
+            { onConflict: 'email' }
+          );
+        } else if (restoredRole === 'client') {
+          await supabase.from('clients').upsert(
+            { user_id: u.id, contact_email: u.email, name: displayName, status: 'Active' },
+            { onConflict: 'user_id' }
+          );
+        }
+
+        successMsg = `${u.email} is active again as ${ROLE_LABEL[restoredRole] || restoredRole}.`;
+      }
+
+      setMsg({ text: successMsg, type: 'success' });
       await refreshAll();
     } catch (err) {
       setMsg({ text: err.message, type: 'error' });
@@ -208,18 +406,15 @@ export default function UserManagement({ currentUser, onRefresh }) {
   // ─── derived ───────────────────────────────────────────────────────────────
 
   const visible = users.filter((u) => {
-    if (filter === 'active' && u.status !== 'active') return false;
-    if (filter === 'deactivated' && u.status !== 'deactivated') return false;
+    const userStatus = u.status || 'active';
+    if (filter === 'active' && userStatus !== 'active') return false;
+    if (filter === 'deactivated' && userStatus !== 'deactivated') return false;
     if (filter === 'pending' && u.role !== 'pending') return false;
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
     return (u.email || '').toLowerCase().includes(q)
         || (u.full_name || '').toLowerCase().includes(q);
   });
-
-  const isSelf = (u) => u.id === currentUser?.id;
-  const onlyOwner = (u) =>
-    ['owner', 'admin'].includes(u.role) && (counts.activeOwners ?? 0) <= 1;
 
   if (loading) return <LoadingSpinner label="Loading users…" />;
 
@@ -295,7 +490,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
           </thead>
           <tbody>
             {visible.map((u) => {
-              const linked = u.linked_creator || u.linked_manager;
+              const linked = u.linked_creator || u.linked_manager || u.linked_client;
               const deactivated = u.status === 'deactivated';
               const locked = isSelf(u) || onlyOwner(u);
 
@@ -342,7 +537,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
                   </td>
 
                   <td style={{ fontSize: 12, color: 'var(--ink3)' }}>
-                    {linked ? `${u.linked_creator ? 'Creator' : 'Manager'} · ${linked.status || '—'}` : '—'}
+                    {linked ? `${u.linked_creator ? 'Creator' : u.linked_manager ? 'Manager' : 'Client'} · ${linked.status || '—'}` : '—'}
                   </td>
 
                   <td style={{ fontSize: 12, color: 'var(--ink3)' }}>{fmtDate(u.created_at)}</td>

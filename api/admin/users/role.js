@@ -116,6 +116,11 @@ module.exports = async (req, res) => {
         { user_id: userId, email: updated.email, name: displayName, status: 'Active' },
         { onConflict: 'email' }
       );
+    } else if (role === 'client') {
+      await supabase.from('clients').upsert(
+        { user_id: userId, contact_email: updated.email, name: displayName, status: 'Active' },
+        { onConflict: 'user_id' }
+      );
     }
 
     return sendOk(res, {

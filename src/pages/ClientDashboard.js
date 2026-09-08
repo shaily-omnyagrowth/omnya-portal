@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import AnalyticsDashboard from '../AnalyticsDashboard';
-import { fmtDate, fmtNum } from '../utils';
+import { fmtDate, calcPacing, platformMeta } from '../utils';
 import LoadingSpinner from '../components/LoadingSpinner';
+import CampaignProgressCard from '../components/CampaignProgressCard';
+import PostsGalleryView from '../components/PostsGalleryView';
+import UGCDashboardView from '../components/UGCDashboardView';
 
 // ============================================================================
 // COMPONENT 1: ClientDashboard (Overview)
 // ============================================================================
-export default function ClientDashboard({ user, db, onRefresh }) {
+export default function ClientDashboard({ user, db, onRefresh, onNavigate }) {
   const [clientProfile, setClientProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState("");
@@ -37,31 +40,20 @@ export default function ClientDashboard({ user, db, onRefresh }) {
     loadBrandAccount();
   }, [user]);
 
-  // 2. Compute dynamic metrics safely
+  // 2. Filter campaigns belonging to this brand
   const clientCampaigns = useMemo(() => {
     if (!clientProfile) return [];
-    // safe view maps c.client_id
-    return db.campaigns.filter(c => c.client_id === clientProfile.id);
+    return (db.campaigns || []).filter(c => c.client_id === clientProfile.id);
   }, [db.campaigns, clientProfile]);
 
-  const livePostsCount = useMemo(() => {
-    return db.submissions.filter(s =>
-      clientCampaigns.some(c => c.campaign_id === s.campaign_id)
-    ).length;
-  }, [db.submissions, clientCampaigns]);
+  const clientCampIds = useMemo(() => {
+    return new Set(clientCampaigns.map(c => c.campaign_id || c.id));
+  }, [clientCampaigns]);
 
-  // Aggregated analytics rollups from db.analytics
-  const totals = useMemo(() => {
-    const defaultStats = { views: 0, likes: 0, comments: 0, shares: 0 };
-    if (!db.analytics || !db.analytics.length) return defaultStats;
-    return db.analytics.reduce((acc, a) => {
-      acc.views += a.views || 0;
-      acc.likes += a.likes || 0;
-      acc.comments += a.comments || 0;
-      acc.shares += a.shares || 0;
-      return acc;
-    }, defaultStats);
-  }, [db.analytics]);
+  // 3. Submissions belonging to this brand's campaigns
+  const clientSubmissions = useMemo(() => {
+    return (db.submissions || []).filter(s => clientCampIds.has(s.campaign_id));
+  }, [db.submissions, clientCampIds]);
 
   if (loading) return <LoadingSpinner label="Loading Brand Workspace…" />;
 
@@ -82,47 +74,18 @@ export default function ClientDashboard({ user, db, onRefresh }) {
 
   return (
     <div className="content">
-      {/* Header Banner */}
-      <div className="mb-24 flex-between" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 16 }}>
-        <div>
-          <h2 style={{ fontSize: 28, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>
-             {clientProfile.name}
-          </h2>
-          <p style={{ color: 'var(--ink3)', marginTop: 4, fontSize: 13 }}>
-            Partner Brand Portal · Verified Performance Campaigns
-          </p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className="owner-badge" style={{ background: 'var(--blue)', color: '#fff', fontSize: 11, padding: '4px 10px', borderRadius: 20 }}>
-            🛡️ Secure Brand Access
-          </span>
-        </div>
-      </div>
-
-      {/* Top Cards Grid */}
-      <div className="stats-grid" style={{ marginBottom: 32 }}>
-        <div className="stat-card">
-          <div className="stat-label">Delivered Campaigns</div>
-          <div className="stat-value">{clientCampaigns.length}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Approved Live Posts</div>
-          <div className="stat-value text-green">{livePostsCount}</div>
-        </div>
-        <div className="stat-card stat-highlight">
-          <div className="stat-label">Total Verified Views</div>
-          <div className="stat-value">{fmtNum(totals.views)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Total Engagements</div>
-          <div className="stat-value">{fmtNum(totals.likes + totals.comments + totals.shares)}</div>
-        </div>
-      </div>
-
-      {/* Campaign Analytics Chart Component */}
-      <div className="premium-card" style={{ marginBottom: 32, padding: 24 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>Campaign Insights Overview</h3>
-        <AnalyticsDashboard campaignId={null} />
+      {/* UGCTrackr-style Dashboard Performance Suite for Client Brand */}
+      <div style={{ marginBottom: 32 }}>
+        <UGCDashboardView
+          campaigns={clientCampaigns}
+          submissions={clientSubmissions}
+          analytics={db.analytics || []}
+          creators={db.creators || []}
+          title={clientProfile.name}
+          subtitle="Partner Brand Portal · Verified Performance Analytics & Daily View Trends"
+          showTopPosts={true}
+          onNavigate={onNavigate}
+        />
       </div>
 
       {/* Quick Campaign Catalog Table */}
@@ -147,11 +110,11 @@ export default function ClientDashboard({ user, db, onRefresh }) {
                 </tr>
               ) : (
                 clientCampaigns.map(c => (
-                  <tr key={c.campaign_id}>
-                    <td className="fw-600">{c.campaign_name}</td>
+                  <tr key={c.campaign_id || c.id}>
+                    <td className="fw-600">{c.campaign_name || c.name}</td>
                     <td>
-                      <span className={`badge ${c.campaign_status === 'Active' ? 'badge-green' : 'badge-orange'}`}>
-                        {c.campaign_status}
+                      <span className={`badge ${c.campaign_status === 'Active' || c.status === 'Active' ? 'badge-green' : 'badge-orange'}`}>
+                        {c.campaign_status || c.status}
                       </span>
                     </td>
                     <td>
@@ -176,18 +139,20 @@ export default function ClientDashboard({ user, db, onRefresh }) {
 }
 
 // ============================================================================
-// COMPONENT 2: ClientCampaignsPage
+// COMPONENT 2: ClientCampaignsPage (Cards, Table, and Detail)
 // ============================================================================
 export function ClientCampaignsPage({ user, db }) {
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [clientProfile, setClientProfile] = useState(null);
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' | 'table'
+  const [search, setSearch] = useState('');
 
   // Load client profile so we can scope campaigns to this specific client.
   useEffect(() => {
     let active = true;
     supabase
       .from('clients')
-      .select('id')
+      .select('id, name')
       .eq('user_id', user.id)
       .maybeSingle()
       .then(({ data }) => { if (active && data) setClientProfile(data); });
@@ -202,11 +167,30 @@ export function ClientCampaignsPage({ user, db }) {
 
   // Submissions associated with each campaign
   const getSubmissionsForCampaign = (campaignId) => {
-    return db.submissions.filter(s => s.campaign_id === campaignId);
+    return (db.submissions || []).filter(s => s.campaign_id === campaignId);
   };
 
+  const filteredCampaigns = useMemo(() => {
+    if (!search.trim()) return clientCampaigns;
+    const q = search.toLowerCase();
+    return clientCampaigns.filter(c =>
+      (c.campaign_name || c.name || '').toLowerCase().includes(q) ||
+      (c.format || '').toLowerCase().includes(q)
+    );
+  }, [clientCampaigns, search]);
+
+  // Single campaign detail view
   if (selectedCampaign) {
-    const campaignSubs = getSubmissionsForCampaign(selectedCampaign.campaign_id);
+    const campaignId = selectedCampaign.campaign_id || selectedCampaign.id;
+    const campaignSubs = getSubmissionsForCampaign(campaignId);
+    const pacing = calcPacing({
+      startDate: selectedCampaign.start_date || selectedCampaign.created_at,
+      deadline: selectedCampaign.deadline,
+      videosNeeded: selectedCampaign.videos_needed || 10,
+      approvedCount: campaignSubs.length
+    });
+    const formatMeta = platformMeta(selectedCampaign.format);
+
     return (
       <div className="content">
         <div style={{ marginBottom: 20 }}>
@@ -215,38 +199,94 @@ export function ClientCampaignsPage({ user, db }) {
           </button>
         </div>
 
+        {/* Campaign Header Card */}
         <div className="premium-card mb-24" style={{ padding: 24 }}>
-          <div className="flex-between">
+          <div className="flex-between" style={{ flexWrap: 'wrap', gap: 12 }}>
             <div>
-              <h2 style={{ fontSize: 24, margin: 0 }}>{selectedCampaign.campaign_name}</h2>
-              <p style={{ color: 'var(--ink3)', marginTop: 4, fontSize: 13 }}>
-                Launched: {fmtDate(selectedCampaign.created_at)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <h2 style={{ fontSize: 24, margin: 0 }}>{selectedCampaign.campaign_name || selectedCampaign.name}</h2>
+                <span style={{
+                  background: formatMeta.bg,
+                  color: formatMeta.text,
+                  border: `1px solid ${formatMeta.border}`,
+                  padding: '3px 10px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600
+                }}>
+                  {formatMeta.icon} {selectedCampaign.format || 'Video'}
+                </span>
+                <span className={`badge ${selectedCampaign.campaign_status === 'Active' || selectedCampaign.status === 'Active' ? 'badge-green' : 'badge-orange'}`}>
+                  {selectedCampaign.campaign_status || selectedCampaign.status}
+                </span>
+              </div>
+              <p style={{ color: 'var(--ink3)', fontSize: 13, margin: 0 }}>
+                Launched: {fmtDate(selectedCampaign.created_at)} · Goal: {selectedCampaign.videos_needed || 10} videos
               </p>
             </div>
-            <span className={`badge ${selectedCampaign.campaign_status === 'Active' ? 'badge-green' : 'badge-orange'}`} style={{ fontSize: 14 }}>
-              {selectedCampaign.campaign_status}
-            </span>
-          </div>
 
-          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border2)' }}>
-            {selectedCampaign.brief_url ? (
+            {selectedCampaign.brief_url && (
               <a href={selectedCampaign.brief_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
                 View Concept Briefing Document 📑
               </a>
-            ) : (
-              <span style={{ color: 'var(--ink3)', fontSize: 13 }}>No concept brief uploaded for this campaign.</span>
             )}
+          </div>
+
+          {/* Timeline & Pacing Bar */}
+          <div style={{
+            background: 'var(--bg)',
+            borderRadius: 8,
+            padding: 16,
+            marginTop: 20,
+            border: '1px solid var(--border2)'
+          }}>
+            <div className="flex-between mb-8" style={{ fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>
+                  Week {pacing.currentWeek} of {pacing.totalWeeks}
+                </span>
+                <span className={`badge ${pacing.paceBadge}`} style={{ fontSize: 11 }}>
+                  {pacing.paceLabel}
+                </span>
+              </div>
+              <div style={{ fontWeight: 600, color: pacing.daysRemaining !== null && pacing.daysRemaining <= 3 ? 'var(--red)' : 'var(--ink3)' }}>
+                {pacing.daysRemaining !== null ? (
+                  pacing.daysRemaining > 0 ? `⏱️ ${pacing.daysRemaining} days remaining` : pacing.daysRemaining === 0 ? '⚠️ Flight ends today' : `🏁 Completed ${Math.abs(pacing.daysRemaining)}d ago`
+                ) : 'No flight deadline set'}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink3)', marginBottom: 6 }}>
+              <span>Delivered: {campaignSubs.length} of {selectedCampaign.videos_needed || 10} assets</span>
+              <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{pacing.deliveryPct}% Complete</span>
+            </div>
+            <div style={{ height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.min(100, pacing.deliveryPct)}%`,
+                  background: pacing.deliveryPct >= 100 ? 'var(--green)' : pacing.paceStatus === 'behind' ? 'var(--orange)' : 'var(--blue)',
+                  borderRadius: 4,
+                  transition: 'width 0.3s ease'
+                }}
+              />
+            </div>
           </div>
         </div>
 
         {/* Campaign Metrics Section */}
         <div className="premium-card mb-24" style={{ padding: 24 }}>
           <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>Campaign Engagement & Analytics</h3>
-          <AnalyticsDashboard campaignId={selectedCampaign.campaign_id} />
+          <AnalyticsDashboard campaignId={campaignId} />
         </div>
 
         {/* Campaign Submissions Listing */}
-        <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Delivered Submissions ({campaignSubs.length})</h3>
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>
+            Delivered Submissions ({campaignSubs.length})
+          </h3>
+        </div>
+
         <div className="premium-card" style={{ padding: 0 }}>
           <div className="table-wrap">
             <table className="premium-table">
@@ -269,18 +309,18 @@ export function ClientCampaignsPage({ user, db }) {
                   </tr>
                 ) : (
                   campaignSubs.map(s => (
-                    <tr key={s.submission_id}>
-                      <td className="fw-600">{s.creator_name}</td>
+                    <tr key={s.submission_id || s.id}>
+                      <td className="fw-600">{s.creator_name || 'Creator'}</td>
                       <td style={{ textTransform: 'capitalize' }}>
-                        {s.platform === 'tiktok' ? '🎵 TikTok' : s.platform === 'instagram' ? '📸 Instagram' : '🎥 ' + s.platform}
+                        {s.platform === 'tiktok' ? '🎵 TikTok' : s.platform === 'instagram' ? '📸 Instagram' : s.platform === 'youtube' ? '▶️ YouTube' : '🎥 ' + (s.platform || 'Video')}
                       </td>
-                      <td>{s.submission_type}</td>
+                      <td>{s.submission_type || 'Draft'}</td>
                       <td>
-                        <span className="badge badge-green">{s.final_status}</span>
+                        <span className="badge badge-green">{s.final_status || s.status || 'Approved'}</span>
                       </td>
                       <td>
-                        {s.posted_link ? (
-                          <a href={s.posted_link} target="_blank" rel="noreferrer" className="text-blue" style={{ fontWeight: 500 }}>
+                        {s.posted_link || s.video_url ? (
+                          <a href={s.posted_link || s.video_url} target="_blank" rel="noreferrer" className="text-blue" style={{ fontWeight: 500 }}>
                             View Post 🔗
                           </a>
                         ) : (
@@ -301,208 +341,244 @@ export function ClientCampaignsPage({ user, db }) {
 
   return (
     <div className="content">
-      <div className="mb-24">
-        <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Campaign Overview</h2>
-        <p style={{ color: 'var(--ink3)', marginTop: 4 }}>Monitor progress, details, and active brief setups across your brand portfolio.</p>
+      {/* Header & Controls */}
+      <div className="mb-24 flex-between" style={{ flexWrap: 'wrap', gap: 16 }}>
+        <div>
+          <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Campaign Overview</h2>
+          <p style={{ color: 'var(--ink3)', marginTop: 4 }}>
+            Monitor flight progress, milestones, and deliverable pacing across your brand portfolio.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Search Box */}
+          <input
+            type="text"
+            className="input"
+            placeholder="Search campaigns..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 200, height: 36, fontSize: 13 }}
+          />
+
+          {/* View Toggle */}
+          <div style={{ display: 'flex', background: 'var(--bg2)', borderRadius: 'var(--radius-sm)', padding: 3, border: '1px solid var(--border)' }}>
+            <button
+              className={`btn btn-sm ${viewMode === 'cards' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ padding: '4px 12px', fontSize: 12, height: 28 }}
+              onClick={() => setViewMode('cards')}
+            >
+              🗂 Cards
+            </button>
+            <button
+              className={`btn btn-sm ${viewMode === 'table' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ padding: '4px 12px', fontSize: 12, height: 28 }}
+              onClick={() => setViewMode('table')}
+            >
+              📋 Table
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="grid-2">
-        {clientCampaigns.length === 0 ? (
-          <div className="premium-card text-center" style={{ gridColumn: 'span 2', padding: 48 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>📢</div>
-            <h3>No campaigns found</h3>
-            <p style={{ color: 'var(--ink3)' }}>We haven't launched any campaign cycles in this brand workspace yet.</p>
+      {/* Cards View */}
+      {viewMode === 'cards' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+          {filteredCampaigns.length === 0 ? (
+            <div className="premium-card text-center" style={{ gridColumn: '1 / -1', padding: 48 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>📢</div>
+              <h3>No campaigns found</h3>
+              <p style={{ color: 'var(--ink3)' }}>
+                {search ? 'No campaigns match your search query.' : "We haven't launched any campaign cycles in this brand workspace yet."}
+              </p>
+            </div>
+          ) : (
+            filteredCampaigns.map(c => {
+              const campaignId = c.campaign_id || c.id;
+              const subs = getSubmissionsForCampaign(campaignId);
+              return (
+                <CampaignProgressCard
+                  key={campaignId}
+                  campaign={{
+                    ...c,
+                    id: campaignId,
+                    name: c.campaign_name || c.name,
+                    status: c.campaign_status || c.status,
+                    videos_needed: c.videos_needed || 10,
+                    format: c.format || 'TikTok',
+                    deadline: c.deadline,
+                    start_date: c.start_date || c.created_at
+                  }}
+                  client={clientProfile}
+                  approvedCount={subs.length}
+                  onClick={() => setSelectedCampaign(c)}
+                />
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* Table View */}
+      {viewMode === 'table' && (
+        <div className="premium-card" style={{ padding: 0 }}>
+          <div className="table-wrap">
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>Campaign Name</th>
+                  <th>Format</th>
+                  <th>Status</th>
+                  <th>Deliverables</th>
+                  <th>Pacing</th>
+                  <th>Timeline</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCampaigns.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" style={{ textAlign: 'center', padding: 32, color: 'var(--ink3)' }}>
+                      No campaigns match your filters.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCampaigns.map(c => {
+                    const campaignId = c.campaign_id || c.id;
+                    const subs = getSubmissionsForCampaign(campaignId);
+                    const pacing = calcPacing({
+                      startDate: c.start_date || c.created_at,
+                      deadline: c.deadline,
+                      videosNeeded: c.videos_needed || 10,
+                      approvedCount: subs.length
+                    });
+                    const formatMeta = platformMeta(c.format);
+
+                    return (
+                      <tr key={campaignId} style={{ cursor: 'pointer' }} onClick={() => setSelectedCampaign(c)}>
+                        <td>
+                          <span className="fw-700 text-blue">{c.campaign_name || c.name}</span>
+                        </td>
+                        <td>
+                          <span style={{
+                            background: formatMeta.bg,
+                            color: formatMeta.text,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            fontSize: 11,
+                            fontWeight: 600
+                          }}>
+                            {formatMeta.icon} {c.format || 'TikTok'}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`badge ${c.campaign_status === 'Active' || c.status === 'Active' ? 'badge-green' : 'badge-orange'}`}>
+                            {c.campaign_status || c.status}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span className="fw-600">{subs.length} / {c.videos_needed || 10}</span>
+                            <span style={{ fontSize: 11, color: 'var(--ink3)' }}>({pacing.deliveryPct}%)</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`badge ${pacing.paceBadge}`} style={{ fontSize: 11 }}>
+                            Week {pacing.currentWeek} · {pacing.paceLabel}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--ink3)' }}>
+                          {pacing.daysRemaining !== null ? (
+                            pacing.daysRemaining > 0 ? `${pacing.daysRemaining}d left` : 'Ended'
+                          ) : fmtDate(c.created_at)}
+                        </td>
+                        <td>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCampaign(c);
+                            }}
+                          >
+                            Details →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
-        ) : (
-          clientCampaigns.map(c => {
-            const subs = getSubmissionsForCampaign(c.campaign_id);
-            return (
-              <div key={c.campaign_id} className="premium-card hover-card" style={{ padding: 24, cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s' }} onClick={() => setSelectedCampaign(c)}>
-                <div className="flex-between mb-16">
-                  <div className="fw-700" style={{ fontSize: 18, color: 'var(--ink)' }}>{c.campaign_name}</div>
-                  <span className={`badge ${c.campaign_status === 'Active' ? 'badge-green' : 'badge-orange'}`}>
-                    {c.campaign_status}
-                  </span>
-                </div>
-                <div style={{ color: 'var(--ink3)', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Approved Posts Delivered:</span>
-                    <strong style={{ color: 'var(--ink)' }}>{subs.length} posts</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Launch Date:</span>
-                    <strong style={{ color: 'var(--ink)' }}>{fmtDate(c.created_at)}</strong>
-                  </div>
-                </div>
-                <div style={{ marginTop: 20, textAlign: 'right' }}>
-                  <span className="text-blue" style={{ fontSize: 13, fontWeight: 600 }}>View Performance Details →</span>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ============================================================================
-// COMPONENT 3: ClientContentGallery
+// COMPONENT 3: ClientContentGallery (PostsGalleryView)
 // ============================================================================
 export function ClientContentGallery({ user, db }) {
-  const [platformFilter, setPlatformFilter] = useState('all');
   const [clientProfile, setClientProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // Load client profile so we can scope submissions to this client's campaigns.
   useEffect(() => {
     let active = true;
     supabase
       .from('clients')
-      .select('id')
+      .select('id, name')
       .eq('user_id', user.id)
       .maybeSingle()
-      .then(({ data }) => { if (active && data) setClientProfile(data); });
+      .then(({ data }) => {
+        if (active && data) setClientProfile(data);
+        if (active) setLoading(false);
+      })
+      .catch(() => {
+        if (active) setLoading(false);
+      });
     return () => { active = false; };
   }, [user.id]);
 
-  // Only include submissions for campaigns that belong to this client.
-  const clientCampaignIds = useMemo(() => {
-    if (!clientProfile) return new Set();
-    return new Set((db.campaigns || []).filter(c => c.client_id === clientProfile.id).map(c => c.campaign_id || c.id));
+  // Scoped campaigns
+  const clientCampaigns = useMemo(() => {
+    if (!clientProfile) return [];
+    return (db.campaigns || []).filter(c => c.client_id === clientProfile.id).map(c => ({
+      ...c,
+      id: c.campaign_id || c.id,
+      name: c.campaign_name || c.name
+    }));
   }, [db.campaigns, clientProfile]);
 
-  const filteredSubmissions = useMemo(() => {
+  const clientCampIds = useMemo(() => {
+    return new Set(clientCampaigns.map(c => c.id));
+  }, [clientCampaigns]);
+
+  // Scoped submissions
+  const clientSubmissions = useMemo(() => {
     if (!clientProfile) return [];
-    const base = (db.submissions || []).filter(s => clientCampaignIds.has(s.campaign_id));
-    if (platformFilter === 'all') return base;
-    return base.filter(s => s.platform === platformFilter);
-  }, [db.submissions, clientCampaignIds, clientProfile, platformFilter]);
+    return (db.submissions || []).filter(s => clientCampIds.has(s.campaign_id)).map(s => ({
+      ...s,
+      id: s.id || s.submission_id
+    }));
+  }, [db.submissions, clientCampIds, clientProfile]);
 
-  // Helper to find metrics for a submission
-  const getMetrics = (subId) => {
-    if (!db.analytics) return null;
-    return db.analytics.find(a => a.submission_id === subId) || null;
-  };
-
-  const getEngagementRate = (m) => {
-    if (!m || !m.views || m.views === 0) return '0%';
-    const totalEng = (m.likes || 0) + (m.comments || 0) + (m.shares || 0);
-    return ((totalEng / m.views) * 100).toFixed(2) + '%';
-  };
+  if (loading) {
+    return <LoadingSpinner label="Loading Verified Content Library…" />;
+  }
 
   return (
     <div className="content">
-      <div className="mb-24 flex-between" style={{ flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Delivered Content Gallery</h2>
-          <p style={{ color: 'var(--ink3)', marginTop: 4 }}>Access approved creator assets and live verified stats.</p>
-        </div>
-        
-        {/* Platform Filter Controls */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className={`btn btn-sm ${platformFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPlatformFilter('all')}>
-            All platforms
-          </button>
-          <button className={`btn btn-sm ${platformFilter === 'tiktok' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPlatformFilter('tiktok')}>
-            🎵 TikTok
-          </button>
-          <button className={`btn btn-sm ${platformFilter === 'instagram' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPlatformFilter('instagram')}>
-            📸 Instagram
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(310px, 1fr))', gap: 24 }}>
-        {filteredSubmissions.length === 0 ? (
-          <div className="premium-card text-center" style={{ gridColumn: 'span 3', padding: 48 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🎬</div>
-            <h3>No creative assets delivered</h3>
-            <p style={{ color: 'var(--ink3)', marginTop: 8 }}>Approved campaign submissions will dynamically populate in this workspace.</p>
-          </div>
-        ) : (
-          filteredSubmissions.map(s => {
-            const m = getMetrics(s.submission_id);
-            const campaign = db.campaigns.find(c => c.campaign_id === s.campaign_id);
-            return (
-              <div key={s.submission_id} className="premium-card" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, border: '1px solid var(--border)' }}>
-                {/* Creator and Campaign Headers */}
-                <div className="flex-between">
-                  <div>
-                    <div className="fw-700" style={{ fontSize: 16, color: 'var(--ink)' }}>{s.creator_name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 2 }}>
-                      {campaign ? campaign.campaign_name : 'Campaign'}
-                    </div>
-                  </div>
-                  <span className="badge badge-green" style={{ fontSize: 10 }}>Approved Asset</span>
-                </div>
-
-                {/* Submissions Info Body */}
-                <div style={{ fontSize: 13, background: 'var(--bg)', padding: '12px 16px', borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--ink3)' }}>Platform:</span>
-                    <strong style={{ textTransform: 'capitalize' }}>
-                      {s.platform === 'tiktok' ? '🎵 TikTok' : s.platform === 'instagram' ? '📸 Instagram' : s.platform}
-                    </strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--ink3)' }}>Asset Type:</span>
-                    <strong>{s.submission_type}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--ink3)' }}>Delivered:</span>
-                    <strong>{fmtDate(s.created_at)}</strong>
-                  </div>
-                </div>
-
-                {/* Post Metrics Details */}
-                <div style={{ borderTop: '1px solid var(--border2)', paddingTop: 14 }}>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--ink3)', letterSpacing: 0.5, marginBottom: 8, fontWeight: 600 }}>
-                    Verified Performance Metrics
-                  </div>
-                  
-                  {m ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: 13 }}>
-                      <div className="flex-between" style={{ borderBottom: '1px solid var(--border2)', paddingBottom: 4 }}>
-                        <span style={{ color: 'var(--ink3)' }}>Views:</span>
-                        <strong style={{ color: 'var(--ink)' }}>{fmtNum(m.views)}</strong>
-                      </div>
-                      <div className="flex-between" style={{ borderBottom: '1px solid var(--border2)', paddingBottom: 4 }}>
-                        <span style={{ color: 'var(--ink3)' }}>Likes:</span>
-                        <strong style={{ color: 'var(--ink)' }}>{fmtNum(m.likes)}</strong>
-                      </div>
-                      <div className="flex-between" style={{ borderBottom: '1px solid var(--border2)', paddingBottom: 4 }}>
-                        <span style={{ color: 'var(--ink3)' }}>Engagement:</span>
-                        <strong style={{ color: 'var(--ink)' }}>{getEngagementRate(m)}</strong>
-                      </div>
-                      <div className="flex-between" style={{ borderBottom: '1px solid var(--border2)', paddingBottom: 4 }}>
-                        <span style={{ color: 'var(--ink3)' }}>Reach:</span>
-                        <strong style={{ color: 'var(--ink)' }}>{fmtNum(m.reach)}</strong>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 12, color: 'var(--ink3)', fontStyle: 'italic', padding: '6px 0' }}>
-                      Metrics update pending next social sync cycle...
-                    </div>
-                  )}
-                </div>
-
-                {/* Live Link Button */}
-                <div style={{ marginTop: 'auto', paddingTop: 12 }}>
-                  {s.posted_link ? (
-                    <a href={s.posted_link} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm btn-full" style={{ textAlign: 'center', display: 'block', textDecoration: 'none' }}>
-                      Open Original Post 🔗
-                    </a>
-                  ) : (
-                    <button className="btn btn-ghost btn-sm btn-full" disabled>
-                      Post Link Unavailable
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+      <PostsGalleryView
+        submissions={clientSubmissions}
+        analytics={db.analytics || []}
+        creators={db.creators || []}
+        campaigns={clientCampaigns}
+        title="Verified Content Library"
+        subtitle="Filter and explore verified assets and live performance metrics across your campaigns"
+        initialView="gallery"
+      />
     </div>
   );
 }
