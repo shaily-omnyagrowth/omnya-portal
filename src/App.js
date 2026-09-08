@@ -1,8 +1,8 @@
 /* eslint-disable */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import React from "react";
 import { supabase, SUPABASE_URL } from "./supabaseClient";
-import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor } from "./utils";
+import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor, fmtCompactNum, fmtRelativeTime, platformMeta, calcPacing, isBreakoutVideo } from "./utils";
 const Legal = React.lazy(() => import('./Legal'));
 const CreatorDashboard = React.lazy(() => import('./pages/CreatorDashboard'));
 const ClientDashboard = React.lazy(() => import('./pages/ClientDashboard'));
@@ -21,6 +21,17 @@ const PayoutManager = React.lazy(() => import('./components/PayoutManager'));
 const UserManagement = React.lazy(() => import('./pages/UserManagement'));
 const AuditHistory = React.lazy(() => import('./pages/AuditHistory'));
 const SystemConfig = React.lazy(() => import('./pages/SystemConfig'));
+
+// UGCTrackr-inspired modular components
+import SharedCampaignReport from './pages/SharedCampaignReport';
+import TopPostsShowcase from './components/TopPostsShowcase';
+import CreatorLeaderboard from './components/CreatorLeaderboard';
+import CampaignProgressCard from './components/CampaignProgressCard';
+import CampaignCalendarView from './components/CampaignCalendarView';
+import PostsGalleryView from './components/PostsGalleryView';
+import CampaignShareModal from './components/CampaignShareModal';
+import UGCDashboardView from './components/UGCDashboardView';
+
 
 
 // ============================================================
@@ -46,18 +57,35 @@ class ErrorBoundary extends React.Component {
       setTimeout(() => window.location.replace("/"), 1500);
     }
   }
+  componentDidUpdate(prevProps) {
+    if (prevProps.label !== this.props.label && this.state.hasError) {
+      this.setState({ hasError: false, error: null });
+    }
+  }
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9fafb",flexDirection:"column",gap:16,padding:24,textAlign:"center"}}>
+        <div style={{minHeight:"60vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:32,textAlign:"center"}}>
           <div style={{fontSize:48}}>🛠️</div>
-          <div style={{fontWeight:700,fontSize:20,color:"#1a1a2e"}}>Something went wrong</div>
-          <div style={{fontSize:14,color:"#6b7280",maxWidth:340}}>
+          <div style={{fontWeight:700,fontSize:20,color:"var(--ink)"}}>
+            Something went wrong {this.props.label ? `in ${this.props.label}` : ''}
+          </div>
+          <div style={{fontSize:14,color:"var(--ink3)",maxWidth:460}}>
             An unexpected error occurred. This might be due to a slow connection or a temporary issue.
           </div>
-          <button onClick={() => { localStorage.clear(); sessionStorage.clear(); window.location.replace("/"); }} style={{marginTop:8,padding:"10px 24px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontWeight:600}}>
-            Reload Page
-          </button>
+          {this.state.error && (
+            <div style={{margin: "8px 0", padding: "12px 16px", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: 8, color: "#dc2626", fontSize: 13, maxWidth: 540, textAlign: "left", wordBreak: "break-word"}}>
+              <strong>Error details:</strong> {this.state.error?.message || String(this.state.error)}
+            </div>
+          )}
+          <div style={{display:"flex", gap: 10, marginTop: 8}}>
+            <button className="btn btn-primary btn-sm" onClick={() => this.setState({ hasError: false, error: null })}>
+              🔄 Try Again
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => window.location.reload()}>
+              Reload Page
+            </button>
+          </div>
         </div>
       );
     }
@@ -2051,16 +2079,67 @@ function AMClientSummaryBar({ client, db }) {
   );
 }
 
-function AMDashboard({ user, db }) {
+function AMDashboard({ user, db, setPage }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
   const myCreators = am?db.creators.filter(c=>c.am_id===am.id):[];
   const myClients = am?db.clients.filter(c=>c.am_id===am.id):[];
   const pendingC = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.status==="Submitted").length;
   const pendingF = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.status==="Under Review").length;
   const approvedWeek = db.submissions.filter(s=>s.status==="Approved"&&new Date(s.approved_date)>new Date(Date.now()-7*86400000)).length;
+
+  const amTopPosts = useMemo(() => {
+    const analyticsMap = {};
+    (db.analytics || []).forEach(a => { if (a.submission_id) analyticsMap[a.submission_id] = a; });
+    const clientIds = new Set(myClients.map(cl => cl.id));
+    const myCampaigns = (db.campaigns || []).filter(c => clientIds.has(c.client_id));
+    const campIds = new Set(myCampaigns.map(c => c.id));
+    const approved = (db.submissions || []).filter(s => campIds.has(s.campaign_id) && s.status === 'Approved');
+
+    return approved.map(s => {
+      const a = analyticsMap[s.id];
+      const views = Number(a?.views || s.views_1w || s.views_72h || s.views_24h || 0);
+      const likes = Number(a?.likes || s.likes || 0);
+      const comments = Number(a?.comments || s.comments || 0);
+      const shares = Number(a?.shares || s.shares || 0);
+      const saves = Number(a?.saves || s.saves || 0);
+      const creator = (db.creators || []).find(c => c.id === s.creator_id);
+      const campaign = myCampaigns.find(c => c.id === s.campaign_id);
+      return {
+        ...s,
+        views, likes, comments, shares, saves,
+        creatorName: creator?.name || 'Creator',
+        campaignName: campaign?.name || 'Campaign',
+        platform: (a?.platform || s.platform || campaign?.format || 'tiktok').toLowerCase()
+      };
+    }).sort((a, b) => b.views - a.views).slice(0, 6);
+  }, [myClients, db.campaigns, db.submissions, db.analytics, db.creators]);
+
   if(!am) return <div className="content"><div className="empty"><div className="empty-icon">⚙️</div><h3>Account not fully set up</h3><p>Your account manager profile isn't linked yet. Contact Shai to get assigned to clients and creators.</p></div></div>;
   return (
     <div className="content">
+      {/* UGCTrackr-style Dashboard Performance Suite for AM */}
+      <div style={{ marginBottom: 32 }}>
+        <UGCDashboardView
+          campaigns={myCampaigns}
+          submissions={(db.submissions || []).filter(s => campIds.has(s.campaign_id))}
+          analytics={db.analytics || []}
+          creators={myCreators}
+          title="Overview"
+          subtitle="Performance analytics and daily view trends across your assigned accounts"
+          showTopPosts={true}
+          onNavigate={setPage}
+        />
+      </div>
+
+      {/* AM Operational Overview */}
+      <div className="mb-20 flex-between">
+        <div>
+          <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--ink)" }}>Account Operations</h3>
+          <p style={{ color: "var(--ink2)", marginTop: 2, fontSize: 13 }}>Pending submissions, creator progress, and client quotas.</p>
+        </div>
+        <span className="owner-badge" style={{ background: "var(--blue)", color: "#fff" }}>🤝 AM Operations</span>
+      </div>
+
       <div className="stats-grid">
         <div className="stat-card stat-highlight"><div className="stat-label">Pending Approvals</div><div className="stat-value">{pendingC+pendingF}</div><div className="stat-sub">{pendingC} concepts · {pendingF} finals</div></div>
         <div className="stat-card"><div className="stat-label">Approved This Week</div><div className="stat-value">{approvedWeek}</div></div>
@@ -2371,39 +2450,83 @@ function ReviewQueue({ db, onRefresh, user }) {
 
 function MyCreators({ user, db }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
-  const creators = am?db.creators.filter(c=>c.am_id===am.id):db.creators;
+  const baseCreators = am?db.creators.filter(c=>c.am_id===am.id):db.creators;
+  const [search, setSearch] = useState("");
+
+  const creators = useMemo(() => {
+    return baseCreators.map(c => {
+      const subs = db.submissions.filter(s => s.creator_id === c.id);
+      const dates = subs.map(s => new Date(s.created_at || s.approved_date).getTime()).filter(t => !isNaN(t));
+      const lastActiveTime = dates.length > 0 ? Math.max(...dates) : new Date(c.created_at).getTime();
+      const approvedSubs = subs.filter(s => s.status === "Approved");
+      const rate = subs.length > 0 ? Math.round((approvedSubs.length / subs.length) * 100) : 0;
+      return {
+        ...c,
+        lastActiveTime,
+        approvedCount: approvedSubs.length,
+        approvalRate: rate
+      };
+    }).filter(c => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (c.name || "").toLowerCase().includes(q) || (c.tiktok_handle || "").toLowerCase().includes(q);
+    }).sort((a, b) => b.lastActiveTime - a.lastActiveTime);
+  }, [baseCreators, db.submissions, search]);
+
   return (
     <div className="content">
-      {creators.length===0&&<div className="empty"><div className="empty-icon">👥</div><h3>No creators assigned yet</h3></div>}
+      <div className="flex-between mb-16" style={{ flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>My Creators ({creators.length})</h3>
+          <p style={{ color: "var(--ink3)", fontSize: 12, marginTop: 4 }}>Monitor creator activity, status, and delivery rates</p>
+        </div>
+        <input
+          type="text"
+          className="form-input"
+          placeholder="Search creator..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ width: 200, height: 32, fontSize: 12 }}
+        />
+      </div>
+
+      {creators.length===0&&<div className="empty"><div className="empty-icon">👥</div><h3>No creators found</h3></div>}
       <div className="premium-card">
         <div className="table-wrap">
           <table className="premium-table">
-            <thead><tr><th>Creator</th><th>TikTok</th><th>Status</th><th>Approval Rate</th><th>Approved</th><th>Payment</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Creator</th>
+                <th>TikTok</th>
+                <th>Status</th>
+                <th>Last Active</th>
+                <th>Approval Rate</th>
+                <th>Approved</th>
+                <th>Payment</th>
+              </tr>
+            </thead>
             <tbody>
-              {creators.map(c=>{
-                const subs=db.submissions.filter(s=>s.creator_id===c.id);
-                const rate=subs.length>0?Math.round((subs.filter(s=>s.status==="Approved").length/subs.length)*100):0;
-                return (
-                  <tr key={c.id}>
-                    <td>
-                      <div className="flex-center gap-8">
-                        <div className={`creator-avatar ${getAvatarColor(c.name)}`} style={{width:32,height:32,fontSize:12}}>{getInitials(c.name)}</div>
-                        <div><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{c.email}</div></div>
-                      </div>
-                    </td>
-                    <td style={{fontSize:12}}>{c.tiktok_handle||"—"}</td>
-                    <td>{statusBadge(c.status)}</td>
-                    <td>
-                      <div className="flex-center gap-8">
-                        <div className="progress-bar" style={{width:80}}><div className="progress-fill" style={{width:`${rate}%`,background:rate>80?"var(--green)":"var(--gold)"}}/></div>
-                        <span style={{fontSize:12}}>{rate}%</span>
-                      </div>
-                    </td>
-                    <td>{subs.filter(s=>s.status==="Approved").length}</td>
-                    <td>{statusBadge(c.payment_status||"Current")}</td>
-                  </tr>
-                );
-              })}
+              {creators.map(c=>(
+                <tr key={c.id}>
+                  <td>
+                    <div className="flex-center gap-8">
+                      <div className={`creator-avatar ${getAvatarColor(c.name)}`} style={{width:32,height:32,fontSize:12}}>{getInitials(c.name)}</div>
+                      <div><div className="fw-600">{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{c.email}</div></div>
+                    </div>
+                  </td>
+                  <td style={{fontSize:12}}>{c.tiktok_handle?"@"+c.tiktok_handle:"—"}</td>
+                  <td>{statusBadge(c.status)}</td>
+                  <td style={{fontSize:12, color: "var(--ink3)"}}>{fmtRelativeTime(c.lastActiveTime)}</td>
+                  <td>
+                    <div className="flex-center gap-8">
+                      <div className="progress-bar" style={{width:80}}><div className="progress-fill" style={{width:`${c.approvalRate}%`,background:c.approvalRate>80?"var(--green)":"var(--gold)"}}/></div>
+                      <span style={{fontSize:12}}>{c.approvalRate}%</span>
+                    </div>
+                  </td>
+                  <td>{c.approvedCount}</td>
+                  <td>{statusBadge(c.payment_status||"Current")}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -2420,6 +2543,10 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   });
   const [showCreate, setShowCreate] = useState(false);
   const [viewCampaign, setViewCampaign] = useState(null);
+  const [shareModalCampaign, setShareModalCampaign] = useState(null);
+  const [viewMode, setViewMode] = useState("cards"); // "cards" | "table" | "calendar"
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
@@ -2434,48 +2561,227 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
     setForm({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
   };
 
+  const filteredCampaigns = useMemo(() => {
+    return campaigns.filter(c => {
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const client = db.clients.find(cl => cl.id === c.client_id);
+        const matchName = (c.name || "").toLowerCase().includes(q);
+        const matchClient = (client?.name || "").toLowerCase().includes(q);
+        if (!matchName && !matchClient) return false;
+      }
+      if (statusFilter === "active" && (c.status === "Archived" || c.status === "Completed")) return false;
+      if (statusFilter === "completed" && c.status !== "Completed") return false;
+      if (statusFilter === "archived" && c.status !== "Archived") return false;
+      return true;
+    });
+  }, [campaigns, search, statusFilter, db.clients]);
+
   return (
     <div className="content">
-      <div className="flex-between mb-16">
-        <div style={{fontSize:13,color:"var(--ink3)"}}>{campaigns.length} campaign{campaigns.length!==1?"s":""}</div>
-        <button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ New Campaign</button>
-      </div>
-      {campaigns.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>📢</div><h3 style={{fontSize:18,marginBottom:8}}>No campaigns yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Create your first campaign to get creatives rolling.</p>{isOwner&&<button className="btn btn-primary" onClick={()=>setShowCreate(true)}>+ Create Campaign</button>}</div>}
-      <div className="premium-card">
-        <div className="table-wrap">
-          <table className="premium-table">
-            <thead><tr><th>Campaign</th><th>Client</th><th>AM</th><th>Format</th><th>Progress</th><th>Deadline</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
-            <tbody>
-              {campaigns.map(c=>{
-                const client=db.clients.find(cl=>cl.id===c.client_id);
-                const approved=db.submissions.filter(s=>s.campaign_id===c.id&&s.status==="Approved").length;
-                const pct=Math.round((approved/(c.videos_needed||1))*100);
-                return (
-                  <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setViewCampaign(c)}>
-                    <td><div className="fw-600" style={{color:"var(--blue)"}}>{c.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div></td>
-                    <td className="text-muted">{client?.name||"—"}</td>
-                    <td style={{fontSize:12,color:"var(--ink3)"}}>{db.accountManagers.find(a=>a.id===client?.am_id)?.name||"—"}</td>
-                    <td><span className="badge badge-blue">{c.format}</span></td>
-                    <td>
-                      <div style={{fontSize:11,color:"var(--ink3)",marginBottom:4}}>{approved}/{c.videos_needed} videos</div>
-                      <div className="progress-bar" style={{width:80}}><div className="progress-fill" style={{width:`${Math.min(pct,100)}%`}}/></div>
-                    </td>
-                    <td className="text-muted">{fmtDate(c.deadline)}</td>
-                    <td>{statusBadge(c.status)}</td>
-                    <td style={{textAlign:"right"}}>
-                      <div style={{display:"flex",gap:4,justifyContent:"flex-end"}}>
-                        <button className="btn btn-sm btn-ghost" onClick={e=>{e.stopPropagation();setViewCampaign(c);}}>✏️</button>
-                        {c.status!=="Archived"&&<button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} onClick={e=>{e.stopPropagation();setViewCampaign(c);}}>🗄</button>}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Header & Controls Bar */}
+      <div className="flex-between mb-16" style={{ flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {/* View Switcher */}
+          <div style={{
+            display: 'flex',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: 2
+          }}>
+            <button
+              className={`btn btn-sm ${viewMode === 'cards' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ padding: '4px 10px', fontSize: 12, borderRadius: 4 }}
+              onClick={() => setViewMode('cards')}
+            >
+              🗂 Cards
+            </button>
+            <button
+              className={`btn btn-sm ${viewMode === 'table' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ padding: '4px 10px', fontSize: 12, borderRadius: 4 }}
+              onClick={() => setViewMode('table')}
+            >
+              📋 Table
+            </button>
+            <button
+              className={`btn btn-sm ${viewMode === 'calendar' ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ padding: '4px 10px', fontSize: 12, borderRadius: 4 }}
+              onClick={() => setViewMode('calendar')}
+            >
+              📅 Calendar
+            </button>
+          </div>
+
+          {/* Quick Filters */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {[
+              ['all', `All (${campaigns.length})`],
+              ['active', 'Active Flights'],
+              ['completed', 'Completed'],
+              ['archived', 'Archived']
+            ].map(([st, label]) => (
+              <button
+                key={st}
+                className={`btn btn-sm ${statusFilter === st ? 'btn-secondary' : 'btn-ghost'}`}
+                style={{ padding: '4px 8px', fontSize: 11 }}
+                onClick={() => setStatusFilter(st)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            type="text"
+            className="form-input"
+            placeholder="Search campaigns..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 170, height: 32, fontSize: 12 }}
+          />
+          <button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ New Campaign</button>
         </div>
       </div>
-      {viewCampaign&&<CampaignDetail campaign={viewCampaign} db={db} user={user} onRefresh={async()=>{await onRefresh();setViewCampaign(db.campaigns.find(c=>c.id===viewCampaign.id)||null);}} onClose={()=>setViewCampaign(null)}/>}
+
+      {campaigns.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>📢</div><h3 style={{fontSize:18,marginBottom:8}}>No campaigns yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Create your first campaign to get creatives rolling.</p>{isOwner&&<button className="btn btn-primary" onClick={()=>setShowCreate(true)}>+ Create Campaign</button>}</div>}
+
+      {/* Cards View */}
+      {viewMode === 'cards' && campaigns.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          gap: 16
+        }}>
+          {filteredCampaigns.length === 0 ? (
+            <div className="premium-card text-center" style={{ gridColumn: '1 / -1', padding: 40, color: 'var(--ink3)' }}>
+              No campaigns match your search or filter.
+            </div>
+          ) : (
+            filteredCampaigns.map(c => {
+              const client = db.clients.find(cl => cl.id === c.client_id);
+              const amRow = db.accountManagers.find(a => a.id === client?.am_id);
+              const approved = db.submissions.filter(s => s.campaign_id === c.id && s.status === 'Approved').length;
+              const creatorsCount = (c.assigned_creators || []).length;
+
+              return (
+                <CampaignProgressCard
+                  key={c.id}
+                  campaign={c}
+                  client={client}
+                  accountManager={amRow}
+                  approvedCount={approved}
+                  assignedCreatorsCount={creatorsCount}
+                  onClick={() => setViewCampaign(c)}
+                  onShareClick={() => setShareModalCampaign(c)}
+                  isOwner={isOwner}
+                />
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* Table View */}
+      {viewMode === 'table' && campaigns.length > 0 && (
+        <div className="premium-card">
+          <div className="table-wrap">
+            <table className="premium-table">
+              <thead>
+                <tr>
+                  <th>Campaign</th>
+                  <th>Client</th>
+                  <th>AM</th>
+                  <th>Format</th>
+                  <th>Flight / Week</th>
+                  <th>Progress</th>
+                  <th>Deadline</th>
+                  <th>Status</th>
+                  <th style={{textAlign:"right"}}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCampaigns.length === 0 ? (
+                  <tr>
+                    <td colSpan="9" style={{ textAlign: 'center', padding: 32, color: 'var(--ink3)' }}>
+                      No campaigns found matching filter.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCampaigns.map(c=>{
+                    const client=db.clients.find(cl=>cl.id===c.client_id);
+                    const approved=db.submissions.filter(s=>s.campaign_id===c.id&&s.status==="Approved").length;
+                    const pacing = calcPacing({
+                      startDate: c.start_date || c.created_at,
+                      deadline: c.deadline,
+                      videosNeeded: c.videos_needed || 10,
+                      approvedCount: approved
+                    });
+
+                    return (
+                      <tr key={c.id} style={{cursor:"pointer"}} onClick={()=>setViewCampaign(c)}>
+                        <td>
+                          <div className="fw-600" style={{color:"var(--blue)"}}>{c.name}</div>
+                          <div style={{fontSize:11,color:"var(--ink3)"}}>{(c.assigned_creators||[]).length} creators</div>
+                        </td>
+                        <td className="text-muted">{client?.name||"—"}</td>
+                        <td style={{fontSize:12,color:"var(--ink3)"}}>{db.accountManagers.find(a=>a.id===client?.am_id)?.name||"—"}</td>
+                        <td><span className="badge badge-blue">{c.format}</span></td>
+                        <td>
+                          <div style={{ fontSize: 11, fontWeight: 600 }}>Week {pacing.currentWeek} of {pacing.totalWeeks}</div>
+                          <div style={{ fontSize: 10, color: 'var(--ink3)' }}>{pacing.paceLabel}</div>
+                        </td>
+                        <td>
+                          <div style={{fontSize:11,color:"var(--ink3)",marginBottom:4}}>{approved}/{c.videos_needed} videos ({pacing.deliveryPct}%)</div>
+                          <div className="progress-bar" style={{width:80}}><div className="progress-fill" style={{width:`${Math.min(pacing.deliveryPct,100)}%`}}/></div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: 12 }}>{fmtDate(c.deadline)}</div>
+                          <div style={{ fontSize: 10, color: pacing.daysRemaining !== null && pacing.daysRemaining <= 3 ? 'var(--red)' : 'var(--ink3)' }}>
+                            {pacing.daysRemaining !== null ? (pacing.daysRemaining > 0 ? `${pacing.daysRemaining}d left` : 'Expired') : '—'}
+                          </div>
+                        </td>
+                        <td>{statusBadge(c.status)}</td>
+                        <td style={{textAlign:"right"}}>
+                          <div style={{display:"flex",gap:4,justifyContent:"flex-end"}} onClick={e => e.stopPropagation()}>
+                            <button className="btn btn-sm btn-ghost" title="Share Analytics" onClick={()=>setShareModalCampaign(c)}>🔗</button>
+                            <button className="btn btn-sm btn-ghost" onClick={()=>setViewCampaign(c)}>✏️</button>
+                            {c.status!=="Archived"&&<button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} onClick={()=>setViewCampaign(c)}>🗄</button>}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Calendar View */}
+      {viewMode === 'calendar' && campaigns.length > 0 && (
+        <CampaignCalendarView
+          campaigns={filteredCampaigns}
+          db={db}
+          onSelectCampaign={setViewCampaign}
+        />
+      )}
+
+      {/* Share Modal */}
+      {shareModalCampaign && (
+        <CampaignShareModal
+          campaign={shareModalCampaign}
+          onClose={() => setShareModalCampaign(null)}
+          onUpdated={async () => {
+            await onRefresh();
+          }}
+        />
+      )}
+
+      {viewCampaign&&<CampaignDetail campaign={viewCampaign} db={db} user={user} onRefresh={async()=>{await onRefresh();setViewCampaign(db.campaigns.find(c=>c.id===viewCampaign.id)||null);}} onClose={()=>setViewCampaign(null)} onShare={setShareModalCampaign}/>}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -2502,7 +2808,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   );
 }
 
-function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
+function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onShare }) {
   const [saving, setSaving] = useState(false);
   const [assignError, setAssignError] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -2709,6 +3015,7 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner }) {
             )}
           </div>
           <div style={{display:"flex",gap:8}}>
+            {onShare&&!editing&&<button className="btn btn-sm btn-ghost" style={{color:"var(--blue)",fontWeight:600}} onClick={()=>onShare(campaign)}>🔗 Share Analytics</button>}
             {!editing&&<button className="btn btn-sm btn-primary" onClick={()=>setEditing(true)}>✏️ Edit</button>}
             {!editing&&!isArchived&&<button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} onClick={()=>{setConfirmDelete(true);setArchiveReason("");setArchiveError("");}}>🗄 Archive</button>}
             {!editing&&isArchived&&<button className="btn btn-sm btn-ghost" style={{color:"var(--green)"}} onClick={restoreCampaign} disabled={deleting}>{deleting?"Restoring…":"↩ Restore"}</button>}
@@ -3648,36 +3955,14 @@ function ContentLibrary({ db, onRefresh }) {
   const client = campaign?db.clients.find(c=>c.id===campaign.client_id):null;
   return (
     <div className="content">
-      <div className="mb-16" style={{fontSize:13,color:"var(--ink3)"}}>{approved.length} approved videos · Click any row for AI insights</div>
-      <div className="premium-card">
-        <div className="table-wrap">
-          <table className="premium-table">
-            <thead><tr><th>Creator</th><th>Campaign</th><th>Client</th><th>Platform</th><th>Approved</th><th>Views</th><th>Likes</th><th>Saves</th><th>AI Score</th><th>Payment</th></tr></thead>
-            <tbody>
-              {approved.map(s=>{
-                const creator=db.creators.find(c=>c.id===s.creator_id);
-                const camp=db.campaigns.find(c=>c.id===s.campaign_id);
-                const cl=db.clients.find(c=>c.id===camp?.client_id);
-                const ins=s.ai_insights;
-                return (
-                  <tr key={s.id} style={{cursor:"pointer"}} onClick={()=>setSelected(s.id)}>
-                    <td className="fw-600">{creator?.name||"—"}</td>
-                    <td style={{fontSize:12}}>{camp?.name||"—"}</td>
-                    <td style={{fontSize:12}}>{cl?.name||"—"}</td>
-                    <td><span className="badge badge-blue">{s.platform}</span></td>
-                    <td className="text-muted">{fmtDate(s.approved_date)}</td>
-                    <td>{fmtNum(s.views_1w||s.views_72h||s.views_24h)}</td>
-                    <td>{fmtNum(s.likes)}</td>
-                    <td>{fmtNum(s.saves)}</td>
-                    <td>{ins?<span style={{fontFamily:"Bebas Neue, sans-serif",fontWeight:400,fontSize:16,color:scoreColor(ins.score)}}>{ins.score}</span>:<span className="badge badge-gray">—</span>}</td>
-                    <td>{statusBadge(s.payment_status)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <PostsGalleryView
+        submissions={approved}
+        analytics={db.analytics}
+        creators={db.creators}
+        campaigns={db.campaigns}
+        title="Content Library & Asset Gallery"
+        subtitle="Explore and review all approved creator content with live analytics and direct links"
+      />
       {selected&&sub&&(
         <div className="modal-overlay" onClick={()=>setSelected(null)}>
           <div className="modal" style={{maxWidth:640}} onClick={e=>e.stopPropagation()}>
@@ -3694,36 +3979,174 @@ function ContentLibrary({ db, onRefresh }) {
 }
 
 function Analytics({ db }) {
-  const creators = [...db.creators].sort((a,b)=>{
-    const ra=db.submissions.filter(s=>s.creator_id===a.id), rb=db.submissions.filter(s=>s.creator_id===b.id);
-    const pa=ra.length>0?Math.round((ra.filter(s=>s.status==="Approved").length/ra.length)*100):0;
-    const pb=rb.length>0?Math.round((rb.filter(s=>s.status==="Approved").length/rb.length)*100):0;
-    return pb-pa;
-  });
+  const [activeTab, setActiveTab] = useState("overview"); // 'overview' | 'leaderboard' | 'gallery'
+
+  const analyticsMap = useMemo(() => {
+    const map = {};
+    (db.analytics || []).forEach(a => { if (a.submission_id) map[a.submission_id] = a; });
+    return map;
+  }, [db.analytics]);
+
+  const approvedSubs = useMemo(() => {
+    return (db.submissions || []).filter(s => s.status === "Approved");
+  }, [db.submissions]);
+
+  const enrichedPosts = useMemo(() => {
+    return approvedSubs.map(s => {
+      const a = analyticsMap[s.id];
+      const views = Number(a?.views || s.views_1w || s.views_72h || s.views_24h || 0);
+      const likes = Number(a?.likes || s.likes || 0);
+      const comments = Number(a?.comments || s.comments || 0);
+      const shares = Number(a?.shares || s.shares || 0);
+      const saves = Number(a?.saves || s.saves || 0);
+      const creator = db.creators.find(c => c.id === s.creator_id);
+      const campaign = db.campaigns.find(c => c.id === s.campaign_id);
+      return {
+        ...s,
+        views, likes, comments, shares, saves,
+        creatorName: creator?.name || 'Creator',
+        campaignName: campaign?.name || 'Campaign',
+        platform: (a?.platform || s.platform || campaign?.format || 'tiktok').toLowerCase()
+      };
+    }).sort((a, b) => b.views - a.views);
+  }, [approvedSubs, analyticsMap, db.creators, db.campaigns]);
+
+  const totals = useMemo(() => {
+    const acc = { views: 0, likes: 0, comments: 0, shares: 0, saves: 0 };
+    enrichedPosts.forEach(p => {
+      acc.views += p.views;
+      acc.likes += p.likes;
+      acc.comments += p.comments;
+      acc.shares += p.shares;
+      acc.saves += p.saves;
+    });
+    const eng = acc.likes + acc.comments + acc.shares + acc.saves;
+    const engRate = acc.views > 0 ? ((eng / acc.views) * 100).toFixed(2) + '%' : '0.00%';
+    return { ...acc, eng, engRate };
+  }, [enrichedPosts]);
+
   return (
-    <div className="content">
-      <div className="stats-grid" style={{gridTemplateColumns:"1fr 1fr 1fr"}}>
-        <div className="stat-card"><div className="stat-label">Total Approved</div><div className="stat-value">{db.submissions.filter(s=>s.status==="Approved").length}</div></div>
-        <div className="stat-card stat-highlight"><div className="stat-label">Pending Review</div><div className="stat-value">{db.submissions.filter(s=>s.status==="Submitted"||s.status==="Under Review").length}</div></div>
-        <div className="stat-card"><div className="stat-label">Active Creators</div><div className="stat-value">{db.creators.filter(c=>c.status==="Active").length}</div></div>
+    <div className="content" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Top Banner & Tab Controls */}
+      <div className="flex-between" style={{ flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>
+            Performance & Analytics Suite
+          </h2>
+          <p style={{ color: 'var(--ink3)', fontSize: 13, marginTop: 4 }}>
+            Real-time verified impressions, creator rankings, and viral content detection
+          </p>
+        </div>
+
+        <div style={{
+          display: 'flex',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          padding: 2
+        }}>
+          <button
+            className={`btn btn-sm ${activeTab === 'overview' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ padding: '5px 12px', fontSize: 12, borderRadius: 4 }}
+            onClick={() => setActiveTab('overview')}
+          >
+            📊 Overview
+          </button>
+          <button
+            className={`btn btn-sm ${activeTab === 'leaderboard' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ padding: '5px 12px', fontSize: 12, borderRadius: 4 }}
+            onClick={() => setActiveTab('leaderboard')}
+          >
+            🏆 Leaderboard
+          </button>
+          <button
+            className={`btn btn-sm ${activeTab === 'gallery' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ padding: '5px 12px', fontSize: 12, borderRadius: 4 }}
+            onClick={() => setActiveTab('gallery')}
+          >
+            🎴 Content Gallery
+          </button>
+        </div>
       </div>
-      <div className="premium-card">
-        <div className="card-title">Creator Leaderboard</div>
-        {creators.map((c,i)=>{
-          const subs=db.submissions.filter(s=>s.creator_id===c.id);
-          const rate=subs.length>0?Math.round((subs.filter(s=>s.status==="Approved").length/subs.length)*100):0;
-          return (
-            <div key={c.id} className="perf-row" style={{padding:"8px 0",borderBottom:"1px solid var(--border2)"}}>
-              <div style={{width:24,fontSize:13,color:i<3?"var(--gold)":"var(--ink3)",fontWeight:700}}>#{i+1}</div>
-              <div className={`creator-avatar ${getAvatarColor(c.name)}`} style={{width:28,height:28,fontSize:11}}>{getInitials(c.name)}</div>
-              <div className="perf-label" style={{width:120}}>{c.name}</div>
-              <div className="perf-bar"><div className="perf-fill" style={{width:`${rate}%`,background:rate>80?"var(--green)":"var(--gold)"}}/></div>
-              <div className="perf-val">{rate}%</div>
-            </div>
-          );
-        })}
-        {creators.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">📊</div><h3>No data yet</h3></div>}
+
+      {/* Aggregate KPI Grid */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        gap: 14
+      }}>
+        <div className="stat-card stat-highlight">
+          <div className="stat-label">Total Verified Views</div>
+          <div className="stat-value">{fmtCompactNum(totals.views)}</div>
+          <div className="stat-sub">{fmtNum(totals.views)} impressions</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Engagement Rate</div>
+          <div className="stat-value text-green">{totals.engRate}</div>
+          <div className="stat-sub">{fmtCompactNum(totals.eng)} total interactions</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Approved Videos</div>
+          <div className="stat-value">{approvedSubs.length}</div>
+          <div className="stat-sub">{db.submissions.filter(s=>s.status==="Submitted"||s.status==="Under Review").length} pending</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Total Likes</div>
+          <div className="stat-value">{fmtCompactNum(totals.likes)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Total Comments</div>
+          <div className="stat-value">{fmtCompactNum(totals.comments)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Shares & Reposts</div>
+          <div className="stat-value">{fmtCompactNum(totals.shares)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Saves / Bookmarks</div>
+          <div className="stat-value">{fmtCompactNum(totals.saves)}</div>
+        </div>
       </div>
+
+      {/* Tab 1: Overview (Top Posts + Creator Leaderboard Preview) */}
+      {activeTab === 'overview' && (
+        <>
+          <TopPostsShowcase
+            posts={enrichedPosts}
+            title="Top Performing Agency Content"
+            subtitle="Top videos ranked by verified reach and engagement"
+          />
+
+          <CreatorLeaderboard
+            creators={db.creators}
+            submissions={db.submissions}
+            analytics={db.analytics}
+            campaigns={db.campaigns}
+          />
+        </>
+      )}
+
+      {/* Tab 2: Leaderboard Focused */}
+      {activeTab === 'leaderboard' && (
+        <CreatorLeaderboard
+          creators={db.creators}
+          submissions={db.submissions}
+          analytics={db.analytics}
+          campaigns={db.campaigns}
+        />
+      )}
+
+      {/* Tab 3: Content Gallery */}
+      {activeTab === 'gallery' && (
+        <PostsGalleryView
+          submissions={approvedSubs}
+          analytics={db.analytics}
+          creators={db.creators}
+          campaigns={db.campaigns}
+          title="All Delivered Content Assets"
+          subtitle="Filter by creator, campaign, platform, and date range with live watch links"
+        />
+      )}
     </div>
   );
 }
@@ -3732,7 +4155,7 @@ function Analytics({ db }) {
 // OWNER PAGES
 // ============================================================
 
-function OwnerDashboard({ db, onRefresh, setUser }) {
+function OwnerDashboard({ db, onRefresh, setUser, setPage }) {
   const [pendingUsers, setPendingUsers] = useState([]);
   const [approvingSaving, setApprovingSaving] = useState(false);
 
@@ -3751,30 +4174,38 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
     try {
       const profile = pendingUsers.find(u=>u.id===userId);
       const email = profile?.email || "";
+      const normalizedRole = (role === "account_manager" || role === "am") ? "am" : role;
       
       // Update the user role in user_profiles
-      const { error: upError } = await supabase.from("user_profiles").update({role, full_name:name}).eq("id",userId);
+      const { error: upError } = await supabase.from("user_profiles").update({role: normalizedRole, full_name:name}).eq("id",userId);
       if(upError) throw upError;
 
-      if(role==="account_manager" || role==="am") {
-        const { error: amError } = await supabase.from("account_managers").upsert({name, email, user_id:userId},{onConflict:"email"});
+      if(normalizedRole==="am") {
+        const { error: amError } = await supabase.from("account_managers").upsert({name, email, user_id:userId, status:"Active"},{onConflict:"email"});
         if(amError) throw amError;
       }
       
-      if(role==="creator") {
+      if(normalizedRole==="creator") {
         const { error: cError } = await supabase.from("creators").upsert({name, email, user_id:userId, status:"Active"},{onConflict:"email"});
         if(cError) throw cError;
+      }
+
+      if(normalizedRole==="client") {
+        const { error: clError } = await supabase.from("clients").upsert({name: name || "New Client", contact_email: email, user_id:userId, status:"Active"},{onConflict:"user_id"});
+        if(clError) throw clError;
       }
       
       // Email: welcome the newly approved user
       sendEmail("user_approved", {
         userEmail: email,
         displayName: name,
-        role: role,
+        role: normalizedRole,
       });
       
       setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
-      await onRefresh();
+      if (typeof onRefresh === "function") {
+        await onRefresh();
+      }
     } catch (err) {
       console.error("Failed to approve user:", err);
       alert("Error approving user: " + err.message);
@@ -3787,21 +4218,60 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
     await supabase.from("user_profiles").update({role:"denied"}).eq("id",userId);
     setPendingUsers(prev=>prev.filter(u=>u.id!==userId));
   };
-  const totalRevenue = db.clients.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.budget||0),0);
-  const creatorCost = db.creators.filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.weekly_rate||0)*4,0);
+  const totalRevenue = (db.clients || []).filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.budget||0),0);
+  const creatorCost = (db.creators || []).filter(c=>c.status==="Active").reduce((a,c)=>a+Number(c.weekly_rate||0)*4,0);
   const profit = totalRevenue - creatorCost;
   const margin = totalRevenue>0?Math.round((profit/totalRevenue)*100):0;
-  const pendingReviews = db.submissions.filter(s => s.status === "Submitted" || s.status === "Under Review");
-  const activeCampaigns = db.campaigns.filter(c => c.status === "Active" || c.status === "Draft");
+  const pendingReviews = (db.submissions || []).filter(s => s.status === "Submitted" || s.status === "Under Review");
+  const activeCampaigns = (db.campaigns || []).filter(c => c.status === "Active" || c.status === "Draft");
+
+  const ownerTopPosts = useMemo(() => {
+    const analyticsMap = {};
+    (db.analytics || []).forEach(a => { if (a.submission_id) analyticsMap[a.submission_id] = a; });
+    const approved = (db.submissions || []).filter(s => s.status === 'Approved');
+
+    return approved.map(s => {
+      const a = analyticsMap[s.id];
+      const views = Number(a?.views || s.views_1w || s.views_72h || s.views_24h || 0);
+      const likes = Number(a?.likes || s.likes || 0);
+      const comments = Number(a?.comments || s.comments || 0);
+      const shares = Number(a?.shares || s.shares || 0);
+      const saves = Number(a?.saves || s.saves || 0);
+      const creator = (db.creators || []).find(c => c.id === s.creator_id);
+      const campaign = (db.campaigns || []).find(c => c.id === s.campaign_id);
+      return {
+        ...s,
+        views, likes, comments, shares, saves,
+        creatorName: creator?.name || 'Creator',
+        campaignName: campaign?.name || 'Campaign',
+        platform: (a?.platform || s.platform || campaign?.format || 'tiktok').toLowerCase()
+      };
+    }).sort((a, b) => b.views - a.views).slice(0, 6);
+  }, [db.submissions, db.analytics, db.creators, db.campaigns]);
 
   return (
     <div className="content admin-dash-wrap">
-      <div className="mb-24 flex-between">
+      {/* UGCTrackr-style Dashboard Performance Suite */}
+      <div style={{ marginBottom: 32 }}>
+        <UGCDashboardView
+          campaigns={db.campaigns || []}
+          submissions={db.submissions || []}
+          analytics={db.analytics || []}
+          creators={db.creators || []}
+          title="Dashboard"
+          subtitle="Agency-wide verified post analytics, daily views, and deliverable metrics"
+          showTopPosts={true}
+          onNavigate={setPage}
+        />
+      </div>
+
+      {/* Agency Operations & Pulse */}
+      <div className="mb-20 flex-between">
         <div>
-          <h2 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "var(--ink)" }}>Overview</h2>
-          <p style={{ color: "var(--ink2)", marginTop: 4, fontSize: 14 }}>Here is what's happening across the agency today.</p>
+          <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: "var(--ink)" }}>Agency Operations</h3>
+          <p style={{ color: "var(--ink2)", marginTop: 2, fontSize: 13 }}>Review queues, pending onboarding, and financial pulse.</p>
         </div>
-        <span className="owner-badge">👑 Owner View</span>
+        <span className="owner-badge">👑 Owner Operations</span>
       </div>
 
       {/* Pulse Cards */}
@@ -3884,9 +4354,10 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
                       <div style={{ fontSize: 12, color: "var(--ink3)" }}>Req: {u.requested_role || "Creator"}</div>
                     </div>
                   </div>
-                  <div style={{display:"flex", gap:6}}>
-                    <button className="btn btn-green btn-sm" disabled={approvingSaving} onClick={()=>approveUser(u.id,"account_manager",u.full_name||u.email.split("@")[0])} style={{padding:"4px 8px"}}>✓ AM</button>
+                  <div style={{display:"flex", gap:6, flexWrap:"wrap"}}>
+                    <button className="btn btn-green btn-sm" disabled={approvingSaving} onClick={()=>approveUser(u.id,"am",u.full_name||u.email.split("@")[0])} style={{padding:"4px 8px"}}>✓ AM</button>
                     <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff",padding:"4px 8px"}} disabled={approvingSaving} onClick={()=>approveUser(u.id,"creator",u.full_name||u.email.split("@")[0])}>✓ Creator</button>
+                    <button className="btn btn-sm" style={{background:"var(--orange)",color:"#fff",padding:"4px 8px"}} disabled={approvingSaving} onClick={()=>approveUser(u.id,"client",u.full_name||u.email.split("@")[0])}>✓ Client</button>
                     <button className="btn btn-red btn-sm" disabled={approvingSaving} onClick={()=>denyUser(u.id)} style={{padding:"4px 8px"}}>✕</button>
                   </div>
                 </div>
@@ -3903,9 +4374,21 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
           <div className="card-title">Client Overview</div>
           <div className="table-wrap">
             <table className="premium-table">
-              <thead><tr><th>Client</th><th>Budget</th><th>Status</th></tr></thead>
+              <thead><tr><th>Client</th><th>Budget</th><th>Status</th><th>AM</th></tr></thead>
               <tbody>
-                {db.clients.map(c=><tr key={c.id}><td className="fw-600">{c.name}</td><td className="text-green fw-600">{fmtMoney(c.budget)}</td><td>{statusBadge(c.status)}</td></tr>)}
+                {db.clients.map(c=>{
+                  const am = db.accountManagers.find(a=>a.id===c.am_id);
+                  return (
+                    <tr key={c.id}>
+                      <td className="fw-600">{c.name}</td>
+                      <td className="text-green fw-600">{fmtMoney(c.budget)}</td>
+                      <td>{statusBadge(c.status)}</td>
+                      <td style={{fontSize:12,color:am?"var(--ink)":"var(--orange)"}}>
+                        {am?.name || "Unassigned"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3916,11 +4399,17 @@ function OwnerDashboard({ db, onRefresh, setUser }) {
           <div className="card-title">Team</div>
           {db.accountManagers.map(am=>{
             const amCreators=db.creators.filter(c=>c.am_id===am.id);
+            const amClients=db.clients.filter(c=>c.am_id===am.id);
             const pending=db.submissions.filter(s=>{const cr=db.creators.find(c=>c.id===s.creator_id);return cr?.am_id===am.id&&(s.status==="Submitted"||s.status==="Under Review");}).length;
             return (
               <div key={am.id} style={{padding:"12px 0",borderBottom:"1px solid var(--border2)"}}>
-                <div className="flex-between mb-8"><div className="fw-600">{am.name}</div>{pending>0&&<span className="badge badge-orange">{pending} pending</span>}</div>
-                <div style={{fontSize:12,color:"var(--ink3)"}}>{amCreators.length} creators assigned</div>
+                <div className="flex-between mb-8">
+                  <div className="fw-600">{am.name}</div>
+                  {pending>0&&<span className="badge badge-orange">{pending} pending</span>}
+                </div>
+                <div style={{fontSize:12,color:"var(--ink3)"}}>
+                  {amCreators.length} creator{amCreators.length!==1?"s":""} · {amClients.length} client{amClients.length!==1?"s":""} assigned
+                </div>
               </div>
             );
           })}
@@ -5174,12 +5663,16 @@ function PendingUsers({ onRefresh }) {
       if(upError) throw upError;
 
       if (role === "am" || role === "account_manager") {
-        const { error: amError } = await supabase.from("account_managers").upsert({ user_id: userId, email, name: displayName }, { onConflict: "email" });
+        const { error: amError } = await supabase.from("account_managers").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "email" });
         if(amError) throw amError;
       }
       if (role === "creator") {
         const { error: cError } = await supabase.from("creators").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "email" });
         if(cError) throw cError;
+      }
+      if (role === "client") {
+        const { error: clError } = await supabase.from("clients").upsert({ user_id: userId, contact_email: email, name: displayName, status: "Active" }, { onConflict: "user_id" });
+        if(clError) throw clError;
       }
 
       // Email: welcome the newly approved user
@@ -5190,7 +5683,9 @@ function PendingUsers({ onRefresh }) {
       });
 
       loadPending();
-      onRefresh();
+      if (typeof onRefresh === "function") {
+        await onRefresh();
+      }
     } catch(err) {
       console.error("Failed to assign role:", err);
       alert("Error assigning role: " + err.message);
@@ -5399,6 +5894,39 @@ function CreatorsManage({ db, onRefresh, user }) {
     setSaving(false);
   };
 
+  const [creatorSearch, setCreatorSearch] = useState("");
+  const [creatorStatusFilter, setCreatorStatusFilter] = useState("all");
+  const [creatorSortBy, setCreatorSortBy] = useState("lastActive");
+
+  const enrichedCreators = useMemo(() => {
+    return db.creators.map(c => {
+      const subs = db.submissions.filter(s => s.creator_id === c.id);
+      const dates = subs.map(s => new Date(s.created_at || s.approved_date).getTime()).filter(t => !isNaN(t));
+      const lastActiveTime = dates.length > 0 ? Math.max(...dates) : new Date(c.created_at).getTime();
+      return {
+        ...c,
+        lastActiveTime,
+        subCount: subs.length
+      };
+    }).filter(c => {
+      if (creatorSearch.trim()) {
+        const q = creatorSearch.toLowerCase();
+        const matchName = (c.name || "").toLowerCase().includes(q);
+        const matchEmail = (c.email || "").toLowerCase().includes(q);
+        const matchHandle = (c.tiktok_handle || "").toLowerCase().includes(q) || (c.instagram_handle || "").toLowerCase().includes(q);
+        if (!matchName && !matchEmail && !matchHandle) return false;
+      }
+      if (creatorStatusFilter === "active" && (c.archived_at || c.status !== "Active")) return false;
+      if (creatorStatusFilter === "paused" && c.status !== "Paused") return false;
+      if (creatorStatusFilter === "archived" && !c.archived_at) return false;
+      return true;
+    }).sort((a, b) => {
+      if (creatorSortBy === "name") return (a.name || "").localeCompare(b.name || "");
+      if (creatorSortBy === "rate") return Number(b.weekly_rate || 0) - Number(a.weekly_rate || 0);
+      return b.lastActiveTime - a.lastActiveTime;
+    });
+  }, [db.creators, db.submissions, creatorSearch, creatorStatusFilter, creatorSortBy]);
+
   return (
     <div className="content">
       <div className="flex-center gap-8 mb-16">
@@ -5418,20 +5946,63 @@ function CreatorsManage({ db, onRefresh, user }) {
       </div>
 
       {tab==="creators"&&(
-        <div className="premium-card">
+        <div className="premium-card" style={{ padding: 0 }}>
+          {/* Creators Filter Bar */}
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                ['all', `All (${db.creators.length})`],
+                ['active', 'Active'],
+                ['paused', 'Paused'],
+                ['archived', 'Archived']
+              ].map(([st, label]) => (
+                <button
+                  key={st}
+                  className={`btn btn-sm ${creatorStatusFilter === st ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ padding: '4px 10px', fontSize: 12 }}
+                  onClick={() => setCreatorStatusFilter(st)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select
+                className="select"
+                value={creatorSortBy}
+                onChange={e => setCreatorSortBy(e.target.value)}
+                style={{ height: 32, fontSize: 12 }}
+              >
+                <option value="lastActive">Sort: Last Active</option>
+                <option value="name">Sort: Name (A-Z)</option>
+                <option value="rate">Sort: Highest Rate</option>
+              </select>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Search creator, handle..."
+                value={creatorSearch}
+                onChange={e => setCreatorSearch(e.target.value)}
+                style={{ width: 180, height: 32, fontSize: 12 }}
+              />
+            </div>
+          </div>
+
           {creatorMsg.text&&(
             <div style={{
+              margin: '16px 20px 0',
               background: creatorMsg.type==="error"?"rgba(192,57,43,0.08)":"rgba(26,122,74,0.08)",
               border:`1px solid ${creatorMsg.type==="error"?"var(--red)":"var(--green)"}`,
-              borderRadius:"var(--radius-sm)",padding:"10px 14px",marginBottom:14,
+              borderRadius:"var(--radius-sm)",padding:"10px 14px",
               fontSize:13,color:creatorMsg.type==="error"?"var(--red)":"var(--green)"
             }}>{creatorMsg.text}</div>
           )}
           <div className="table-wrap">
             <table className="premium-table">
-              <thead><tr><th>Name</th><th>Email</th><th>Handles</th><th>Rate</th><th>AM</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
+              <thead><tr><th>Name</th><th>Email</th><th>Handles</th><th>Rate</th><th>AM</th><th>Last Active</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
               <tbody>
-                {db.creators.map(c=>{
+                {enrichedCreators.map(c=>{
                   const am = db.accountManagers.find(a=>a.id===c.am_id);
                   const archived = !!c.archived_at;
                   return (
@@ -5441,6 +6012,7 @@ function CreatorsManage({ db, onRefresh, user }) {
                       <td style={{fontSize:12}}>{c.tiktok_handle?"@"+c.tiktok_handle:""}{c.instagram_handle?" / @"+c.instagram_handle:""}</td>
                       <td className="text-green">{c.weekly_rate?`$${c.weekly_rate}/wk`:"—"}</td>
                       <td style={{fontSize:12}}>{am?.name||<span style={{color:"var(--orange)"}}>Unassigned</span>}</td>
+                      <td style={{fontSize:12, color: "var(--ink3)"}}>{fmtRelativeTime(c.lastActiveTime)}</td>
                       <td>
                         {archived?<span className="badge badge-gray">Archived</span>:statusBadge(c.status||"Active")}
                         {archived&&c.archive_reason&&(
@@ -5462,7 +6034,7 @@ function CreatorsManage({ db, onRefresh, user }) {
               </tbody>
             </table>
           </div>
-          {db.creators.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🎬</div><h3 style={{fontSize:18,marginBottom:8}}>No creators yet</h3><p style={{color:"var(--ink3)"}}>Invite creators using your portal URL.</p></div>}
+          {enrichedCreators.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🎬</div><h3 style={{fontSize:18,marginBottom:8}}>No creators match filters</h3><p style={{color:"var(--ink3)"}}>Try adjusting your search or status filter.</p></div>}
         </div>
       )}
 
@@ -5737,7 +6309,7 @@ export default function App() {
   const [showSQL, setShowSQL] = useState(false);
   const [db, setDb] = useState({
     creators:[], clients:[], campaigns:[], submissions:[],
-    accountManagers:[], payments:[], userProfiles:[]
+    accountManagers:[], payments:[], userProfiles:[], analytics:[]
   });
   const [dbLoading, setDbLoading] = useState(false);
   const [dbError, setDbError] = useState("");
@@ -5992,7 +6564,8 @@ export default function App() {
         { key: 'submissions', name: 'submissions' },
         { key: 'accountManagers', name: 'account_managers' },
         { key: 'payments', name: 'payments' },
-        { key: 'userProfiles', name: 'user_profiles' }
+        { key: 'userProfiles', name: 'user_profiles' },
+        { key: 'analytics', name: 'video_analytics' }
       ];
 
       const results = {};
@@ -6056,14 +6629,15 @@ export default function App() {
       account_managers: 'accountManagers',
       payments:         'payments',
       user_profiles:    'userProfiles',
+      video_analytics:  'analytics',
     };
 
     // Tables each role should receive live updates for.
     const roleTableSets = {
-      owner:   ['creators', 'clients', 'campaigns', 'submissions', 'account_managers', 'payments', 'user_profiles'],
-      am:      ['creators', 'clients', 'campaigns', 'submissions'],
+      owner:   ['creators', 'clients', 'campaigns', 'submissions', 'account_managers', 'payments', 'user_profiles', 'video_analytics'],
+      am:      ['creators', 'clients', 'campaigns', 'submissions', 'video_analytics'],
       creator: ['campaigns', 'submissions'],
-      client:  ['campaigns', 'submissions'],
+      client:  ['campaigns', 'submissions', 'video_analytics'],
     };
 
     const tablesToSubscribe = roleTableSets[role] || [];
@@ -6175,7 +6749,7 @@ export default function App() {
     // Validation is now handled in useEffect
 
     if(role==="client"){
-      if(page==="dashboard") return <ErrorBoundary label="Client Dashboard"><ClientDashboard user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
+      if(page==="dashboard") return <ErrorBoundary label="Client Dashboard"><ClientDashboard user={user} db={db} onRefresh={loadDB} onNavigate={setPage}/></ErrorBoundary>;
       if(page==="campaigns") return <ErrorBoundary label="Client Campaigns"><ClientCampaignsPage user={user} db={db}/></ErrorBoundary>;
       if(page==="content-gallery") return <ErrorBoundary label="Client Content Gallery"><ClientContentGallery user={user} db={db}/></ErrorBoundary>;
       if(page==="analytics") return <ErrorBoundary label="Video Insights"><div className="content"><h2 style={{fontSize:24,fontWeight:700,marginBottom:8}}>Video Insights</h2><p style={{color:"var(--ink3)",marginBottom:24}}>Performance analytics across all your campaigns.</p><AnalyticsDashboard campaignId={null}/></div></ErrorBoundary>;
@@ -6195,7 +6769,7 @@ export default function App() {
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="am"||role==="account_manager"){
-      if(page==="dashboard") return <ErrorBoundary label="AM Dashboard"><AMDashboard user={user} db={db}/></ErrorBoundary>;
+      if(page==="dashboard") return <ErrorBoundary label="AM Dashboard"><AMDashboard user={user} db={db} setPage={setPage}/></ErrorBoundary>;
       if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="my-creators") return <ErrorBoundary label="My Creators"><MyCreators user={user} db={db}/></ErrorBoundary>;
       if(page==="campaigns") return <ErrorBoundary label="Campaigns"><CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={false}/></ErrorBoundary>;
@@ -6208,7 +6782,7 @@ export default function App() {
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="owner"){
-      if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser}/></ErrorBoundary>;
+      if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser} setPage={setPage}/></ErrorBoundary>;
       if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user}/></ErrorBoundary>;
@@ -6309,6 +6883,10 @@ export default function App() {
 
   // Loading screen removed as per user request
   
+  const searchParams = new URLSearchParams(window.location.search);
+  const isPublicShare = path === '/share/campaign' || path.startsWith('/share/') || searchParams.has('share_token');
+  if(isPublicShare) return <React.Suspense fallback={<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>}><SharedCampaignReport /></React.Suspense>;
+
   if(isPublicLegal) return <React.Suspense fallback={<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>}><Legal onBack={() => { if(path === '/termsofservice' || path === '/privacypolicy') window.location.href = '/'; else setIsPublicLegal(false); }} initialTab={publicLegalTab} /></React.Suspense>;
 
   // Display initialization spinner while checking session

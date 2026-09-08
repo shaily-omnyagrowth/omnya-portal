@@ -28,6 +28,11 @@ async function callApi(path) {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
 
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+
   let payload = null;
   try { payload = await res.json(); } catch (_) {}
 
@@ -123,9 +128,37 @@ export default function AuditHistory() {
     setError('');
     try {
       const data = await callApi(buildUrl(null));
-      setEvents(data.events || []);
-      setHasMore(!!data.hasMore);
-      setNextBefore(data.nextBefore);
+      if (data && Array.isArray(data.events)) {
+        setEvents(data.events);
+        setHasMore(!!data.hasMore);
+        setNextBefore(data.nextBefore);
+      } else {
+        // Local dev fallback: query admin_audit_logs directly
+        const f = FILTERS.find((x) => x.id === filter);
+        let q = supabase
+          .from('admin_audit_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (f?.entityType) {
+          q = q.eq('entity_type', f.entityType);
+        }
+        const { data: rows, error: sbErr } = await q;
+        if (!sbErr && rows) {
+          setEvents(rows.map(r => ({
+            id: r.id,
+            action: r.action,
+            entity_type: r.entity_type,
+            created_at: r.created_at,
+            actor_label: r.actor_email || 'Owner',
+            summary: `${r.actor_email || 'Owner'} performed ${r.action || 'action'}`
+          })));
+        } else {
+          setEvents([]);
+        }
+        setHasMore(false);
+        setNextBefore(null);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -141,9 +174,11 @@ export default function AuditHistory() {
     setLoadingMore(true);
     try {
       const data = await callApi(buildUrl(nextBefore));
-      setEvents((prev) => [...prev, ...(data.events || [])]);
-      setHasMore(!!data.hasMore);
-      setNextBefore(data.nextBefore);
+      if (data && Array.isArray(data.events)) {
+        setEvents((prev) => [...prev, ...(data.events || [])]);
+        setHasMore(!!data.hasMore);
+        setNextBefore(data.nextBefore);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
