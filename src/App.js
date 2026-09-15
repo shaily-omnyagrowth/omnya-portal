@@ -651,6 +651,10 @@ const styles = `
 // ============================================================
 
 const checkSupabaseHealth = async () => {
+  // The anon key is public by design (it ships in the bundle), but it was
+  // referenced here as the undefined `SUPABASE_KEY`, so both probes threw and
+  // the health check always reported a failure.
+  const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
   const diagnostic = {
     url: SUPABASE_URL,
     origin: window.location.origin,
@@ -2087,12 +2091,21 @@ function AMDashboard({ user, db, setPage }) {
   const pendingF = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.status==="Under Review").length;
   const approvedWeek = db.submissions.filter(s=>s.status==="Approved"&&new Date(s.approved_date)>new Date(Date.now()-7*86400000)).length;
 
+  // myCampaigns/campIds are consumed both by amTopPosts below AND directly by
+  // the JSX (<UGCDashboardView campaigns=... submissions=...>), so they have to
+  // live in component scope. They were previously declared inside the
+  // amTopPosts useMemo callback, which made every render of a linked AM throw
+  // "myCampaigns is not defined".
+  const myCampaigns = useMemo(() => {
+    const clientIds = new Set(myClients.map(cl => cl.id));
+    return (db.campaigns || []).filter(c => clientIds.has(c.client_id));
+  }, [myClients, db.campaigns]);
+
+  const campIds = useMemo(() => new Set(myCampaigns.map(c => c.id)), [myCampaigns]);
+
   const amTopPosts = useMemo(() => {
     const analyticsMap = {};
     (db.analytics || []).forEach(a => { if (a.submission_id) analyticsMap[a.submission_id] = a; });
-    const clientIds = new Set(myClients.map(cl => cl.id));
-    const myCampaigns = (db.campaigns || []).filter(c => clientIds.has(c.client_id));
-    const campIds = new Set(myCampaigns.map(c => c.id));
     const approved = (db.submissions || []).filter(s => campIds.has(s.campaign_id) && s.status === 'Approved');
 
     return approved.map(s => {
@@ -2112,7 +2125,7 @@ function AMDashboard({ user, db, setPage }) {
         platform: (a?.platform || s.platform || campaign?.format || 'tiktok').toLowerCase()
       };
     }).sort((a, b) => b.views - a.views).slice(0, 6);
-  }, [myClients, db.campaigns, db.submissions, db.analytics, db.creators]);
+  }, [myCampaigns, campIds, db.submissions, db.analytics, db.creators]);
 
   if(!am) return <div className="content"><div className="empty"><div className="empty-icon">⚙️</div><h3>Account not fully set up</h3><p>Your account manager profile isn't linked yet. Contact Shai to get assigned to clients and creators.</p></div></div>;
   return (
@@ -6292,6 +6305,44 @@ function ResetPassword({ onComplete }) {
   );
 }
 
+// ============================================================
+// DB LOAD FAILURE CLASSIFICATION
+// ============================================================
+//
+// A failed table read is not automatically a broken schema, and the two cases
+// need very different handling.
+//
+//   - A genuinely absent relation/column reports a schema code (42P01, 42703,
+//     or PostgREST's own PGRST205 for an unknown table). That means migrations
+//     have not been applied and only the owner can fix it.
+//   - A session that simply was not ready yet reports 401 / PGRST301 on a
+//     refreshing JWT, or a 5xx on a cold start. loadDB runs off `user`, and
+//     `user` is replaced with a fresh object on every SIGNED_IN and
+//     TOKEN_REFRESHED, so the first pass can easily race ahead of the token.
+//     These recover on their own within a second.
+//   - An RLS denial is not an error at all: PostgREST returns an empty array.
+//     Nothing here ever sees it.
+//
+// Escalating the second group to "your database is not set up" is what put a
+// schema-setup modal in front of creators signing up. Retry once, and only
+// alarm the user if the retry fails too.
+const SCHEMA_ERROR_CODES = new Set(["42P01", "42703", "PGRST205"]);
+
+function isSchemaError(error) {
+  return SCHEMA_ERROR_CODES.has(error?.code);
+}
+
+async function selectAllWithRetry(tableName, { retries = 1, delayMs = 600 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const { data, error } = await supabase.from(tableName).select("*");
+    if (!error) return { data: data || [], error: null };
+    // A missing table will still be missing in 600ms — don't stall the load.
+    if (attempt >= retries || isSchemaError(error)) return { data: null, error };
+    console.warn(`Transient error loading ${tableName} (${error.code || "no code"}): ${error.message} — retrying`);
+    await new Promise(resolve => setTimeout(resolve, delayMs * (attempt + 1)));
+  }
+}
+
 export default function App() {
   const path = window.location.pathname.toLowerCase().replace(/\/+$/, "") || "/";
   const [user, setUser] = useState(null);
@@ -6550,6 +6601,7 @@ export default function App() {
       console.log("loadDB: Fetching tables...");
       
       const isClient = (user?.role || "").toLowerCase() === 'client';
+      const isOwner  = ['owner', 'admin'].includes((user?.role || '').toLowerCase());
       
       const tables = isClient ? [
         { key: 'campaigns', name: 'client_safe_campaigns' },
@@ -6569,25 +6621,37 @@ export default function App() {
       ];
 
       const results = {};
-      const errors = [];
+      const failures = [];
 
       await Promise.all(tables.map(async (t) => {
-        const { data, error } = await supabase.from(t.name).select("*");
+        const { data, error } = await selectAllWithRetry(t.name);
         if (error) {
-          console.error(`Error loading ${t.name}:`, error.message);
-          errors.push(t.name);
+          console.error(`Error loading ${t.name}:`, error.code || "(no code)", error.message);
+          failures.push({ table: t.name, error });
         } else {
-          results[t.key] = data || [];
+          results[t.key] = data;
         }
       }));
 
-      if (errors.length > 0) {
+      if (failures.length > 0) {
         const coreRequired = isClient ? ["user_profiles"] : ["creators", "user_profiles"];
-        if (errors.some(err => coreRequired.includes(err))) {
-          setDbError(`Core tables (${errors.join(", ")}) not found. Please run the SQL setup.`);
-          setShowSQL(true);
+        const coreFailures = failures.filter(f => coreRequired.includes(f.table));
+
+        if (coreFailures.length > 0) {
+          const schemaBroken = coreFailures.some(f => isSchemaError(f.error));
+          // Only the owner can act on a schema problem, and only the owner
+          // should see internal table names. Everyone else gets a retry.
+          if (schemaBroken && isOwner) {
+            const names = coreFailures.map(f => f.table).join(", ");
+            setDbError(`Core tables (${names}) are missing. Apply the pending migrations in supabase/migrations (supabase db push).`);
+            setShowSQL(true);
+          } else if (schemaBroken) {
+            setDbError("Your account isn't fully set up yet. Please contact support.");
+          } else {
+            setDbError("We couldn't load your data. Please check your connection and retry.");
+          }
         } else {
-          console.warn("Some secondary tables missing:", errors);
+          console.warn("Some secondary tables failed to load:", failures.map(f => f.table));
         }
       }
       
@@ -6743,7 +6807,7 @@ export default function App() {
   };
 
   const renderPage = ()=>{
-    if(dbError&&!showSQL) return <div className="content"><ErrorMsg msg={dbError} onRetry={loadDB}/><div style={{marginTop:16}}><button className="btn btn-primary btn-sm" onClick={()=>setShowSQL(true)}>📋 View Database Setup SQL</button></div></div>;
+    if(dbError&&!showSQL) return <div className="content"><ErrorMsg msg={dbError} onRetry={loadDB}/>{baseRole==="owner"&&<div style={{marginTop:16}}><button className="btn btn-primary btn-sm" onClick={()=>setShowSQL(true)}>📋 View Database Setup SQL</button></div>}</div>;
     if(dbLoading) return <Spinner/>;
 
     // Validation is now handled in useEffect
@@ -6931,7 +6995,7 @@ export default function App() {
           <React.Suspense fallback={<Spinner />}>{renderPage()}</React.Suspense>
         </div>
       </div>
-      {showSQL&&<SQLSetupModal onClose={()=>setShowSQL(false)}/>}
+      {showSQL&&baseRole==="owner"&&<SQLSetupModal onClose={()=>setShowSQL(false)}/>}
     </>
   );
 }
