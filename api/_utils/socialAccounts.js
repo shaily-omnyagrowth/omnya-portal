@@ -43,7 +43,13 @@ const STATUS_REAUTH = 'reauth_required';
 // Statuses that should surface a Reconnect prompt in the UI. 'needs_reauth' is
 // listed because the brief and any hand-written row may use that spelling even
 // though the CHECK will not accept it on write.
-const REAUTH_STATUSES = new Set(['expired', 'reauth_required', 'needs_reauth', 'sync_failed']);
+//
+// 'sync_failed' is deliberately NOT here. It means the provider was down, rate
+// limited or could not find a post — the token is fine and reconnecting does
+// nothing. It used to be listed, so one bad submission link showed a healthy
+// account as "Reconnect required" AND made api/cron/refresh-oauth-tokens.js
+// skip the row, letting its token expire for real.
+const REAUTH_STATUSES = new Set(['expired', 'reauth_required', 'needs_reauth']);
 
 // Every column, on either table, that holds token material. Nothing in this
 // list may ever reach the browser.
