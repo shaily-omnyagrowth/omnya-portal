@@ -115,7 +115,10 @@ const STATUS_META = {
 // account, which is the failure this screen keeps producing.
 const STATUS_ALIASES = { error: 'sync_failed', needs_reauth: 'reauth_required' };
 
-const REAUTH_STATUSES = new Set(['expired', 'reauth_required', 'sync_failed']);
+// 'sync_failed' is not a reauth status: the token still works, the provider or
+// a post link did not. It keeps Sync Now available and shows the reason below,
+// matching REAUTH_STATUSES in api/_utils/socialAccounts.js.
+const REAUTH_STATUSES = new Set(['expired', 'reauth_required']);
 const OFF_STATUSES = new Set(['not_connected', 'disconnected']);
 
 // Why a connection stopped working, in the creator's words. last_error from the
@@ -518,6 +521,20 @@ function ConnectionCard({ platform, connection, busy, onConnect, onDisconnect, o
               {connection.lastError}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Not a reconnect: the token works, but a post could not be read or the
+          provider was unavailable. Say which, so the creator can fix a link. */}
+      {!state.needsReauth && connection && connection.lastError && (
+        <div
+          role="status"
+          style={{
+            marginTop: 14, padding: '10px 12px', borderRadius: 8,
+            background: '#fff7ed', color: '#9a3412', fontSize: 13, wordBreak: 'break-word',
+          }}
+        >
+          <strong>Last sync issue:</strong> {connection.lastError}
         </div>
       )}
 

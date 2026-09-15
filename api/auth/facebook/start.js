@@ -10,6 +10,7 @@ const { applyCors } = require('../../_utils/cors');
 const { requireAuth } = require('../../_utils/auth');
 const { Errors, sendOk } = require('../../_utils/errors');
 const { storeOAuthState } = require('../../_utils/oauth');
+const { graphVersion } = require('../../_utils/meta');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -42,7 +43,7 @@ module.exports = async (req, res) => {
       scope: 'pages_show_list,pages_read_engagement,pages_read_user_content',
     });
 
-    const authorizationUrl = `https://www.facebook.com/v19.0/dialog/oauth?${params.toString()}`;
+    const authorizationUrl = `https://www.facebook.com/${graphVersion()}/dialog/oauth?${params.toString()}`;
     return sendOk(res, { authorizationUrl });
   } catch (err) {
     console.error('[facebook/start] error:', err && err.code, err && err.message);

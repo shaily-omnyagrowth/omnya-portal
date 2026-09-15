@@ -24,6 +24,7 @@
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
 const { consumeOAuthState } = require('../../_utils/oauth');
 const { upsertSocialAccount } = require('../../_utils/socialAccounts');
+const { graphVersion } = require('../../_utils/meta');
 
 function redirectBack(res, params) {
   const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
@@ -39,7 +40,7 @@ async function fetchLongLivedToken({ appId, appSecret, shortToken }) {
     fb_exchange_token: shortToken,
   });
   const resp = await fetch(
-    `https://graph.facebook.com/v19.0/oauth/access_token?${params.toString()}`
+    `https://graph.facebook.com/${graphVersion()}/oauth/access_token?${params.toString()}`
   );
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok || !data.access_token) return null;
@@ -49,7 +50,7 @@ async function fetchLongLivedToken({ appId, appSecret, shortToken }) {
 async function fetchProfile(token) {
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v19.0/me?fields=id,name,picture.type(large)&access_token=${encodeURIComponent(token)}`
+      `https://graph.facebook.com/${graphVersion()}/me?fields=id,name,picture.type(large)&access_token=${encodeURIComponent(token)}`
     );
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) return null;
@@ -116,7 +117,7 @@ module.exports = async (req, res) => {
       code,
     });
     const exchangeResp = await fetch(
-      `https://graph.facebook.com/v19.0/oauth/access_token?${exchangeParams.toString()}`
+      `https://graph.facebook.com/${graphVersion()}/oauth/access_token?${exchangeParams.toString()}`
     );
     const exchangeData = await exchangeResp.json().catch(() => ({}));
 

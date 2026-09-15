@@ -22,6 +22,7 @@
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
 const { consumeOAuthState } = require('../../_utils/oauth');
 const { upsertSocialAccount } = require('../../_utils/socialAccounts');
+const { instagramGraph } = require('../../_utils/meta');
 
 const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights'];
 
@@ -73,31 +74,43 @@ module.exports = async (req, res) => {
       }),
     });
     const exchangeData = await exchangeResp.json().catch(() => ({}));
+    // Meta documents this response both flat and wrapped in a data[] array.
+    // Accept either, rather than failing every connect if the shape flips.
+    const exchanged = Array.isArray(exchangeData.data) && exchangeData.data[0]
+      ? exchangeData.data[0]
+      : exchangeData;
 
-    if (!exchangeResp.ok || !exchangeData.access_token) {
-      console.error('[instagram/callback] token exchange failed:', exchangeResp.status, exchangeData);
+    if (!exchangeResp.ok || !exchanged.access_token) {
+      console.error('[instagram/callback] token exchange failed:', exchangeResp.status, exchangeData && exchangeData.error_message);
       return redirectBack(res, { error: 'instagram_token_exchange_failed' });
     }
+
+    // The creator can untick permissions on the consent screen. Record what was
+    // actually granted, so a missing insights permission is visible rather than
+    // surfacing later as views that never move.
+    const grantedScopes = typeof exchanged.permissions === 'string'
+      ? exchanged.permissions.split(',').map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(exchanged.permissions) ? exchanged.permissions : SCOPES;
 
     // Step 2: upgrade to long-lived token (~60 days). No client_id needed.
     const longParams = new URLSearchParams({
       grant_type: 'ig_exchange_token',
       client_secret: appSecret,
-      access_token: exchangeData.access_token,
+      access_token: exchanged.access_token,
     });
     const longResp = await fetch(`https://graph.instagram.com/access_token?${longParams.toString()}`);
     const longData = await longResp.json().catch(() => ({}));
     const isLongLived = !!(longResp.ok && longData.access_token);
-    const accessToken = isLongLived ? longData.access_token : exchangeData.access_token;
-    const expiresIn = isLongLived ? longData.expires_in : exchangeData.expires_in;
+    const accessToken = isLongLived ? longData.access_token : exchanged.access_token;
+    const expiresIn = isLongLived ? longData.expires_in : exchanged.expires_in;
 
     // Step 3: fetch Instagram profile.
-    let platformUserId = exchangeData.user_id ? String(exchangeData.user_id) : null;
+    let platformUserId = exchanged.user_id ? String(exchanged.user_id) : null;
     let username = null;
     let profileImageUrl = null;
     try {
       const profileResp = await fetch(
-        `https://graph.instagram.com/me?fields=id,username,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
+        `${instagramGraph('me')}?fields=id,username,profile_picture_url&access_token=${encodeURIComponent(accessToken)}`
       );
       const profileData = await profileResp.json().catch(() => ({}));
       if (profileResp.ok) {
@@ -119,7 +132,7 @@ module.exports = async (req, res) => {
       username,
       displayName: username,
       profileImageUrl,
-      scopes: SCOPES,
+      scopes: grantedScopes,
       metadata: {
         provider: 'instagram',
         long_lived: isLongLived,

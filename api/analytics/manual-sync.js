@@ -19,6 +19,8 @@ const { Errors, sendOk } = require('../_utils/errors');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 const { applyRateLimit } = require('../_utils/rateLimit');
 const {
+  FINAL_SUBMISSION_TYPES,
+  resolvePlatform,
   syncSubmissions,
   fetchSubmissionsByIds,
   fetchSubmissionsForUser,
@@ -85,7 +87,13 @@ module.exports = async (req, res) => {
         // creator → their own submissions only
         submissions = await fetchSubmissionsForUser(supabase, user.id, null);
       }
-      if (platform) submissions = submissions.filter((s) => (s.platform || '').toLowerCase() === platform);
+      if (platform) {
+        // submissions.platform is the dropdown label ('TikTok'), so comparing
+        // it to 'tiktok' matched nothing and Sync Now reported "no posted
+        // submissions". Compare the resolved platform; 'meta' covers both.
+        const wanted = platform === 'meta' ? new Set(['instagram', 'facebook']) : new Set([platform]);
+        submissions = submissions.filter((s) => wanted.has(resolvePlatform(s)));
+      }
     }
 
     if (submissions.length === 0) {
@@ -157,7 +165,7 @@ async function fetchSubmissionsForUserIds(supabase, userIds) {
     .select('id, creator_id, campaign_id, platform, posted_link, submission_type, creators!inner(user_id)')
     .in('creators.user_id', userIds)
     .not('posted_link', 'is', null)
-    .eq('submission_type', 'Final Post');
+    .in('submission_type', FINAL_SUBMISSION_TYPES);
   if (error) return [];
   return data || [];
 }

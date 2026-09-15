@@ -38,6 +38,7 @@ const { encrypt, decrypt } = require('./encryption');
 const { getSupabaseAdminClient } = require('./supabaseAdmin');
 const { STATUS_REAUTH } = require('./socialAccounts');
 const { refreshAccessToken: refreshTikTokToken } = require('./tiktok');
+const { facebookGraph } = require('./meta');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -107,7 +108,7 @@ async function refreshMeta(account) {
     client_secret: appSecret,
     fb_exchange_token: current,
   });
-  const resp = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?${params.toString()}`);
+  const resp = await fetch(`${facebookGraph('oauth/access_token')}?${params.toString()}`);
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok || !data.access_token) {
     throw new Error(`Meta long-lived exchange failed (${resp.status}): ${data.error?.message || 'no access_token'}`);
