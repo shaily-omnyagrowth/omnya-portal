@@ -246,6 +246,9 @@ const styles = `
   }
   .btn-primary { background: var(--ink); color: white; }
   .btn-primary:hover { background: #2A2A2A; }
+  /* A disabled button must look disabled. Without this, "Copy" on a share
+     link that is still off looked clickable and did nothing (2026-09-19). */
+  .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
   .btn-full { width: 100%; }
   .btn-sm { padding: 6px 12px; font-size: 12px; }
   .btn-ghost { background: transparent; color: var(--ink2); border: 1px solid var(--border); }

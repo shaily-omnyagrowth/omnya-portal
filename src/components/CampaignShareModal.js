@@ -1,18 +1,46 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '../supabaseClient';
 
+// The one thing people come here to do is get a link they can send. So the
+// button in the status card is that action: with the link off it enables the
+// link and copies it; with the link on it copies. "Disable" and "Reset Token"
+// stay below for the rarer cases.
+//
+// Copying happens after an awaited fetch. Chrome allows a clipboard write
+// there; Safari does not (it wants the write inside the click itself), and a
+// browser may refuse for other reasons. A refused write never claims success:
+// the link is selected in the box and the user is told to press Ctrl+C.
 export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyHint, setCopyHint] = useState('');
   const [error, setError] = useState('');
   const [shareToken, setShareToken] = useState(campaign.share_token || '');
   const [shareEnabled, setShareEnabled] = useState(campaign.share_enabled || false);
+  const inputRef = useRef(null);
+  const copiedTimer = useRef(null);
 
-  const shareUrl = `${window.location.origin}/share/campaign?token=${shareToken}`;
+  const urlFor = (token) => `${window.location.origin}/share/campaign?token=${token}`;
+  const shareUrl = urlFor(shareToken);
+  const isMac = /Mac|iP(hone|ad)/.test(navigator.userAgent);
 
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
+
+  // Runs after the render that put the URL in the box, so what gets selected
+  // is the link and not the "currently disabled" placeholder.
+  useEffect(() => {
+    if (copyHint && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [copyHint]);
+
+  // Resolves to the new share state, or null when the request failed (the
+  // error banner is already showing).
   const callManageShare = async (action, extra = {}) => {
     setLoading(true);
     setError('');
+    setCopyHint('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('You must be signed in.');
@@ -31,24 +59,50 @@ export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
       });
 
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok) {
+      if (!res.ok || !json.ok || !json.data) {
         throw new Error(json.error?.message || 'Failed to update share settings.');
       }
 
       setShareToken(json.data.share_token);
       setShareEnabled(json.data.share_enabled);
       if (onUpdated) onUpdated(json.data);
+      return json.data;
     } catch (err) {
       setError(err.message || 'Action failed.');
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+  const copyLink = async (url) => {
+    setCopyHint('');
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        throw new Error('Clipboard API unavailable');
+      }
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2500);
+      return true;
+    } catch {
+      setCopied(false);
+      setCopyHint(`The browser blocked copying. The link is selected below; press ${isMac ? 'Cmd' : 'Ctrl'}+C.`);
+      return false;
+    }
+  };
+
+  const enableAndCopy = async () => {
+    const data = await callManageShare('toggle', { enabled: true });
+    if (data && data.share_enabled && data.share_token) {
+      await copyLink(urlFor(data.share_token));
+    }
+  };
+
+  const setLinkEnabled = async (enabled) => {
+    setCopied(false);
+    await callManageShare('toggle', { enabled });
   };
 
   return (
@@ -98,12 +152,16 @@ export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
             </span>
           </div>
 
-          {/* URL Input with Copy Button */}
+          {/* URL box with the one action that matters for its state */}
           <div style={{ display: 'flex', gap: 8 }}>
             <input
+              ref={inputRef}
               type="text"
               readOnly
-              value={shareEnabled ? shareUrl : 'Link is currently disabled'}
+              value={shareEnabled ? shareUrl : 'Link is off. Enable it to get a URL.'}
+              onFocus={e => { if (shareEnabled) e.target.select(); }}
+              onClick={e => { if (shareEnabled) e.target.select(); }}
+              aria-label="Share link"
               style={{
                 flex: 1,
                 fontSize: 12,
@@ -111,18 +169,33 @@ export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
                 borderRadius: 6,
                 border: '1px solid var(--border)',
                 background: shareEnabled ? '#fff' : 'var(--bg2)',
-                color: shareEnabled ? 'var(--ink)' : 'var(--ink3)'
+                color: shareEnabled ? 'var(--ink)' : 'var(--ink3)',
+                cursor: shareEnabled ? 'text' : 'default'
               }}
             />
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={!shareEnabled || loading}
-              onClick={copyToClipboard}
-              style={{ padding: '0 14px', whiteSpace: 'nowrap' }}
-            >
-              {copied ? '✓ Copied!' : '📋 Copy'}
-            </button>
+            {shareEnabled ? (
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={loading}
+                onClick={() => copyLink(shareUrl)}
+                style={{ padding: '0 14px', whiteSpace: 'nowrap' }}
+              >
+                {copied ? '✓ Copied!' : '📋 Copy'}
+              </button>
+            ) : (
+              <button
+                className="btn btn-green btn-sm"
+                disabled={loading}
+                onClick={enableAndCopy}
+                style={{ padding: '0 14px', whiteSpace: 'nowrap' }}
+              >
+                {loading ? 'Enabling…' : '🔗 Enable & Copy Link'}
+              </button>
+            )}
           </div>
+          {copyHint && (
+            <div style={{ fontSize: 11, color: 'var(--orange)', marginTop: 8 }}>{copyHint}</div>
+          )}
         </div>
 
         {/* Controls: Enable/Disable & Regenerate */}
@@ -137,7 +210,7 @@ export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
             <button
               className={`btn btn-sm ${shareEnabled ? 'btn-red' : 'btn-green'}`}
               disabled={loading}
-              onClick={() => callManageShare('toggle')}
+              onClick={() => setLinkEnabled(!shareEnabled)}
             >
               {shareEnabled ? 'Disable Link' : 'Enable Link'}
             </button>
@@ -155,6 +228,7 @@ export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
               disabled={loading}
               onClick={() => {
                 if (window.confirm('Are you sure you want to regenerate this link? The old link will stop working immediately.')) {
+                  setCopied(false);
                   callManageShare('regenerate');
                 }
               }}

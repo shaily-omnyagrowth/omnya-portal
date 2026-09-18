@@ -161,6 +161,30 @@ const unknownColumn = { code: 'PGRST204', message: "Could not find the 'share_en
   R(r.code === 200 && upd2 && upd2.payload.share_enabled === false && !('share_token' in upd2.payload),
     'disabling turns sharing off and leaves the token alone');
 
+  // 7. An explicit `enabled` sets, never flips: the modal sends what it wants
+  //    so a stale screen cannot turn a link off by "enabling" it.
+  r = await call({ ...toggle, enabled: true }, {
+    'campaigns.select': { data: { share_enabled: true, share_token: 'keep-me' }, error: null },
+    'campaigns.update': s => ({ data: { id: toggle.campaignId, share_token: 'keep-me', ...s.payload }, error: null }),
+  });
+  const upd3 = calls.find(c => c.op === 'update');
+  R(r.code === 200 && upd3 && upd3.payload.share_enabled === true,
+    'enabled:true on an already-enabled link keeps it enabled');
+
+  // 8. ... and still mints a token when the row has none.
+  r = await call({ ...toggle, enabled: true }, {
+    'campaigns.select': { data: { share_enabled: false, share_token: null }, error: null },
+    'campaigns.update': s => ({ data: { id: toggle.campaignId, ...s.payload }, error: null }),
+  });
+  const upd4 = calls.find(c => c.op === 'update');
+  R(r.code === 200 && upd4 && /^[0-9a-f-]{36}$/.test(String(upd4.payload.share_token)) && r.body?.data?.share_token === upd4.payload.share_token,
+    'enabled:true on a campaign with no token mints one and returns it');
+
+  // 9. enabled:false is refused by a missing column the same way.
+  r = await call({ ...toggle, enabled: false }, { 'campaigns.select': { data: null, error: missingColumn } });
+  R(r.code === 500 && r.body?.error?.code === 'schema_missing',
+    'the explicit path reports a missing column too', `${r.code} ${r.body?.error?.code}`);
+
   console.log(`\n  ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('TEST BUG:', e); process.exit(1); });

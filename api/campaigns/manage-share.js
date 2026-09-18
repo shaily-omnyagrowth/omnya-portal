@@ -72,24 +72,23 @@ module.exports = async (req, res) => {
   const updateFields = {};
 
   if (action === 'toggle') {
-    if (typeof enabled === 'boolean') {
-      updateFields.share_enabled = enabled;
-    } else {
-      // Toggle current value
-      const { data: current, error: rErr } = await supabase
-        .from('campaigns')
-        .select('share_enabled, share_token')
-        .eq('id', campaignId)
-        .maybeSingle();
+    const { data: current, error: rErr } = await supabase
+      .from('campaigns')
+      .select('share_enabled, share_token')
+      .eq('id', campaignId)
+      .maybeSingle();
 
-      if (rErr) return dbFailure(res, rErr, 'read');
-      if (!current) return Errors.notFound(res, 'Campaign not found.');
+    if (rErr) return dbFailure(res, rErr, 'read');
+    if (!current) return Errors.notFound(res, 'Campaign not found.');
 
-      updateFields.share_enabled = !current.share_enabled;
-      if (!current.share_token) {
-        updateFields.share_token = crypto.randomUUID();
-        updateFields.share_created_at = new Date().toISOString();
-      }
+    // An explicit `enabled` sets the state (what the modal sends, so a stale
+    // screen cannot flip a link the wrong way); without it, flip. Either way
+    // a campaign that has never had a token gets one, so an enabled link is
+    // never ".../share/campaign?token=null".
+    updateFields.share_enabled = typeof enabled === 'boolean' ? enabled : !current.share_enabled;
+    if (!current.share_token) {
+      updateFields.share_token = crypto.randomUUID();
+      updateFields.share_created_at = new Date().toISOString();
     }
   } else if (action === 'regenerate') {
     updateFields.share_token = crypto.randomUUID();
