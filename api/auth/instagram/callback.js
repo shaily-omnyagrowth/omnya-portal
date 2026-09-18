@@ -20,16 +20,14 @@
 // rather than the Facebook-dialog paths.
 
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
-const { consumeOAuthState } = require('../../_utils/oauth');
+const { consumeOAuthState, finishOAuth, appBaseUrl, redirectUriFor } = require('../../_utils/oauth');
 const { upsertSocialAccount } = require('../../_utils/socialAccounts');
 const { instagramGraph } = require('../../_utils/meta');
 
 const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights'];
 
 function redirectBack(res, params) {
-  const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
-  const qs = new URLSearchParams({ page: 'social-connections', ...params }).toString();
-  res.redirect(302, `${base}/?${qs}`);
+  return finishOAuth(res, appBaseUrl(), { platform: 'instagram', error: params.error, connected: params.connected });
 }
 
 module.exports = async (req, res) => {
@@ -51,9 +49,7 @@ module.exports = async (req, res) => {
 
   const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || process.env.FACEBOOK_APP_ID;
   const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET;
-  const redirectUri =
-    process.env.INSTAGRAM_REDIRECT_URI ||
-    `${process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com'}/api/auth/instagram/callback`;
+  const redirectUri = redirectUriFor('instagram');
 
   if (!appId || !appSecret) {
     console.error('[instagram/callback] env vars not set');

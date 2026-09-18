@@ -24,45 +24,39 @@
 // Tokens NEVER appear in logs or responses.
 
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
-const { consumeOAuthState }      = require('../../_utils/oauth');
+const { consumeOAuthState, finishOAuth, appBaseUrl, redirectUriFor } = require('../../_utils/oauth');
 const { encrypt }                = require('../../_utils/encryption');
 const { fetchProfile }           = require('../../_utils/tiktok');
 
-function redirectTo(res, baseUrl, params) {
-  const qs = new URLSearchParams({ page: 'social-connections', ...params }).toString();
-  return res.redirect(302, `${baseUrl}/?${qs}`);
-}
-
 module.exports = async (req, res) => {
-  const baseUrl = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
+  const baseUrl = appBaseUrl();
   const { code, state, error: providerError } = req.query || {};
 
   // Provider returned an error (e.g. user denied access)
   if (providerError) {
     console.warn('[tiktok/callback] provider error:', providerError);
-    return redirectTo(res, baseUrl, { error: 'tiktok_auth_denied' });
+    return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_auth_denied' });
   }
 
   if (!code || !state) {
-    return redirectTo(res, baseUrl, { error: 'tiktok_missing_params' });
+    return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_missing_params' });
   }
 
   // Validate state — expires in 10 min, one-time use, platform-bound
   const stateRow = await consumeOAuthState({ platform: 'tiktok', state });
   if (!stateRow) {
     console.warn('[tiktok/callback] invalid, expired, or replayed state');
-    return redirectTo(res, baseUrl, { error: 'tiktok_invalid_state' });
+    return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_invalid_state' });
   }
 
   const clientKey    = process.env.TIKTOK_CLIENT_KEY    || process.env.TIKTOK_APP_KEY;
   const clientSecret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET;
-  const redirectUri  =
-    process.env.TIKTOK_REDIRECT_URI ||
-    `${baseUrl}/api/integrations/tiktok/callback`;
+  // Must repeat, byte for byte, the redirect_uri the authorize step sent.
+  const redirectUri  = redirectUriFor('tiktok');
 
   if (!clientKey || !clientSecret) {
     console.error('[tiktok/callback] TikTok credentials not configured');
-    return redirectTo(res, baseUrl, { error: 'tiktok_misconfigured' });
+    return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_misconfigured' });
   }
 
   try {
@@ -88,7 +82,7 @@ module.exports = async (req, res) => {
         tokenResp.status,
         tokenData?.error || tokenData
       );
-      return redirectTo(res, baseUrl, { error: 'tiktok_token_failed' });
+      return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_token_failed' });
     }
 
     const now = Date.now();
@@ -107,7 +101,7 @@ module.exports = async (req, res) => {
       encryptedRefresh = tokenData.refresh_token ? encrypt(tokenData.refresh_token) : null;
     } catch (encErr) {
       console.error('[tiktok/callback] encryption failed:', encErr.message);
-      return redirectTo(res, baseUrl, { error: 'tiktok_encryption_failed' });
+      return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_encryption_failed' });
     }
 
     // ── Step 3: Fetch TikTok profile (non-fatal if unavailable) ─────────────
@@ -149,14 +143,12 @@ module.exports = async (req, res) => {
 
     if (upsertErr) {
       console.error('[tiktok/callback] upsert failed:', upsertErr.message);
-      return redirectTo(res, baseUrl, { error: 'tiktok_storage_failed' });
+      return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_storage_failed' });
     }
 
-    // 'tiktok', not 'true': the UI renders `Connected ${connected}` and the
-    // other three callbacks all send the platform name.
-    return redirectTo(res, baseUrl, { connected: 'tiktok' });
+    return finishOAuth(res, baseUrl, { platform: 'tiktok', connected: 'tiktok' });
   } catch (err) {
     console.error('[tiktok/callback] unexpected error:', err?.message);
-    return redirectTo(res, baseUrl, { error: 'tiktok_server_error' });
+    return finishOAuth(res, baseUrl, { platform: 'tiktok', error: 'tiktok_server_error' });
   }
 };

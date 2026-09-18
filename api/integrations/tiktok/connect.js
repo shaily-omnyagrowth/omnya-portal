@@ -15,7 +15,7 @@
 const { applyCors }                                    = require('../../_utils/cors');
 const { requireAuth }                                  = require('../../_utils/auth');
 const { Errors, sendOk }                               = require('../../_utils/errors');
-const { storeOAuthState, generateCodeVerifier, generateCodeChallenge } = require('../../_utils/oauth');
+const { storeOAuthState, generateCodeVerifier, generateCodeChallenge, appBaseUrl, redirectUriFor } = require('../../_utils/oauth');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -25,10 +25,8 @@ module.exports = async (req, res) => {
   if (!user) return;
 
   const clientKey = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_KEY;
-  const baseUrl   = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
-  const redirectUri =
-    process.env.TIKTOK_REDIRECT_URI ||
-    `${baseUrl}/api/integrations/tiktok/callback`;
+  const baseUrl   = appBaseUrl();
+  const redirectUri = redirectUriFor('tiktok');
 
   if (!clientKey) {
     return Errors.internal(res, 'TikTok OAuth is not configured (TIKTOK_CLIENT_KEY missing)');
@@ -42,7 +40,7 @@ module.exports = async (req, res) => {
       userId:        user.id,
       platform:      'tiktok',
       codeVerifier,
-      redirectAfter: `${baseUrl}/?page=tiktok-connect`,
+      redirectAfter: `${baseUrl}/?page=social-connections`,
     });
 
     const params = new URLSearchParams({

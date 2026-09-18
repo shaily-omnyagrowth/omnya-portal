@@ -20,24 +20,20 @@
 // /api/auth/{platform}/start flow as Instagram, Facebook and YouTube — which
 // reaches api/integrations/tiktok/connect.js through the delegation below.
 //
-// Deleting this route outright is not safe. Both api/auth/tiktok/start.js and
-// api/integrations/tiktok/connect.js read the SAME TIKTOK_REDIRECT_URI
-// environment variable and only fall back to their own path when it is unset.
-// So whichever URI is registered in the TikTok developer console decides which
-// of the two callbacks TikTok actually calls -- and that value is not visible
-// from here. If it points at this path and this path disappears, every TikTok
-// connection breaks with a redirect_uri mismatch.
+// THIS IS NOW THE DEFAULT TIKTOK REDIRECT URI, so it must not be deleted.
 //
-// Delegating costs one function call and removes the divergence either way:
-// whichever URI is registered, the request is handled by the encrypted
-// implementation and nothing new is ever written to creator_tokens.
+// Every TikTok route takes its redirect URI from redirectUriFor('tiktok') in
+// api/_utils/oauth.js, which defaults to ${APP_BASE_URL}/api/auth/tiktok/callback
+// -- this path -- because that is the one SOCIAL_MEDIA_INTEGRATION.md tells the
+// operator to register in the TikTok developer console.
 //
-// The redirect target differs slightly between the two (this one sent the
-// browser to page=social-connections, the other sends it to
-// page=tiktok-connect). That is the integrations handler's business now;
-// reconciling the two Social Channels screens is tracked separately.
+// It used to be worse than ambiguous. api/integrations/tiktok/connect.js (what
+// the Connect button actually calls) defaulted to
+// /api/integrations/tiktok/callback, so a console configured from the setup
+// guide never matched what the portal sent. TikTok rejects that on its own
+// domain, with "Something went wrong", and offers no way back.
 //
-// This file can be deleted once TIKTOK_REDIRECT_URI is confirmed to point at
-// /api/integrations/tiktok/callback.
+// TIKTOK_REDIRECT_URI still overrides the default if the console was registered
+// with something else. The owner's System Config page shows the value in use.
 
 module.exports = require('../../integrations/tiktok/callback');

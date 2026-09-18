@@ -22,14 +22,12 @@
 // dialog issued the token. See api/_utils/socialAccounts.js.
 
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
-const { consumeOAuthState } = require('../../_utils/oauth');
+const { consumeOAuthState, finishOAuth, appBaseUrl, redirectUriFor } = require('../../_utils/oauth');
 const { upsertSocialAccount } = require('../../_utils/socialAccounts');
 const { graphVersion } = require('../../_utils/meta');
 
 function redirectBack(res, params) {
-  const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
-  const qs = new URLSearchParams({ page: 'social-connections', ...params }).toString();
-  res.redirect(302, `${base}/?${qs}`);
+  return finishOAuth(res, appBaseUrl(), { platform: 'facebook', error: params.error, connected: params.connected });
 }
 
 async function fetchLongLivedToken({ appId, appSecret, shortToken }) {
@@ -99,9 +97,7 @@ module.exports = async (req, res) => {
     process.env.META_APP_SECRET ||
     process.env.FACEBOOK_APP_SECRET ||
     process.env.INSTAGRAM_APP_SECRET;
-  const redirectUri =
-    process.env.META_REDIRECT_URI ||
-    `${process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com'}/api/auth/meta/callback`;
+  const redirectUri = redirectUriFor('facebook');
 
   if (!appId || !appSecret) {
     console.error('[meta/callback] Meta OAuth env vars not set');

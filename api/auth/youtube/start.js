@@ -5,7 +5,7 @@
 const { applyCors } = require('../../_utils/cors');
 const { requireAuth } = require('../../_utils/auth');
 const { Errors, sendOk } = require('../../_utils/errors');
-const { storeOAuthState } = require('../../_utils/oauth');
+const { storeOAuthState, redirectUriFor } = require('../../_utils/oauth');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -15,9 +15,7 @@ module.exports = async (req, res) => {
   if (!user) return;
 
   const clientId = process.env.YOUTUBE_CLIENT_ID;
-  const redirectUri =
-    process.env.YOUTUBE_REDIRECT_URI ||
-    `${process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com'}/api/auth/youtube/callback`;
+  const redirectUri = redirectUriFor('youtube');
 
   if (!clientId) {
     return Errors.internal(res, 'YouTube OAuth is not configured (YOUTUBE_CLIENT_ID missing)');
