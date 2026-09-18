@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Connecting your account — Omnya Portal</title>
+    <!--
+      Where every OAuth callback lands (api/_utils/oauth.js -> finishOAuth).
+
+      Everything dynamic is done by /oauth-complete.js, a same-origin FILE,
+      because vercel.json serves `script-src 'self'`: an inline <script> or an
+      onclick="" here would be blocked and the page would just sit there. The
+      inline <style> is fine — style-src allows 'unsafe-inline'.
+
+      With JavaScript off, the one link below still gets the creator home.
+    -->
+    <style>
+      :root { color-scheme: light; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background: #F7F5F4; color: #0A0A0A; min-height: 100vh;
+        display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;
+      }
+      .card {
+        background: #fff; border: 1px solid rgba(10,10,10,0.1); border-radius: 16px;
+        padding: 32px; max-width: 440px; width: 100%; text-align: center;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.06); box-sizing: border-box;
+      }
+      .icon { font-size: 40px; line-height: 1; margin-bottom: 16px; }
+      h1 { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
+      p { font-size: 14px; color: #4A4A48; margin: 0 0 12px; line-height: 1.55; }
+      .hint { font-size: 13px; color: #4A4A48; background: #F7F5F4; border-radius: 8px; padding: 10px 12px; text-align: left; }
+      .code { font-size: 11px; color: #7A7874; margin-top: 12px; word-break: break-word; }
+      .actions { margin-top: 20px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center; padding: 10px 20px;
+        border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer;
+        border: 1px solid transparent; font-family: inherit;
+      }
+      .btn-primary { background: #0A0A0A; color: #fff; }
+      .btn-ghost { background: transparent; color: #3A3A3A; border-color: rgba(10,10,10,0.15); }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main class="card" role="status" aria-live="polite">
+      <div class="icon" id="icon" aria-hidden="true">⏳</div>
+      <h1 id="title">Finishing up…</h1>
+      <p id="message">One moment while we return you to the portal.</p>
+      <p class="hint" id="hint" hidden></p>
+      <div class="actions">
+        <a class="btn btn-primary" id="returnLink" href="/?page=social-connections">Return to Omnya Portal</a>
+        <button class="btn btn-ghost" id="retryBtn" type="button" hidden>Try again</button>
+      </div>
+      <div class="code" id="code" hidden></div>
+    </main>
+    <script src="/oauth-complete.js"></script>
+  </body>
+</html>

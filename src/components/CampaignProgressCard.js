@@ -9,7 +9,10 @@ export default function CampaignProgressCard({
   assignedCreatorsCount = 0,
   onClick,
   onShareClick,
-  isOwner = false
+  isOwner = false,
+  // Staff screens only. This card is also drawn in the client portal, where
+  // "CPM: internal" is both meaningless and a hint that something is withheld.
+  showCpmBadge = false
 }) {
   const pacing = calcPacing({
     startDate: campaign.start_date || campaign.created_at,
@@ -37,14 +40,30 @@ export default function CampaignProgressCard({
     >
       {/* Header: Title, Client, Status */}
       <div>
-        <div className="flex-between mb-8" style={{ alignItems: 'flex-start', gap: 8 }}>
-          <div style={{ minWidth: 0 }}>
-            <h4 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>
-              {campaign.name}
-            </h4>
-            <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 2 }}>
-              {client?.name || 'Client Brand'}
-              {accountManager && <span> · AM: {accountManager.name}</span>}
+        <div className="flex-between mb-8" style={{ alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <div style={{
+              width: 38,
+              height: 38,
+              borderRadius: 8,
+              background: formatMeta.bg || '#f3f4f6',
+              border: `1px solid ${formatMeta.border || '#e5e7eb'}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 18,
+              flexShrink: 0
+            }}>
+              {formatMeta.icon || '📢'}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h4 style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>
+                {campaign.name}
+              </h4>
+              <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 2 }}>
+                {client?.name || 'Client Brand'}
+                {accountManager && <span> · AM: {accountManager.name}</span>}
+              </div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
@@ -134,8 +153,23 @@ export default function CampaignProgressCard({
         borderTop: '1px solid var(--border2)',
         fontSize: 12
       }}>
-        <div style={{ color: 'var(--ink3)' }}>
-          <strong style={{ color: 'var(--ink)' }}>{assignedCreatorsCount}</strong> creator{assignedCreatorsCount !== 1 ? 's' : ''} assigned
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ color: 'var(--ink3)' }}>
+            <strong style={{ color: 'var(--ink)' }}>{assignedCreatorsCount}</strong> creator{assignedCreatorsCount !== 1 ? 's' : ''} assigned
+          </div>
+          {showCpmBadge && (
+            <span style={{
+              fontSize: 10,
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: 'var(--bg2)',
+              color: 'var(--ink2)',
+              fontWeight: 600,
+              border: '1px solid var(--border2)'
+            }}>
+              CPM: {campaign.show_client_cpm ? 'client can see' : 'internal only'}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
           {onShareClick && (

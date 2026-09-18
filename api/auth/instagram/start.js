@@ -9,7 +9,7 @@
 const { applyCors } = require('../../_utils/cors');
 const { requireAuth } = require('../../_utils/auth');
 const { Errors, sendOk } = require('../../_utils/errors');
-const { storeOAuthState } = require('../../_utils/oauth');
+const { storeOAuthState, redirectUriFor } = require('../../_utils/oauth');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -19,9 +19,7 @@ module.exports = async (req, res) => {
   if (!user) return;
 
   const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || process.env.FACEBOOK_APP_ID;
-  const redirectUri =
-    process.env.INSTAGRAM_REDIRECT_URI ||
-    `${process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com'}/api/auth/instagram/callback`;
+  const redirectUri = redirectUriFor('instagram');
 
   if (!appId) {
     return Errors.internal(res, 'Instagram OAuth is not configured (INSTAGRAM_APP_ID missing)');

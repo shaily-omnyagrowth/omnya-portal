@@ -13,13 +13,11 @@
 // recorded in metadata to make that visible.
 
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
-const { consumeOAuthState } = require('../../_utils/oauth');
+const { consumeOAuthState, finishOAuth, appBaseUrl, redirectUriFor } = require('../../_utils/oauth');
 const { upsertSocialAccount } = require('../../_utils/socialAccounts');
 
 function redirectBack(res, params) {
-  const base = process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com';
-  const qs = new URLSearchParams({ page: 'social-connections', ...params }).toString();
-  res.redirect(302, `${base}/?${qs}`);
+  return finishOAuth(res, appBaseUrl(), { platform: 'youtube', error: params.error, connected: params.connected });
 }
 
 async function fetchChannel(accessToken) {
@@ -65,9 +63,7 @@ module.exports = async (req, res) => {
 
   const clientId = process.env.YOUTUBE_CLIENT_ID;
   const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
-  const redirectUri =
-    process.env.YOUTUBE_REDIRECT_URI ||
-    `${process.env.APP_BASE_URL || 'https://www.portalomnyagrowth.com'}/api/auth/youtube/callback`;
+  const redirectUri = redirectUriFor('youtube');
 
   if (!clientId || !clientSecret) {
     console.error('[youtube/callback] YOUTUBE_CLIENT_ID/SECRET not set');

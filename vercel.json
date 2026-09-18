@@ -52,6 +52,10 @@
       "destination": "/privacypolicy/tiktokbHGO5moTndtQNl5u2WIG21Gf3t2J3SnI.txt"
     },
     {
+      "source": "/oauth-complete",
+      "destination": "/oauth-complete.html"
+    },
+    {
       "source": "/termsofservice",
       "destination": "/termsofservice.html"
     },

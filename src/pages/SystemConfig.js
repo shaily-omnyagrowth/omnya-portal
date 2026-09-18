@@ -177,13 +177,38 @@ export default function SystemConfig() {
         );
       })}
 
+      {(configData.oauth || []).length > 0 && (
+        <div className="premium-card" style={{ marginBottom: 16 }}>
+          <div className="card-title">Social sign-in redirect URIs</div>
+          <div style={{ fontSize: 12, color: 'var(--ink3)', marginBottom: 12, lineHeight: 1.5 }}>
+            The exact address the portal asks each platform to send creators back to.
+            It has to match what is registered in that platform's developer console
+            character for character, including <code>www</code> and <code>https</code>.
+            When it does not, the creator sees the platform's own error page
+            (TikTok: "Something went wrong"), not ours.
+          </div>
+          {configData.oauth.map((o) => (
+            <div key={o.platform} style={{ padding: '11px 0', borderBottom: '1px solid var(--border2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{o.platform}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink3)' }}>from {o.source}</div>
+              </div>
+              <div style={{ fontFamily: 'monospace', fontSize: 12, margin: '4px 0', wordBreak: 'break-all', userSelect: 'all' }}>
+                {o.redirectUri}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink3)' }}>Register it under: {o.console}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="premium-card">
         <div className="card-title">Database</div>
         <div style={{ fontSize: 12, color: 'var(--ink3)', marginBottom: 12, lineHeight: 1.5 }}>
           Whether the objects the portal depends on exist. A missing one means
           the migration that creates it has not been applied.
         </div>
-        {(data.schema || []).map((o) => (
+        {(configData.schema || []).map((o) => (
           <div key={o.object} style={{
             padding: '11px 0', borderBottom: '1px solid var(--border2)',
             display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
@@ -205,7 +230,7 @@ export default function SystemConfig() {
       </div>
 
       <div style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 14 }}>
-        Checked {new Date(data.checkedAt).toLocaleString()}. Change these values
+        Checked {new Date(configData.checkedAt || Date.now()).toLocaleString()}. Change these values
         in the hosting project's environment settings, then re-deploy.
       </div>
     </div>
