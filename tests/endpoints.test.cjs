@@ -93,6 +93,13 @@ const CLASS = {
     match: r => /\/(start|connect|reconnect)$/.test(r),
     why: 'bearer token, then redirects to the provider',
   },
+  // The client-facing campaign report. Deliberately public: the secret is the
+  // share_token in the query string, and share_enabled is enforced server-side.
+  // There is no bearer token to send, so 401 is not the right expectation.
+  shareLink: {
+    match: r => r === '/api/campaigns/share-report',
+    why: 'share_token in the query string; share_enabled enforced server-side',
+  },
 };
 
 const classify = route => {
@@ -269,6 +276,14 @@ const looksEnvGap = r =>
       // The specific thing that must never happen.
       R(noCreds.code !== 200, `${route} does not serve an unauthenticated caller`, `got ${noCreds.code}`);
       R(!noCreds.threw, `${route} does not throw at an unauthenticated caller`,
+        noCreds.threw ? String(noCreds.threw.message).slice(0, 70) : '');
+    } else if (kind === 'shareLink') {
+      // No token at all must be refused outright, before any lookup.
+      const ok = noCreds.code === 400;
+      row.unauth = String(noCreds.code);
+      R(ok, `${route} refuses a caller with no share token`, `got ${noCreds.code}`);
+      R(noCreds.code !== 200, `${route} does not serve a report without a token`, `got ${noCreds.code}`);
+      R(!noCreds.threw, `${route} does not throw at a caller with no token`,
         noCreds.threw ? String(noCreds.threw.message).slice(0, 70) : '');
     } else if (kind === 'cron') {
       // CRON_SECRET is a placeholder locally, so the handler may refuse for
