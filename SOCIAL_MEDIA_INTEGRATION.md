@@ -269,6 +269,44 @@ For deeper debugging, check Vercel function logs for `[<platform>/callback]
 *_failed` lines. Logs intentionally omit token bodies; you'll see HTTP status
 and a short error description only.
 
+### TikTok: "Something went wrong — correct the following: client_key"
+
+This is TikTok's own page (on tiktok.com, after the creator signs in), so the
+portal never sees a callback and nothing is logged on our side. The list under
+"correct the following" is the diagnosis: TikTok names the parameter it
+rejected. `client_key` means the key itself is not usable for this login — the
+redirect URI and scopes were not even evaluated. Seen on 2026-09-18 with the
+production key.
+
+TikTok apps have two modes. **Production** credentials only serve real logins
+once the app has been submitted for review and is **Live**. Until then, use
+**Sandbox** mode, which has its own client key and secret and works without
+review for up to 10 named TikTok accounts ("target users"). Testing with the
+production key before approval, or with an account that is not a target user,
+produces exactly this page.
+
+Fix, in order:
+
+1. In [developers.tiktok.com](https://developers.tiktok.com) → *Manage apps* →
+   the app, check the status. If it is not **Live**, flip the toggle next to
+   the app name to **Sandbox** (create one if needed).
+2. In the sandbox: add the **Login Kit** product with the **Web** platform and
+   register the exact redirect URI the portal sends — shown on the owner's
+   *System Config* page (default `https://www.portalomnyagrowth.com/api/auth/tiktok/callback`).
+   Add scopes `user.info.basic` and `video.list`. Under *Target users*, add
+   the TikTok account(s) that will test — each must accept TikTok's prompt.
+3. Copy the **sandbox** client key and secret into Vercel as
+   `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` (Production environment) and
+   **redeploy** — serverless functions read env vars at deploy time.
+4. When the app is approved and Live, put the production key and secret back
+   and redeploy. TikTok's review requires a demo video of the login flow, which
+   the docs say to record against the sandbox.
+
+If the app *is* Live and this still appears, the key is wrong: compare it
+character for character with *App details → Credentials* (a stray space or
+the secret pasted into the key field are the usual suspects) and confirm the
+Login Kit product is added to the production app.
+
 ---
 
 ## 11. Deployment checklist (per environment)
