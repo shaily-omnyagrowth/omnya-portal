@@ -26,6 +26,7 @@ const { Errors, sendOk } = require('../_utils/errors');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 const { applyRateLimit } = require('../_utils/rateLimit');
 const { requireOwner } = require('../_lib/adminGuard');
+const { redirectUriFor } = require('../_utils/oauth');
 
 // Values that mean "somebody copied .env.example and never came back".
 const PLACEHOLDERS = [
@@ -137,8 +138,28 @@ module.exports = async (req, res) => {
     });
   }
 
+  // A migration that only ADDS COLUMNS cannot be seen by probing for a table.
+  // Selecting the columns by name can: PostgREST answers 42703 / PGRST204 for
+  // one that does not exist.
+  async function probeColumns(table, columns, label, why) {
+    const { error } = await supabase.from(table).select(columns.join(',')).limit(1);
+    schema.push({
+      object: `${table} (${columns.join(', ')})`,
+      label,
+      why,
+      present: !error,
+      detail: error ? error.message : null,
+    });
+  }
+
   try {
     await Promise.all([
+      probeColumns('campaigns', ['sales_commission_rate', 'manager_commission_rate', 'show_client_cpm'],
+        'Editable commission rates and the client CPM switch',
+        'Migration 20260918000000_creator_portal_fixes.sql has not been applied. Until it is, saving a commission rate, creating a campaign and toggling client CPM all fail.'),
+      probeColumns('campaign_creators', ['status', 'commitment', 'demo_video_url'],
+        'Campaign applications (commitment, demo video, approval)',
+        'Migration 20260918000000_creator_portal_fixes.sql has not been applied. Until it is, creators cannot apply to campaigns.'),
       probeTable('payout_ledger', 'Append-only payout ledger',
         'Without it there is no reconcilable history of the money path (§9.3).'),
       probeTable('admin_audit_logs', 'Admin audit trail',
@@ -162,9 +183,27 @@ module.exports = async (req, res) => {
     schemaTotal: schema.length,
   };
 
+  // Not secrets: a redirect URI is sent in the clear in every authorize URL.
+  // Listed because "does this match what is registered in the provider's
+  // console, character for character?" is the first question when a connect
+  // fails on the provider's own error page, and until now answering it meant
+  // reading the source.
+  const oauth = [
+    { platform: 'TikTok',    console: 'TikTok for Developers \u2192 your app \u2192 Login Kit \u2192 Redirect URI', env: 'TIKTOK_REDIRECT_URI',    key: 'tiktok' },
+    { platform: 'Instagram', console: 'Meta for Developers \u2192 Instagram \u2192 API setup with Instagram login \u2192 OAuth redirect URIs', env: 'INSTAGRAM_REDIRECT_URI', key: 'instagram' },
+    { platform: 'Facebook',  console: 'Meta for Developers \u2192 Facebook Login \u2192 Settings \u2192 Valid OAuth Redirect URIs', env: 'META_REDIRECT_URI', key: 'facebook' },
+    { platform: 'YouTube',   console: 'Google Cloud Console \u2192 Credentials \u2192 your OAuth client \u2192 Authorized redirect URIs', env: 'YOUTUBE_REDIRECT_URI', key: 'youtube' },
+  ].map((o) => ({
+    platform: o.platform,
+    console: o.console,
+    redirectUri: redirectUriFor(o.key),
+    source: process.env[o.env] ? `${o.env} (override)` : 'APP_BASE_URL (default)',
+  }));
+
   return sendOk(res, {
     environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'unknown',
     groups,
+    oauth,
     schema,
     summary,
     checkedAt: new Date().toISOString(),

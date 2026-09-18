@@ -119,6 +119,7 @@ const styles = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
+    color-scheme: light;
     --bg: #F7F5F4;
     --bg2: #EFEEED;
     --bg3: #E8E7E5;
@@ -126,8 +127,8 @@ const styles = `
     --surface2: rgba(255,255,255,0.7);
     --ink: #0A0A0A;
     --ink2: #3A3A3A;
-    --ink3: #7A7977;
-    --ink4: #B0AEA9;
+    --ink3: #4A4A48;
+    --ink4: #6B6965;
     --chrome: linear-gradient(135deg, #E8E8E8 0%, #C8C8C8 25%, #F0F0F0 50%, #B8B8B8 75%, #E0E0E0 100%);
     --chrome-flat: #C8C8C6;
     --accent: #0A0A0A;
@@ -229,7 +230,7 @@ const styles = `
   .login-title { font-family: 'Bebas Neue', sans-serif; font-size: 36px; letter-spacing: 1px; margin-bottom: 6px; color: var(--ink); }
   .login-sub { color: var(--ink3); margin-bottom: 32px; font-size: 14px; }
   .field { margin-bottom: 16px; }
-  .field label { display: block; font-size: 11px; font-weight: 600; color: var(--ink3); margin-bottom: 6px; letter-spacing: 0.8px; text-transform: uppercase; }
+  .form-label, .field label { display: block; font-size: 11px; font-weight: 600; color: #262626 !important; margin-bottom: 6px; letter-spacing: 0.8px; text-transform: uppercase; opacity: 1 !important; visibility: visible !important; }
   .field input {
     width: 100%; padding: 12px 16px; background: var(--bg2);
     border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -455,7 +456,7 @@ const styles = `
 
   /* FORM */
   .form-group { margin-bottom: 16px; }
-  .form-label { display: block; font-size: 11px; font-weight: 600; color: var(--ink3); margin-bottom: 6px; letter-spacing: 0.8px; text-transform: uppercase; }
+  .form-label { display: block; font-size: 11px; font-weight: 600; color: #262626 !important; margin-bottom: 6px; letter-spacing: 0.8px; text-transform: uppercase; opacity: 1 !important; visibility: visible !important; }
   .form-hint { font-size: 11px; color: var(--ink4); margin-top: 4px; }
   .form-input {
     width: 100%; padding: 12px 16px; background: var(--bg2);
@@ -717,6 +718,61 @@ const sendEmail = (type, data) => {
 // because an owner who clicks "Deactivate" and is told nothing will assume it
 // worked.
 // ============================================================
+// ============================================================
+// WRITES THAT SAY WHEN THEY DID NOT HAPPEN
+// ============================================================
+//
+// `await supabase.from(t).update(patch).eq("id", id)` cannot fail loudly on
+// its own. It RESOLVES in all three of these cases, and the old call sites
+// read none of them:
+//
+//   * an `error` comes back (unknown column, CHECK violation, a trigger's
+//     RAISE) -- it is a field on the result, not a throw;
+//   * RLS filters the row out -- no error at all, just zero rows updated;
+//   * it worked.
+//
+// So the UI flipped its checkbox, showed the new number, and the next reload
+// put the old one back. That is the whole of "commission fields are not
+// editable" and "sales source does not persist": one missing check, repeated
+// at every call site. Asking for the row back (.select) is what turns the RLS
+// case from silence into a countable zero.
+//
+// Returns null on success, or a sentence fit to show the user.
+const MIGRATION_HINT = "The database is missing a column this screen needs. Apply the pending migration (supabase/migrations/20260918000000_creator_portal_fixes.sql), then retry.";
+
+function describeWriteError(error) {
+  if (!error) return null;
+  if (error.code === "PGRST204" || error.code === "42703") return MIGRATION_HINT;
+  if (error.code === "42501") return error.message || "You do not have permission to change that.";
+  if (error.code === "23514") return "That value is not allowed here. " + (error.message || "");
+  return error.message || "The change could not be saved.";
+}
+
+// Demo video attached to a campaign application. Same bucket and the same
+// `submissions/<campaign>/` prefix the Submit Content screen already writes to,
+// so it rides on whatever storage policy lets creators upload there today
+// rather than needing a new one. 200 MB is a guard against a phone's raw 4K
+// export, not a product decision.
+const DEMO_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
+
+async function uploadDemoVideo(file, campaignId, creatorName) {
+  if (!file) return null;
+  if (file.type && !file.type.startsWith("video/")) throw new Error("Please choose a video file.");
+  if (file.size > DEMO_VIDEO_MAX_BYTES) throw new Error("That file is over 200 MB. Trim it, or paste a link instead.");
+  const safe = `${creatorName || "creator"}_demo_${file.name}`.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filePath = `submissions/${campaignId}/${Date.now()}_${safe}`;
+  const { error } = await supabase.storage.from("submissions").upload(filePath, file, { cacheControl: "3600", upsert: false });
+  if (error) throw new Error(error.message);
+  return supabase.storage.from("submissions").getPublicUrl(filePath).data.publicUrl;
+}
+
+async function updateRows(table, patch, match) {
+  const { data, error } = await supabase.from(table).update(patch).match(match).select();
+  if (error) return describeWriteError(error);
+  if (!data || data.length === 0) return "Nothing was saved \u2014 you may not have permission to change this.";
+  return null;
+}
+
 async function callApi(path, { method = "POST", body = null } = {}) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Your session has expired. Sign in again.");
@@ -1436,42 +1492,72 @@ function JobBoard({ user, db, onRefresh }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
   const openJobs = db.campaigns.filter(c=>c.status==="Open"&&c.application_type==="Open Application");
   const [applying, setApplying] = useState(null);
+  const [commitment, setCommitment] = useState(1);
+  const [demoVideoUrl, setDemoVideoUrl] = useState("");
+  const [demoFile, setDemoFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [applyError, setApplyError] = useState("");
 
+  // F-10 still holds: the row in campaign_creators is the record, and
+  // campaigns.assigned_creators is a trigger-maintained mirror of it.
+  //
+  // What changed is that an application is no longer an assignment. The row
+  // goes in as status 'Applied'; the mirror only copies 'Approved' rows, so the
+  // creator is not on the campaign until a manager says so. RLS pins the status
+  // on the way in (campaign_creators_creator_apply), so this cannot be talked
+  // into 'Approved' from the browser.
+  //
+  // A plain insert, not an upsert: creators have no UPDATE policy on this
+  // table, and a second application should say so, not overwrite the first.
   const apply = async (campaignId) => {
     if (!creator) return;
-    setLoading(true);
-    // F-10. The assignment is a row in campaign_creators, which carries real
-    // foreign keys. campaigns.assigned_creators is now a mirror maintained by
-    // trigger -- writing it directly is what allowed ids naming no creator to
-    // accumulate there.
-    //
-    // ignoreDuplicates makes a second application a no-op rather than a 23505.
-    // The old array push would happily store the same id twice.
-    const { error: assignErr } = await supabase
-      .from("campaign_creators")
-      .upsert({ campaign_id: campaignId, creator_id: creator.id, assigned_by: user.id },
-              { onConflict: "campaign_id,creator_id", ignoreDuplicates: true });
+    const count = Math.floor(Number(commitment));
+    if (!Number.isFinite(count) || count < 1) { setApplyError("Tell us how many videos you can commit to (at least 1)."); return; }
+    const link = demoVideoUrl.trim();
+    if (link && !/^https?:\/\//i.test(link)) { setApplyError("The demo link needs to start with http:// or https://"); return; }
 
-    if (assignErr) {
-      setApplyError("Could not apply for this job: " + assignErr.message);
+    setLoading(true);
+    setApplyError("");
+
+    let demoUrl = link || null;
+    if (demoFile) {
+      try {
+        demoUrl = await uploadDemoVideo(demoFile, campaignId, creator.name);
+      } catch (e) {
+        setApplyError("Your demo video could not be uploaded: " + e.message);
+        setLoading(false);
+        return;
+      }
+    }
+
+    const { error: applyErr } = await supabase
+      .from("campaign_creators")
+      .insert({
+        campaign_id: campaignId,
+        creator_id: creator.id,
+        assigned_by: user.id,
+        commitment: count,
+        demo_video_url: demoUrl,
+        status: "Applied",
+      });
+
+    if (applyErr) {
+      setApplyError(applyErr.code === "23505"
+        ? "You have already applied to this campaign."
+        : "Could not submit your application: " + describeWriteError(applyErr));
       setLoading(false);
       return;
     }
 
-    const { error: statusErr } = await supabase
-      .from("campaigns").update({ status: "In Progress" }).eq("id", campaignId);
-    if (statusErr) console.warn("apply: assigned, but campaign status not updated:", statusErr.message);
-
-    setApplyError("");
     await onRefresh();
-    setApplying(null); setLoading(false);
+    setApplying(null);
+    setCommitment(1);
+    setDemoVideoUrl("");
+    setDemoFile(null);
+    setLoading(false);
   };
 
   if (!creator) return <div className="content"><ErrorMsg msg="Creator profile not found. Contact your account manager." /></div>;
-
-
 
   return (
     <div className="content">
@@ -1480,7 +1566,11 @@ function JobBoard({ user, db, onRefresh }) {
       {openJobs.length===0&&<div className="empty"><div className="empty-icon">💼</div><h3>No open jobs right now</h3><p>Check back soon</p></div>}
       {openJobs.map(job=>{
         const client=db.clients.find(c=>c.id===job.client_id);
-        const applied=(job.assigned_creators||[]).includes(creator.id);
+        const myApp = (db.campaignCreators || []).find(cc => cc.campaign_id === job.id && cc.creator_id === creator.id);
+        const isAssigned = (job.assigned_creators||[]).includes(creator.id) || (myApp && myApp.status === "Approved");
+        const isPending = !isAssigned && myApp && myApp.status === "Applied";
+        const isDeclined = !isAssigned && myApp && myApp.status === "Declined";
+
         return (
           <div key={job.id} className="premium-card mb-24 fade-in">
             <div className="flex-between mb-16">
@@ -1509,7 +1599,17 @@ function JobBoard({ user, db, onRefresh }) {
               <div className="flex-center gap-8" style={{fontSize:13,color:"var(--ink3)", fontWeight: 600}}>
                 <div className="dot dot-orange"></div> {job.videos_needed} spots left
               </div>
-              {applied?<span className="status-pill status-pill-green">✓ Application Received</span>:<button className="btn btn-primary" onClick={()=>setApplying(job)}>Apply for Campaign →</button>}
+              {isAssigned ? (
+                <span className="status-pill status-pill-green">✓ Assigned to Campaign</span>
+              ) : isPending ? (
+                <span className="status-pill status-pill-orange">⏳ Application Pending Review{myApp.commitment?` · ${myApp.commitment} video${myApp.commitment===1?"":"s"}`:""}</span>
+              ) : isDeclined ? (
+                <span className="status-pill" style={{background:"var(--bg2)",color:"var(--ink3)"}}>Not selected for this campaign</span>
+              ) : (
+                <button className="btn btn-primary" onClick={()=>{ setApplying(job); setCommitment(1); setDemoVideoUrl(""); setDemoFile(null); setApplyError(""); }}>
+                  Apply for Campaign →
+                </button>
+              )}
             </div>
           </div>
         );
@@ -1520,9 +1620,49 @@ function JobBoard({ user, db, onRefresh }) {
             <div className="modal-title">Apply for {applying.name}</div>
             <div className="modal-sub">{db.clients.find(c=>c.id===applying.client_id)?.name} · {fmtMoney(applying.pay_per_video)}/video</div>
             <p style={{fontSize:13,color:"var(--ink2)",marginBottom:16}}>{applying.description}</p>
+
+            <div className="form-group">
+              <label className="form-label">Video Commitment <span style={{color:"var(--red)"}}>*</span></label>
+              <input
+                className="form-input"
+                type="number"
+                min="1"
+                max={Math.max(1, Number(applying.videos_needed)||1)}
+                step="1"
+                value={commitment}
+                onChange={e=>setCommitment(e.target.value)}
+              />
+              <div style={{fontSize:11,color:"var(--ink3)",marginTop:4}}>
+                How many videos can you commit to delivering? This campaign needs {applying.videos_needed||"several"} in total.
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Demo Video</label>
+              <input
+                className="form-input"
+                type="file"
+                accept="video/*"
+                onChange={e=>{ setDemoFile(e.target.files?.[0]||null); }}
+              />
+              <div style={{fontSize:11,color:"var(--ink3)",margin:"6px 0"}}>…or paste a link instead:</div>
+              <input
+                className="form-input"
+                placeholder="https://tiktok.com/@you/video/… or a Drive link"
+                value={demoVideoUrl}
+                disabled={!!demoFile}
+                onChange={e=>setDemoVideoUrl(e.target.value)}
+              />
+              <div style={{fontSize:11,color:"var(--ink3)",marginTop:4}}>A sample of your work, so the team can review it before approving you.</div>
+            </div>
+
+            {applyError&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{applyError}</div>}
+
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setApplying(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={()=>apply(applying.id)} disabled={loading}>{loading?"Applying...":"Confirm Application"}</button>
+              <button className="btn btn-primary" onClick={()=>apply(applying.id)} disabled={loading}>
+                {loading?"Submitting...":"Submit Application"}
+              </button>
             </div>
           </div>
         </div>
@@ -2087,21 +2227,17 @@ function AMDashboard({ user, db, setPage }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
   const myCreators = am?db.creators.filter(c=>c.am_id===am.id):[];
   const myClients = am?db.clients.filter(c=>c.am_id===am.id):[];
-  const pendingC = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.status==="Submitted").length;
-  const pendingF = db.submissions.filter(s=>myCreators.some(c=>c.id===s.creator_id)&&s.status==="Under Review").length;
-  const approvedWeek = db.submissions.filter(s=>s.status==="Approved"&&new Date(s.approved_date)>new Date(Date.now()-7*86400000)).length;
 
-  // myCampaigns/campIds are consumed both by amTopPosts below AND directly by
-  // the JSX (<UGCDashboardView campaigns=... submissions=...>), so they have to
-  // live in component scope. They were previously declared inside the
-  // amTopPosts useMemo callback, which made every render of a linked AM throw
-  // "myCampaigns is not defined".
   const myCampaigns = useMemo(() => {
     const clientIds = new Set(myClients.map(cl => cl.id));
     return (db.campaigns || []).filter(c => clientIds.has(c.client_id));
   }, [myClients, db.campaigns]);
 
   const campIds = useMemo(() => new Set(myCampaigns.map(c => c.id)), [myCampaigns]);
+
+  const pendingC = (db.submissions || []).filter(s => (campIds.has(s.campaign_id) || myCreators.some(c => c.id === s.creator_id)) && s.status === "Submitted").length;
+  const pendingF = (db.submissions || []).filter(s => (campIds.has(s.campaign_id) || myCreators.some(c => c.id === s.creator_id)) && s.status === "Under Review").length;
+  const approvedWeek = (db.submissions || []).filter(s => (campIds.has(s.campaign_id) || myCreators.some(c => c.id === s.creator_id)) && s.status === "Approved" && new Date(s.approved_date) > new Date(Date.now()-7*86400000)).length;
 
   const amTopPosts = useMemo(() => {
     const analyticsMap = {};
@@ -2154,7 +2290,16 @@ function AMDashboard({ user, db, setPage }) {
       </div>
 
       <div className="stats-grid">
-        <div className="stat-card stat-highlight"><div className="stat-label">Pending Approvals</div><div className="stat-value">{pendingC+pendingF}</div><div className="stat-sub">{pendingC} concepts · {pendingF} finals</div></div>
+        <div
+          className="stat-card stat-highlight"
+          style={{ cursor: "pointer", transition: "transform 0.15s" }}
+          onClick={() => setPage && setPage("review-queue")}
+          title="Go to Review Queue"
+        >
+          <div className="stat-label">Pending Approvals ➔</div>
+          <div className="stat-value">{pendingC+pendingF}</div>
+          <div className="stat-sub">{pendingC} concepts · {pendingF} finals (click to open queue)</div>
+        </div>
         <div className="stat-card"><div className="stat-label">Approved This Week</div><div className="stat-value">{approvedWeek}</div></div>
         <div className="stat-card"><div className="stat-label">My Creators</div><div className="stat-value">{myCreators.length}</div></div>
         <div className="stat-card"><div className="stat-label">My Clients</div><div className="stat-value">{myClients.length}</div></div>
@@ -2223,9 +2368,21 @@ function ReviewQueue({ db, onRefresh, user }) {
   // Surfaces a write that did not land. See the note in action() below.
   const [actionError, setActionError] = useState("");
 
-  const concepts = db.submissions.filter(s=>s.status==="Submitted");
-  const finals = db.submissions.filter(s=>s.status==="Under Review");
-  const revisions = db.submissions.filter(s=>s.status==="Revision Requested");
+  const isOwner = db._currentUser?.role === "owner" || user?.role === "owner";
+  const myAM = db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email);
+  const myClientIds = new Set(db.clients.filter(c=>c.am_id===myAM?.id).map(c=>c.id));
+  const myCampaignIds = new Set(db.campaigns.filter(c=>myClientIds.has(c.client_id)).map(c=>c.id));
+
+  const scopedSubmissions = isOwner
+    ? db.submissions
+    : db.submissions.filter(s =>
+        myCampaignIds.has(s.campaign_id) ||
+        (myAM && db.creators.some(c => c.id === s.creator_id && c.am_id === myAM.id))
+      );
+
+  const concepts = scopedSubmissions.filter(s=>s.status==="Submitted");
+  const finals = scopedSubmissions.filter(s=>s.status==="Under Review");
+  const revisions = scopedSubmissions.filter(s=>s.status==="Revision Requested");
 
   const getDaysWaiting = (dateStr) => {
     if (!dateStr) return 0;
@@ -2248,46 +2405,12 @@ function ReviewQueue({ db, onRefresh, user }) {
 
     if (value === "Approved" && field === "status") {
       updates.approved_date = new Date().toISOString().split("T")[0];
-      // Auto-generate payment record
-      if (sub && campaign) {
-        const existingPayment = db.payments.find(p=>p.submission_id===subId);
-        if (!existingPayment) {
-          await supabase.from("payments").insert({
-            creator_id: sub.creator_id,
-            campaign_id: sub.campaign_id,
-            submission_id: subId,
-            videos_approved: 1,
-            amount_owed: Number(campaign.pay_per_video||0),
-            week_ending: new Date().toISOString().split("T")[0],
-            status: "Pending",
-            payment_method: "Venmo",
-          });
-        }
-      }
-      // Email: notify creator their final was approved
-      if (creator?.email) {
-        sendEmail("final_approved", {
-          creatorEmail: creator.email,
-          creatorName: creator.name,
-          campaignName: campaign?.name || "your campaign",
-          amount: campaign?.pay_per_video,
-        });
-      }
     }
 
-    // Email: revision requested on concept or final
-    if ((field === "status" || field === "status") && value === "Revision Requested") {
-      if (creator?.email && feedback) {
-        sendEmail("revision_requested", {
-          creatorEmail: creator.email,
-          creatorName: creator.name,
-          campaignName: campaign?.name || "your campaign",
-          amName: "Your Account Manager",
-          feedback,
-        });
-      }
-    }
-
+    // The write goes FIRST. The payment row and the emails below are
+    // consequences of a review that happened; they used to run before it, so a
+    // refused approval still created a payable row and still told the creator
+    // they had been approved.
     // The result of this write used to be discarded. If RLS refused it, or a
     // CHECK rejected the value, or the network dropped, the modal closed anyway
     // and the reviewer was shown nothing — so an AM believed they had sent a
@@ -2319,7 +2442,58 @@ function ReviewQueue({ db, onRefresh, user }) {
       return;
     }
 
-    setActionError("");
+    let followUp = "";
+
+    if (value === "Approved" && field === "status") {
+      // Auto-generate payment record
+      if (sub && campaign) {
+        const existingPayment = db.payments.find(p=>p.submission_id===subId);
+        if (!existingPayment) {
+          // supabase-js does not throw on a refused insert, it returns the
+          // error — so a try/catch here caught nothing and an approval could
+          // quietly leave the creator with no payment row. The approval has
+          // already landed by this point, so report it rather than fail it.
+          const { error: payErr } = await supabase.from("payments").insert({
+            creator_id: sub.creator_id,
+            campaign_id: sub.campaign_id,
+            submission_id: subId,
+            videos_approved: 1,
+            amount_owed: Number(campaign.pay_per_video||0),
+            week_ending: new Date().toISOString().split("T")[0],
+            status: "Pending",
+            payment_method: "Venmo",
+          });
+          if (payErr) {
+            console.warn("approve: payment row not created:", payErr.code, payErr.message);
+            followUp = "The video was approved, but its payment record could not be created (" + describeWriteError(payErr) + "). Ask the owner to add it in Payment Management.";
+          }
+        }
+      }
+      // Email: notify creator their final was approved
+      if (creator?.email) {
+        sendEmail("final_approved", {
+          creatorEmail: creator.email,
+          creatorName: creator.name,
+          campaignName: campaign?.name || "your campaign",
+          amount: campaign?.pay_per_video,
+        });
+      }
+    }
+
+    // Email: revision requested on concept or final
+    if ((field === "status" || field === "status") && value === "Revision Requested") {
+      if (creator?.email && feedback) {
+        sendEmail("revision_requested", {
+          creatorEmail: creator.email,
+          creatorName: creator.name,
+          campaignName: campaign?.name || "your campaign",
+          amName: "Your Account Manager",
+          feedback,
+        });
+      }
+    }
+
+    setActionError(followUp);
     await onRefresh();
     setModal(null); setFeedback(""); setSaving(false);
   };
@@ -2399,6 +2573,10 @@ function ReviewQueue({ db, onRefresh, user }) {
 
   return (
     <div className="content">
+      {/* Approve is a one-click action with no modal, so an error raised by it
+          had nowhere to appear: the only place actionError was drawn is inside
+          the feedback modal below. */}
+      {actionError && !modal && <ErrorMsg msg={actionError} />}
       {/* Flow tabs with counts */}
       <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         {tabs.map(t=>(
@@ -2461,10 +2639,37 @@ function ReviewQueue({ db, onRefresh, user }) {
   );
 }
 
-function MyCreators({ user, db }) {
+// The manager's roster. It was a read-only table — a manager could watch their
+// creators and do nothing about them; every change meant asking the owner. It
+// is now the scoped equivalent of the owner's Manage Creators:
+//
+//   add      a new creator record, or claim one from the unassigned pool
+//   edit     the working details (not payout details — those are the creator's)
+//   archive  / restore, with a reason, exactly as the owner's screen does
+//   remove   release from this roster back to the pool; history is untouched
+//
+// Scope is enforced by the database, not by this file: RLS only ever returns
+// this manager's creators, claim_creator()/release_creator() refuse anyone
+// else's, and hard delete stays owner-only (creators_delete_owner).
+function MyCreators({ user, db, onRefresh }) {
   const am = db.accountManagers.find(a=>a.user_id===user.id||a.email===user.email);
-  const baseCreators = am?db.creators.filter(c=>c.am_id===am.id):db.creators;
+  const baseCreators = am?db.creators.filter(c=>c.am_id===am.id):[];
   const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState({ type: "", text: "" });
+
+  const emptyForm = { name:"", email:"", tiktok_handle:"", instagram_handle:"", weekly_rate:"", videos_per_week:"", status:"Active" };
+  const [editCreator, setEditCreator] = useState(null);   // a creators row being edited
+  const [showAdd, setShowAdd] = useState(false);
+  const [addForm, setAddForm] = useState(emptyForm);
+  const [formErr, setFormErr] = useState("");
+  const [showPool, setShowPool] = useState(false);
+  const [pool, setPool] = useState(null);                  // null = not loaded yet
+  const [poolErr, setPoolErr] = useState("");
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [releaseTarget, setReleaseTarget] = useState(null);
 
   const creators = useMemo(() => {
     return baseCreators.map(c => {
@@ -2473,37 +2678,156 @@ function MyCreators({ user, db }) {
       const lastActiveTime = dates.length > 0 ? Math.max(...dates) : new Date(c.created_at).getTime();
       const approvedSubs = subs.filter(s => s.status === "Approved");
       const rate = subs.length > 0 ? Math.round((approvedSubs.length / subs.length) * 100) : 0;
-      return {
-        ...c,
-        lastActiveTime,
-        approvedCount: approvedSubs.length,
-        approvalRate: rate
-      };
+      return { ...c, lastActiveTime, approvedCount: approvedSubs.length, approvalRate: rate };
     }).filter(c => {
+      if (!showArchived && c.archived_at) return false;
       if (!search.trim()) return true;
       const q = search.toLowerCase();
-      return (c.name || "").toLowerCase().includes(q) || (c.tiktok_handle || "").toLowerCase().includes(q);
+      return (c.name || "").toLowerCase().includes(q) || (c.tiktok_handle || "").toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q);
     }).sort((a, b) => b.lastActiveTime - a.lastActiveTime);
-  }, [baseCreators, db.submissions, search]);
+  }, [baseCreators, db.submissions, search, showArchived]);
+
+  const archivedCount = baseCreators.filter(c=>c.archived_at).length;
+
+  const details = (f) => ({
+    name: f.name.trim(),
+    email: (f.email||"").trim().toLowerCase() || null,
+    tiktok_handle: (f.tiktok_handle||"").trim().replace(/^@/,"") || null,
+    instagram_handle: (f.instagram_handle||"").trim().replace(/^@/,"") || null,
+    weekly_rate: Number(f.weekly_rate||0),
+    videos_per_week: Number(f.videos_per_week||0),
+    status: f.status || "Active",
+  });
+
+  // creators.email is UNIQUE NOT NULL: it is how a sign-up is matched to the
+  // record a manager created ahead of time, so it cannot be left blank.
+  const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v||"").trim());
+
+  const addCreator = async () => {
+    if (!addForm.name.trim()) { setFormErr("A name is required."); return; }
+    if (!validEmail(addForm.email)) { setFormErr("A valid email is required — it is how their account links to this record when they sign up."); return; }
+    setBusy(true); setFormErr("");
+    const { error } = await supabase.from("creators").insert({ ...details(addForm), am_id: am.id });
+    if (error) {
+      setFormErr(error.code === "23505"
+        ? "A creator with that email already exists. If they have no manager yet, use “Pick from unassigned” instead."
+        : describeWriteError(error));
+      setBusy(false); return;
+    }
+    await onRefresh();
+    setShowAdd(false); setAddForm(emptyForm); setBusy(false);
+    setMsg({ type:"success", text:`${addForm.name.trim()} was added to your roster.` });
+  };
+
+  const saveCreator = async () => {
+    if (!editCreator.name.trim()) { setFormErr("A name is required."); return; }
+    if (!validEmail(editCreator.email)) { setFormErr("A valid email is required."); return; }
+    setBusy(true); setFormErr("");
+    const err = await updateRows("creators", details(editCreator), { id: editCreator.id });
+    if (err) { setFormErr(err); setBusy(false); return; }
+    await onRefresh();
+    setEditCreator(null); setBusy(false);
+  };
+
+  // Same patch the owner's Manage Creators writes: archived_at is the
+  // soft-delete signal, independent of status (20260825000000).
+  const setArchived = async (creator, archived, reason) => {
+    setBusy(true); setMsg({ type:"", text:"" });
+    const patch = archived
+      ? { archived_at: new Date().toISOString(), archived_by: user?.id || null, archive_reason: (reason||"").trim() }
+      : { archived_at: null, archived_by: null, archive_reason: null };
+    const err = await updateRows("creators", patch, { id: creator.id });
+    if (err) { setMsg({ type:"error", text:`Could not ${archived?"archive":"restore"} ${creator.name}: ${err}` }); setBusy(false); return; }
+    await onRefresh();
+    setArchiveTarget(null); setArchiveReason(""); setBusy(false);
+    setMsg({ type:"success", text:`${creator.name} was ${archived?"archived":"restored"}.` });
+  };
+
+  const openPool = async () => {
+    setShowPool(true); setPool(null); setPoolErr("");
+    const { data, error } = await supabase.rpc("list_unassigned_creators");
+    if (error) { setPoolErr(error.code === "PGRST202" ? MIGRATION_HINT : error.message); setPool([]); return; }
+    setPool(data || []);
+  };
+
+  const claim = async (c) => {
+    setBusy(true); setPoolErr("");
+    const { error } = await supabase.rpc("claim_creator", { p_creator_id: c.id });
+    if (error) { setPoolErr(error.message); setBusy(false); openPool(); return; }
+    await onRefresh();
+    setPool(list => (list||[]).filter(x => x.id !== c.id));
+    setBusy(false);
+    setMsg({ type:"success", text:`${c.name} is now on your roster.` });
+  };
+
+  const release = async (c) => {
+    setBusy(true); setMsg({ type:"", text:"" });
+    const { error } = await supabase.rpc("release_creator", { p_creator_id: c.id });
+    if (error) { setMsg({ type:"error", text:`Could not remove ${c.name}: ${error.code === "PGRST202" ? MIGRATION_HINT : error.message}` }); setBusy(false); setReleaseTarget(null); return; }
+    await onRefresh();
+    setReleaseTarget(null); setBusy(false);
+    setMsg({ type:"success", text:`${c.name} was removed from your roster.` });
+  };
+
+  if (!am) return <div className="content"><div className="empty"><div className="empty-icon">⚙️</div><h3>Account not fully set up</h3><p>Your account manager profile isn't linked yet, so there is no roster to manage. Ask the owner to link it.</p></div></div>;
+
+  const creatorFields = (f, setF) => (
+    <>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Name <span style={{color:"var(--red)"}}>*</span></label><input className="form-input" value={f.name||""} onChange={e=>setF({...f,name:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Email <span style={{color:"var(--red)"}}>*</span></label><input className="form-input" type="email" value={f.email||""} onChange={e=>setF({...f,email:e.target.value})}/></div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">TikTok handle</label><input className="form-input" placeholder="@handle" value={f.tiktok_handle||""} onChange={e=>setF({...f,tiktok_handle:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Instagram handle</label><input className="form-input" placeholder="@handle" value={f.instagram_handle||""} onChange={e=>setF({...f,instagram_handle:e.target.value})}/></div>
+      </div>
+      <div className="grid-2">
+        <div className="form-group"><label className="form-label">Weekly rate ($)</label><input className="form-input" type="number" min="0" value={f.weekly_rate??""} onChange={e=>setF({...f,weekly_rate:e.target.value})}/></div>
+        <div className="form-group"><label className="form-label">Videos per week</label><input className="form-input" type="number" min="0" value={f.videos_per_week??""} onChange={e=>setF({...f,videos_per_week:e.target.value})}/></div>
+      </div>
+      <div className="form-group"><label className="form-label">Status</label>
+        <select className="select" value={f.status||"Active"} onChange={e=>setF({...f,status:e.target.value})}>
+          {["Active","Paused","Offboarded"].map(x=><option key={x}>{x}</option>)}
+        </select>
+      </div>
+      {formErr&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{formErr}</div>}
+    </>
+  );
 
   return (
     <div className="content">
       <div className="flex-between mb-16" style={{ flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>My Creators ({creators.length})</h3>
-          <p style={{ color: "var(--ink3)", fontSize: 12, marginTop: 4 }}>Monitor creator activity, status, and delivery rates</p>
+          <p style={{ color: "var(--ink3)", fontSize: 12, marginTop: 4 }}>Build and manage your own roster</p>
         </div>
-        <input
-          type="text"
-          className="form-input"
-          placeholder="Search creator..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ width: 200, height: 32, fontSize: 12 }}
-        />
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {archivedCount>0&&(
+            <label style={{fontSize:12,color:"var(--ink2)",display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}>
+              <input type="checkbox" checked={showArchived} onChange={e=>setShowArchived(e.target.checked)}/> Show archived ({archivedCount})
+            </label>
+          )}
+          <input
+            type="text"
+            className="form-input"
+            placeholder="Search creator..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: 200, height: 32, fontSize: 12 }}
+          />
+          <button className="btn btn-sm btn-ghost" onClick={openPool}>Pick from unassigned</button>
+          <button className="btn btn-primary btn-sm" onClick={()=>{setFormErr("");setAddForm(emptyForm);setShowAdd(true);}}>+ Add Creator</button>
+        </div>
       </div>
 
-      {creators.length===0&&<div className="empty"><div className="empty-icon">👥</div><h3>No creators found</h3></div>}
+      {msg.text&&(
+        <div role="status" style={{fontSize:13,marginBottom:12,padding:"8px 12px",borderRadius:"var(--radius-sm)",background:msg.type==="success"?"rgba(26,122,74,0.08)":"rgba(192,57,43,0.08)",color:msg.type==="success"?"var(--green)":"var(--red)"}}>
+          {msg.text}
+        </div>
+      )}
+
+      {creators.length===0&&<div className="empty"><div className="empty-icon">👥</div><h3>No creators on your roster yet</h3><p>Add one, or pick from the unassigned pool.</p></div>}
+      {creators.length>0&&(
       <div className="premium-card">
         <div className="table-wrap">
           <table className="premium-table">
@@ -2516,11 +2840,12 @@ function MyCreators({ user, db }) {
                 <th>Approval Rate</th>
                 <th>Approved</th>
                 <th>Payment</th>
+                <th style={{textAlign:"right"}}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {creators.map(c=>(
-                <tr key={c.id}>
+                <tr key={c.id} style={c.archived_at?{opacity:0.62}:undefined}>
                   <td>
                     <div className="flex-center gap-8">
                       <div className={`creator-avatar ${getAvatarColor(c.name)}`} style={{width:32,height:32,fontSize:12}}>{getInitials(c.name)}</div>
@@ -2528,7 +2853,7 @@ function MyCreators({ user, db }) {
                     </div>
                   </td>
                   <td style={{fontSize:12}}>{c.tiktok_handle?"@"+c.tiktok_handle:"—"}</td>
-                  <td>{statusBadge(c.status)}</td>
+                  <td>{c.archived_at?<span className="badge badge-gray" title={c.archive_reason||""}>Archived</span>:statusBadge(c.status)}</td>
                   <td style={{fontSize:12, color: "var(--ink3)"}}>{fmtRelativeTime(c.lastActiveTime)}</td>
                   <td>
                     <div className="flex-center gap-8">
@@ -2538,12 +2863,106 @@ function MyCreators({ user, db }) {
                   </td>
                   <td>{c.approvedCount}</td>
                   <td>{statusBadge(c.payment_status||"Current")}</td>
+                  <td>
+                    <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
+                      <button className="btn btn-sm btn-ghost" disabled={busy} onClick={()=>{setFormErr("");setEditCreator({...c});}}>Edit</button>
+                      {c.archived_at
+                        ? <button className="btn btn-sm btn-green" disabled={busy} onClick={()=>setArchived(c,false)}>Restore</button>
+                        : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} disabled={busy} onClick={()=>{setArchiveTarget(c);setArchiveReason("");}}>Archive</button>}
+                      <button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} disabled={busy} onClick={()=>setReleaseTarget(c)}>Remove</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+      )}
+
+      {showAdd&&(
+        <div className="modal-overlay" onClick={()=>setShowAdd(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Add a creator</div>
+            <div className="modal-sub">They go straight onto your roster. If they later sign up with this email, the account links to this record.</div>
+            {creatorFields(addForm, setAddForm)}
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setShowAdd(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={addCreator} disabled={busy}>{busy?"Adding…":"Add Creator"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editCreator&&(
+        <div className="modal-overlay" onClick={()=>setEditCreator(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Edit {editCreator.name}</div>
+            <div className="modal-sub">Payout details are the creator's own and are not editable here.</div>
+            {creatorFields(editCreator, setEditCreator)}
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setEditCreator(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveCreator} disabled={busy}>{busy?"Saving…":"Save Changes"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPool&&(
+        <div className="modal-overlay" onClick={()=>setShowPool(false)}>
+          <div className="modal" style={{maxWidth:560}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Unassigned creators</div>
+            <div className="modal-sub">Creators with no account manager yet. Claiming one adds them to your roster.</div>
+            {poolErr&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{poolErr}</div>}
+            {pool===null&&<Spinner/>}
+            {pool&&pool.length===0&&!poolErr&&<div style={{fontSize:13,color:"var(--ink3)",padding:"16px 0"}}>Nobody is waiting to be assigned right now.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:340,overflowY:"auto"}}>
+              {(pool||[]).map(c=>(
+                <div key={c.id} className="flex-between" style={{padding:"10px 12px",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)"}}>
+                  <div>
+                    <div className="fw-600" style={{fontSize:13}}>{c.name||"Unnamed creator"}</div>
+                    <div style={{fontSize:11,color:"var(--ink3)"}}>
+                      {c.tiktok_handle?`TikTok @${c.tiktok_handle}`:"no TikTok handle"}{c.instagram_handle?` · IG @${c.instagram_handle}`:""} · {c.status||"—"}
+                    </div>
+                  </div>
+                  <button className="btn btn-sm btn-primary" disabled={busy} onClick={()=>claim(c)}>Claim</button>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions"><button className="btn btn-ghost" onClick={()=>setShowPool(false)}>Done</button></div>
+          </div>
+        </div>
+      )}
+
+      {archiveTarget&&(
+        <div className="modal-overlay" onClick={()=>setArchiveTarget(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Archive {archiveTarget.name}?</div>
+            <div className="modal-sub">Their submissions, payments and campaign history are kept. You can restore them at any time.</div>
+            <div className="form-group">
+              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
+              <input className="form-input" placeholder="e.g. Stopped responding, September 2026" value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setArchiveTarget(null)}>Cancel</button>
+              <button className="btn" style={{background:"var(--orange)",color:"#fff"}} disabled={busy||!archiveReason.trim()} onClick={()=>setArchived(archiveTarget,true,archiveReason)}>{busy?"Archiving…":"Archive Creator"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {releaseTarget&&(
+        <div className="modal-overlay" onClick={()=>setReleaseTarget(null)}>
+          <div className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-title">Remove {releaseTarget.name} from your roster?</div>
+            <div className="modal-sub">They go back to the unassigned pool, where you or another manager can pick them up again. Nothing is deleted — their work and payment history stay exactly as they are.</div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={()=>setReleaseTarget(null)}>Cancel</button>
+              <button className="btn" style={{background:"var(--red)",color:"#fff"}} disabled={busy} onClick={()=>release(releaseTarget)}>{busy?"Removing…":"Remove from roster"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2562,16 +2981,45 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
-  const [form, setForm] = useState({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
+  const [form, setForm] = useState({
+    name: "", client_id: "", description: "", format: "TikTok",
+    videos_needed: 10, pay_per_video: 10, deadline: "", status: "Open",
+    application_type: "Open Application",
+    is_sales_sourced: false,
+    sales_commission_rate: 0.30,
+    manager_commission_rate: null, // null = the account manager's own rate
+    show_client_cpm: false,
+  });
 
   const create = async () => {
     if (!form.name||!form.client_id) { setErr("Name and client are required"); return; }
     setSaving(true); setErr("");
-    const { error } = await supabase.from("campaigns").insert({...form,videos_needed:Number(form.videos_needed),pay_per_video:Number(form.pay_per_video),deadline:form.deadline||null,assigned_creators:[]});
-    if (error) { setErr(error.message); setSaving(false); return; }
+    const { error } = await supabase.from("campaigns").insert({
+      ...form,
+      videos_needed: Number(form.videos_needed),
+      pay_per_video: Number(form.pay_per_video),
+      // Never 0: the column only accepts 10/20/30%, and is_sales_sourced is
+      // what decides whether it is charged. A manager's values are replaced
+      // with the defaults by the database regardless (owner-only rates).
+      sales_commission_rate: Number(form.sales_commission_rate || 0.30),
+      manager_commission_rate: form.manager_commission_rate == null || form.manager_commission_rate === ""
+        ? null : Number(form.manager_commission_rate),
+      show_client_cpm: Boolean(form.show_client_cpm),
+      deadline: form.deadline || null,
+      assigned_creators: []
+    });
+    if (error) { setErr(describeWriteError(error)); setSaving(false); return; }
     await onRefresh();
     setShowCreate(false); setSaving(false);
-    setForm({name:"",client_id:"",description:"",format:"TikTok",videos_needed:10,pay_per_video:10,deadline:"",status:"Open",application_type:"Open Application"});
+    setForm({
+      name: "", client_id: "", description: "", format: "TikTok",
+      videos_needed: 10, pay_per_video: 10, deadline: "", status: "Open",
+      application_type: "Open Application",
+      is_sales_sourced: false,
+      sales_commission_rate: 0.30,
+      manager_commission_rate: null,
+      show_client_cpm: false,
+    });
   };
 
   const filteredCampaigns = useMemo(() => {
@@ -2690,6 +3138,7 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
                   onClick={() => setViewCampaign(c)}
                   onShareClick={() => setShareModalCampaign(c)}
                   isOwner={isOwner}
+                  showCpmBadge
                 />
               );
             })
@@ -2809,6 +3258,38 @@ function CampaignsPage({ user, db, onRefresh, isOwner }) {
               <div className="form-group"><label className="form-label">Videos Needed</label><input className="form-input" type="number" value={form.videos_needed} onChange={e=>setForm({...form,videos_needed:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={form.pay_per_video} onChange={e=>setForm({...form,pay_per_video:e.target.value})}/></div>
             </div>
+            {/* Financial and Commission Controls */}
+            <div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:"12px 14px",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:form.is_sales_sourced?12:0}}>
+                <input type="checkbox" id="createSalesToggle" checked={form.is_sales_sourced} onChange={e=>setForm({...form,is_sales_sourced:e.target.checked})} style={{width:16,height:16,cursor:"pointer"}}/>
+                <label htmlFor="createSalesToggle" style={{fontSize:13,cursor:"pointer",fontWeight:600,userSelect:"none"}}>Sales Sourced Campaign</label>
+              </div>
+              {isOwner&&form.is_sales_sourced&&(
+                <div className="form-group" style={{marginBottom:10}}>
+                  <label className="form-label" style={{fontSize:10}}>Sales Commission Rate</label>
+                  <select className="select" value={form.sales_commission_rate} onChange={e=>setForm({...form,sales_commission_rate:Number(e.target.value)})}>
+                    <option value={0.10}>10% Commission</option>
+                    <option value={0.20}>20% Commission</option>
+                    <option value={0.30}>30% Commission</option>
+                  </select>
+                </div>
+              )}
+              {isOwner&&(
+                <div className="form-group" style={{marginBottom:10,marginTop:10}}>
+                  <label className="form-label" style={{fontSize:10}}>Manager Commission Rate</label>
+                  <select className="select" value={form.manager_commission_rate ?? ""} onChange={e=>setForm({...form,manager_commission_rate:e.target.value===""?null:Number(e.target.value)})}>
+                    <option value="">Manager's default rate</option>
+                    <option value={0.10}>10% for this campaign</option>
+                    <option value={0.15}>15% for this campaign</option>
+                    <option value={0.20}>20% for this campaign</option>
+                  </select>
+                </div>
+              )}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
+                <input type="checkbox" id="createCpmToggle" checked={form.show_client_cpm} onChange={e=>setForm({...form,show_client_cpm:e.target.checked})} style={{width:16,height:16,cursor:"pointer"}}/>
+                <label htmlFor="createCpmToggle" style={{fontSize:12,cursor:"pointer",userSelect:"none",color:"var(--ink2)"}}>Display CPM metric to client in brand portal</label>
+              </div>
+            </div>
             {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setShowCreate(false)}>Cancel</button>
@@ -2831,7 +3312,12 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
   const [archiveError, setArchiveError] = useState("");
   const isArchived = campaign.status === "Archived";
   const [uploadingBrief, setUploadingBrief] = useState(false);
-  const [isSalesSourced, setIsSalesSourced] = useState(campaign.is_sales_sourced||false);
+  const [isSalesSourced, setIsSalesSourced] = useState(Boolean(campaign.is_sales_sourced));
+  const [salesRate, setSalesRate] = useState(Number(campaign.sales_commission_rate ?? 0.30));
+  const [managerRate, setManagerRate] = useState((campaign.manager_commission_rate == null ? null : Number(campaign.manager_commission_rate)));
+  const [showClientCpm, setShowClientCpm] = useState(Boolean(campaign.show_client_cpm));
+  // Every write on this screen reports here. None of them used to report at all.
+  const [finError, setFinError] = useState("");
   const [editForm, setEditForm] = useState({
     name: campaign.name||"",
     description: campaign.description||"",
@@ -2840,27 +3326,80 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
     pay_per_video: campaign.pay_per_video||10,
     deadline: campaign.deadline||"",
     status: campaign.status||"Open",
-    is_sales_sourced: campaign.is_sales_sourced||false
+    is_sales_sourced: Boolean(campaign.is_sales_sourced),
+    sales_commission_rate: Number(campaign.sales_commission_rate ?? 0.30),
+    manager_commission_rate: (campaign.manager_commission_rate == null ? null : Number(campaign.manager_commission_rate)),
+    show_client_cpm: Boolean(campaign.show_client_cpm),
   });
+
+  useEffect(() => {
+    if (!editing) {
+      setIsSalesSourced(Boolean(campaign.is_sales_sourced));
+      setSalesRate(Number(campaign.sales_commission_rate ?? 0.30));
+      setManagerRate((campaign.manager_commission_rate == null ? null : Number(campaign.manager_commission_rate)));
+      setShowClientCpm(Boolean(campaign.show_client_cpm));
+      setEditForm({
+        name: campaign.name||"",
+        description: campaign.description||"",
+        format: campaign.format||"TikTok",
+        videos_needed: campaign.videos_needed||10,
+        pay_per_video: campaign.pay_per_video||10,
+        deadline: campaign.deadline||"",
+        status: campaign.status||"Open",
+        is_sales_sourced: Boolean(campaign.is_sales_sourced),
+        sales_commission_rate: Number(campaign.sales_commission_rate ?? 0.30),
+        manager_commission_rate: (campaign.manager_commission_rate == null ? null : Number(campaign.manager_commission_rate)),
+        show_client_cpm: Boolean(campaign.show_client_cpm),
+      });
+    }
+  }, [campaign, editing]);
+
   const client = db.clients.find(c=>c.id===campaign.client_id);
   const clientAM = db.accountManagers.find(a=>a.id===client?.am_id);
   const assignedCreators = db.creators.filter(c=>(campaign.assigned_creators||[]).includes(c.id));
   const availableCreators = db.creators.filter(c=>!(campaign.assigned_creators||[]).includes(c.id)&&c.status==="Active");
   const approved = db.submissions.filter(s=>s.campaign_id===campaign.id&&s.status==="Approved").length;
 
+  // Applications from campaign_creators
+  const pendingApplications = (db.campaignCreators || []).filter(cc => cc.campaign_id === campaign.id && cc.status === 'Applied');
+
   // Profitability calculations
+  //
+  // ONE manager commission. account_managers.commission_rate (10% by default)
+  // is the manager commission this screen has always charged, as "AM Cost". The
+  // punch list's "10% manager commission" is that same money, so
+  // campaigns.manager_commission_rate is a per-campaign OVERRIDE of it and NULL
+  // means "use the manager's own rate". Charging both, as a first pass at this
+  // did, put 20% on every campaign and understated every margin by 10 points.
   const revenue = Number(client?.budget||0);
-  const salesCommissionRate = isSalesSourced ? 0.30 : 0;
-  const amRate = Number(clientAM?.commission_rate||0.10);
-  const salesCost = revenue * salesCommissionRate;
-  const amCost = revenue * amRate;
+  const activeSalesRate = isSalesSourced ? Number(salesRate || 0.30) : 0;
+  const amDefaultRate = Number(clientAM?.commission_rate ?? 0.10);
+  const activeMgrRate = managerRate == null ? amDefaultRate : Number(managerRate);
+  const salesCost = revenue * activeSalesRate;
+  const managerCost = revenue * activeMgrRate;
   const creatorCost = approved * Number(campaign.pay_per_video||0);
-  const totalCost = salesCost + amCost + creatorCost;
+  const totalCost = salesCost + managerCost + creatorCost;
   const grossProfit = revenue - totalCost;
   const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
   // Cost per video = total campaign cost ÷ videos needed (full commitment)
-  const totalCampaignCost = (Number(campaign.videos_needed||1) * Number(campaign.pay_per_video||0)) + amCost + salesCost;
+  const totalCampaignCost = (Number(campaign.videos_needed||1) * Number(campaign.pay_per_video||0)) + managerCost + salesCost;
   const costPerVideo = Number(campaign.videos_needed||0) > 0 ? Math.round(totalCampaignCost / Number(campaign.videos_needed)) : 0;
+
+  // CPM — what the client pays per thousand views. Always shown to owner and
+  // manager; whether the CLIENT sees it is the show_client_cpm switch below.
+  // Same formula the brand portal uses (client budget / views), so the number a
+  // client asks about is the number on this screen. Latest pull per submission.
+  const campaignViews = (() => {
+    const subIds = new Set(db.submissions.filter(x=>x.campaign_id===campaign.id).map(x=>x.id));
+    const latest = {};
+    (db.analytics||[]).forEach(a => {
+      if (!subIds.has(a.submission_id)) return;
+      const prev = latest[a.submission_id];
+      if (!prev || new Date(a.pulled_at||0) > new Date(prev.pulled_at||0)) latest[a.submission_id] = a;
+    });
+    return Object.values(latest).reduce((t,a)=>t+Number(a.views||0),0);
+  })();
+  const cpm = revenue > 0 && campaignViews > 0 ? (revenue / campaignViews) * 1000 : null;
   const marginColor = margin>=50?"var(--green)":margin>=25?"var(--gold)":"var(--red)";
   const cpvColor = costPerVideo===0?"var(--ink3)":costPerVideo<=50?"var(--green)":costPerVideo<=60?"var(--gold)":"var(--red)";
   const cpvFlag = costPerVideo===0?"":costPerVideo<=50?"🟢":costPerVideo<=60?"⚠️":"🚨";
@@ -2886,12 +3425,91 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
   const velocityColor = velocityChange>0?"var(--green)":velocityChange===0?"var(--ink3)":"var(--red)";
   const velocityIcon = velocityChange>0?"↑":velocityChange===0?"→":"↓";
 
+  // Optimistic, but honest: the control moves at once, and moves BACK with a
+  // reason if the write did not land (see updateRows). onRefresh afterwards is
+  // what stops the `campaign` prop going stale — the old toggle skipped it, so
+  // reopening this panel re-read the pre-toggle value and looked unsaved even
+  // when it had saved.
   const toggleSalesSourced = async () => {
-    const newVal = !isSalesSourced;
-    setIsSalesSourced(newVal);
-    await supabase.from("campaigns").update({is_sales_sourced:newVal}).eq("id",campaign.id);
+    const next = !isSalesSourced;
+    setFinError(""); setIsSalesSourced(next);
+    setEditForm(prev => ({ ...prev, is_sales_sourced: next }));
+    // The rate is left alone: it is which sales team, not whether there is one.
+    const err = await updateRows("campaigns", { is_sales_sourced: next }, { id: campaign.id });
+    if (err) {
+      setIsSalesSourced(!next);
+      setEditForm(prev => ({ ...prev, is_sales_sourced: !next }));
+      setFinError(err);
+      return;
+    }
     await onRefresh();
   };
+
+  const updateSalesRate = async (rate) => {
+    const next = Number(rate), prevRate = salesRate;
+    setFinError(""); setSalesRate(next);
+    setEditForm(prev => ({ ...prev, sales_commission_rate: next }));
+    const err = await updateRows("campaigns", { sales_commission_rate: next }, { id: campaign.id });
+    if (err) {
+      setSalesRate(prevRate);
+      setEditForm(prev => ({ ...prev, sales_commission_rate: prevRate }));
+      setFinError(err);
+      return;
+    }
+    await onRefresh();
+  };
+
+  // "" from the select means "inherit the manager's own rate" -> NULL.
+  const updateManagerRate = async (rate) => {
+    const next = rate === "" || rate == null ? null : Number(rate), prevRate = managerRate;
+    setFinError(""); setManagerRate(next);
+    setEditForm(prev => ({ ...prev, manager_commission_rate: next }));
+    const err = await updateRows("campaigns", { manager_commission_rate: next }, { id: campaign.id });
+    if (err) {
+      setManagerRate(prevRate);
+      setEditForm(prev => ({ ...prev, manager_commission_rate: prevRate }));
+      setFinError(err);
+      return;
+    }
+    await onRefresh();
+  };
+
+  const toggleShowClientCpm = async () => {
+    const next = !showClientCpm;
+    setFinError(""); setShowClientCpm(next);
+    setEditForm(prev => ({ ...prev, show_client_cpm: next }));
+    const err = await updateRows("campaigns", { show_client_cpm: next }, { id: campaign.id });
+    if (err) {
+      setShowClientCpm(!next);
+      setEditForm(prev => ({ ...prev, show_client_cpm: !next }));
+      setFinError(err);
+      return;
+    }
+    await onRefresh();
+  };
+
+  // Approving is a status change and nothing else. The database mirrors
+  // Approved rows into campaigns.assigned_creators by trigger; writing that
+  // array from here as well is how it used to drift.
+  const reviewApplication = async (creatorId, status) => {
+    setSaving(true);
+    setAssignError("");
+    const err = await updateRows(
+      "campaign_creators",
+      { status, reviewed_by: user?.id || null, reviewed_at: new Date().toISOString() },
+      { campaign_id: campaign.id, creator_id: creatorId }
+    );
+    if (err) {
+      setAssignError(`Could not ${status === "Approved" ? "approve" : "decline"} that application: ${err}`);
+      setSaving(false);
+      return;
+    }
+    await onRefresh();
+    setSaving(false);
+  };
+  const approveApplication = (creatorId) => reviewApplication(creatorId, "Approved");
+  // Declined, not deleted: the creator sees the outcome, and cannot re-apply blind.
+  const declineApplication = (creatorId) => reviewApplication(creatorId, "Declined");
 
   const uploadBrief = async (file) => {
     if (!file) return;
@@ -2910,11 +3528,15 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
     // source of truth; campaigns.assigned_creators mirrors it by trigger.
     const { error } = await supabase
       .from("campaign_creators")
-      .upsert({ campaign_id: campaign.id, creator_id: creatorId, assigned_by: user?.id || null },
-              { onConflict: "campaign_id,creator_id", ignoreDuplicates: true });
+      // Not ignoreDuplicates any more: a creator with an Applied or Declined row
+      // already "exists", so DO NOTHING turned a staff assignment into a silent
+      // no-op. Assigning them IS the approval, so the row is upgraded.
+      .upsert({ campaign_id: campaign.id, creator_id: creatorId, assigned_by: user?.id || null,
+                status: "Approved", reviewed_by: user?.id || null, reviewed_at: new Date().toISOString() },
+              { onConflict: "campaign_id,creator_id" });
 
     if (error) {
-      setAssignError("Could not assign that creator: " + error.message);
+      setAssignError("Could not assign that creator: " + describeWriteError(error));
       setSaving(false);
       return;
     }
@@ -2943,7 +3565,29 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
 
   const saveEdit = async () => {
     setSaving(true);
-    await supabase.from("campaigns").update({...editForm, videos_needed:Number(editForm.videos_needed), pay_per_video:Number(editForm.pay_per_video), deadline:editForm.deadline||null}).eq("id", campaign.id);
+    setFinError("");
+    const patch = {
+      name: editForm.name,
+      description: editForm.description,
+      format: editForm.format,
+      status: editForm.status,
+      videos_needed: Number(editForm.videos_needed),
+      pay_per_video: Number(editForm.pay_per_video),
+      deadline: editForm.deadline || null,
+      is_sales_sourced: Boolean(editForm.is_sales_sourced),
+      show_client_cpm: Boolean(editForm.show_client_cpm),
+    };
+    // Commission rates are the owner's to set; the database refuses anyone
+    // else (campaigns_guard_commission_rates), so do not send them at all.
+    // The rate is never zeroed for a non-sales campaign: 0 is not one of the
+    // allowed rates, and is_sales_sourced already says whether it applies.
+    if (isOwner) {
+      patch.sales_commission_rate = Number(editForm.sales_commission_rate || 0.30);
+      patch.manager_commission_rate = editForm.manager_commission_rate == null || editForm.manager_commission_rate === ""
+        ? null : Number(editForm.manager_commission_rate);
+    }
+    const err = await updateRows("campaigns", patch, { id: campaign.id });
+    if (err) { setFinError(err); setSaving(false); return; }
     await onRefresh(); setEditing(false); setSaving(false);
   };
 
@@ -3088,8 +3732,41 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
               <div className="form-group"><label className="form-label">Pay Per Video ($)</label><input className="form-input" type="number" value={editForm.pay_per_video} onChange={e=>setEditForm({...editForm,pay_per_video:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Deadline</label><input className="form-input" type="date" value={editForm.deadline} onChange={e=>setEditForm({...editForm,deadline:e.target.value})}/></div>
             </div>
+            {/* Financial and Commission Controls */}
+            <div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:"12px 14px",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:editForm.is_sales_sourced?12:0}}>
+                <input type="checkbox" id="editSalesToggle" checked={editForm.is_sales_sourced} onChange={e=>setEditForm({...editForm,is_sales_sourced:e.target.checked})} style={{width:16,height:16,cursor:"pointer"}}/>
+                <label htmlFor="editSalesToggle" style={{fontSize:13,cursor:"pointer",fontWeight:600,userSelect:"none"}}>Sales Sourced Campaign</label>
+              </div>
+              {isOwner&&editForm.is_sales_sourced&&(
+                <div className="form-group" style={{marginBottom:10}}>
+                  <label className="form-label" style={{fontSize:10}}>Sales Commission Rate</label>
+                  <select className="select" value={editForm.sales_commission_rate} onChange={e=>setEditForm({...editForm,sales_commission_rate:Number(e.target.value)})}>
+                    <option value={0.10}>10% Commission</option>
+                    <option value={0.20}>20% Commission</option>
+                    <option value={0.30}>30% Commission</option>
+                  </select>
+                </div>
+              )}
+              {isOwner&&(
+                <div className="form-group" style={{marginBottom:10,marginTop:10}}>
+                  <label className="form-label" style={{fontSize:10}}>Manager Commission Rate</label>
+                  <select className="select" value={editForm.manager_commission_rate ?? ""} onChange={e=>setEditForm({...editForm,manager_commission_rate:e.target.value===""?null:Number(e.target.value)})}>
+                    <option value="">Manager's default ({Math.round(amDefaultRate*100)}%)</option>
+                    <option value={0.10}>10% for this campaign</option>
+                    <option value={0.15}>15% for this campaign</option>
+                    <option value={0.20}>20% for this campaign</option>
+                  </select>
+                </div>
+              )}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
+                <input type="checkbox" id="editCpmToggle" checked={editForm.show_client_cpm} onChange={e=>setEditForm({...editForm,show_client_cpm:e.target.checked})} style={{width:16,height:16,cursor:"pointer"}}/>
+                <label htmlFor="editCpmToggle" style={{fontSize:12,cursor:"pointer",userSelect:"none",color:"var(--ink2)"}}>Display CPM metric to client in brand portal</label>
+              </div>
+            </div>
+            {finError&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{finError}</div>}
             <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditing(false)}>Cancel</button>
+              <button className="btn btn-ghost" onClick={()=>{setFinError("");setEditing(false);}}>Cancel</button>
               <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
             </div>
           </div>
@@ -3107,23 +3784,80 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
               </div>
             )}
 
-            {/* Sales Sourced Toggle */}
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,padding:"10px 14px",background:"var(--bg2)",borderRadius:"var(--radius-sm)"}}>
-              <input type="checkbox" id="salesToggle" checked={isSalesSourced} onChange={toggleSalesSourced} style={{width:16,height:16,cursor:"pointer"}}/>
-              <label htmlFor="salesToggle" style={{fontSize:13,cursor:"pointer",userSelect:"none"}}>
-                ☑ Sales sourced <span style={{color:"var(--ink3)",fontWeight:400}}>(+30% sales commission)</span>
-              </label>
+            {/* Sales Sourced & Financial Setup */}
+            <div style={{marginBottom:16,padding:"12px 14px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <input type="checkbox" id="salesToggle" checked={isSalesSourced} onChange={toggleSalesSourced} style={{width:16,height:16,cursor:"pointer"}}/>
+                  <label htmlFor="salesToggle" style={{fontSize:13,cursor:"pointer",userSelect:"none",fontWeight:600}}>
+                    Sales sourced campaign
+                  </label>
+                </div>
+                {isSalesSourced && (
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:12,color:"var(--ink3)"}}>Sales commission:</span>
+                    {isOwner ? (
+                      <select
+                        className="select"
+                        style={{padding:"4px 28px 4px 10px",height:30,fontSize:12,width:"auto"}}
+                        value={salesRate}
+                        onChange={e=>updateSalesRate(e.target.value)}
+                        aria-label="Sales commission rate"
+                      >
+                        <option value={0.10}>10%</option>
+                        <option value={0.20}>20%</option>
+                        <option value={0.30}>30%</option>
+                      </select>
+                    ) : <strong style={{fontSize:12}}>{Math.round(activeSalesRate*100)}%</strong>}
+                  </div>
+                )}
+              </div>
+
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",borderTop:"1px solid var(--border2)",paddingTop:8,flexWrap:"wrap",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:12,color:"var(--ink3)"}}>Manager commission:</span>
+                  {isOwner ? (
+                    <select
+                      className="select"
+                      style={{padding:"4px 28px 4px 10px",height:30,fontSize:12,width:"auto"}}
+                      value={managerRate ?? ""}
+                      onChange={e=>updateManagerRate(e.target.value)}
+                      aria-label="Manager commission rate"
+                    >
+                      <option value="">Manager's default ({Math.round(amDefaultRate*100)}%)</option>
+                      <option value={0.10}>10% for this campaign</option>
+                      <option value={0.15}>15% for this campaign</option>
+                      <option value={0.20}>20% for this campaign</option>
+                    </select>
+                  ) : <strong style={{fontSize:12}}>{Math.round(activeMgrRate*100)}%</strong>}
+                </div>
+
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input
+                    type="checkbox"
+                    id="cpmClientToggle"
+                    checked={showClientCpm}
+                    onChange={toggleShowClientCpm}
+                    style={{width:15,height:15,cursor:"pointer"}}
+                  />
+                  <label htmlFor="cpmClientToggle" style={{fontSize:12,cursor:"pointer",color:"var(--ink2)"}}>
+                    Let the client see CPM
+                  </label>
+                </div>
+              </div>
+              {finError&&<div style={{fontSize:12,color:"var(--red)"}} role="alert">{finError}</div>}
             </div>
 
             {/* Profitability Stats */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:20}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10,marginBottom:20}}>
               <div className="stat-card"><div className="stat-label">Revenue</div><div className="stat-value" style={{fontSize:16,color:"var(--green)"}}>{fmtMoney(revenue)}</div></div>
               <div className="stat-card"><div className="stat-label">Creator Cost</div><div className="stat-value" style={{fontSize:16,color:"var(--red)"}}>{fmtMoney(creatorCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{approved} approved × {fmtMoney(campaign.pay_per_video)}</div></div>
-              <div className="stat-card"><div className="stat-label">AM Cost</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(amCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{amRate*100}% of budget</div></div>
-              {isSalesSourced&&<div className="stat-card"><div className="stat-label">Sales Comm.</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(salesCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>30% of budget</div></div>}
+              <div className="stat-card"><div className="stat-label">Manager Comm.</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(managerCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{Math.round(activeMgrRate*100)}% of budget{managerRate==null?"":" · campaign override"}</div></div>
+              {isSalesSourced&&<div className="stat-card"><div className="stat-label">Sales Comm.</div><div className="stat-value" style={{fontSize:16,color:"var(--orange)"}}>{fmtMoney(salesCost)}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{Math.round(activeSalesRate*100)}% of budget</div></div>}
               <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value" style={{fontSize:16,color:grossProfit>=0?"var(--green)":"var(--red)"}}>{fmtMoney(grossProfit)}</div></div>
               <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value" style={{fontSize:16,color:marginColor}}>{margin}%</div><div style={{width:"100%",background:"var(--bg2)",borderRadius:4,height:4,marginTop:4}}><div style={{width:`${Math.min(Math.max(margin,0),100)}%`,background:marginColor,height:4,borderRadius:4}}/></div></div>
               <div className="stat-card"><div className="stat-label">Cost/Video</div><div className="stat-value" style={{fontSize:16,color:cpvColor}}>{cpvFlag} {costPerVideo>0?fmtMoney(costPerVideo):"—"}</div></div>
+              <div className="stat-card" title="Client budget ÷ verified views × 1,000"><div className="stat-label">CPM</div><div className="stat-value" style={{fontSize:16}}>{cpm==null?"—":`$${cpm.toFixed(2)}`}</div><div style={{fontSize:10,color:"var(--ink3)"}}>{campaignViews>0?`${campaignViews.toLocaleString()} views`:"no views synced yet"} · {showClientCpm?"client can see":"hidden from client"}</div></div>
               <div className="stat-card"><div className="stat-label">Progress</div><div className="stat-value" style={{fontSize:16}}>{approved}/{campaign.videos_needed}</div></div>
             </div>
 
@@ -3182,6 +3916,43 @@ function CampaignDetail({ campaign, db, user, onRefresh, onClose, isOwner, onSha
 
             {/* Description */}
             {campaign.description&&<div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:20,fontSize:13,color:"var(--ink2)"}}><div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.5px",color:"var(--ink3)",marginBottom:6}}>Guidelines</div>{campaign.description}</div>}
+
+            {/* Pending Applications (P2) */}
+            {pendingApplications.length > 0 && (
+              <div style={{marginBottom:24,padding:16,background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:"var(--radius-sm)"}}>
+                <div style={{fontSize:14,fontWeight:700,color:"#166534",marginBottom:12}}>
+                  📬 Pending Creator Applications ({pendingApplications.length})
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {pendingApplications.map(app => {
+                    const creator = db.creators.find(c => c.id === app.creator_id);
+                    return (
+                      <div key={app.id || app.creator_id} className="flex-between" style={{padding:"10px 12px",background:"#fff",borderRadius:8,border:"1px solid #dcfce7"}}>
+                        <div>
+                          <div style={{fontWeight:600,fontSize:13}}>{creator?.name || "Creator"}</div>
+                          <div style={{fontSize:11,color:"var(--ink3)",marginTop:2}}>
+                            {creator?.platform || "—"} · Committed: <strong>{app.commitment || 1} video(s)</strong>
+                            {app.demo_video_url && (
+                              <span style={{marginLeft:8}}>
+                                · <a href={app.demo_video_url} target="_blank" rel="noreferrer" style={{color:"var(--blue)",fontWeight:600}}>🎬 Demo Video</a>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:6}}>
+                          <button className="btn btn-sm btn-green" onClick={()=>approveApplication(app.creator_id)} disabled={saving}>
+                            ✓ Approve
+                          </button>
+                          <button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} onClick={()=>declineApplication(app.creator_id)} disabled={saving}>
+                            ✕ Decline
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Assigned Creators */}
             <div style={{marginBottom:20}}>
@@ -3794,9 +4565,14 @@ function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
   const [archiveError, setArchiveError] = useState("");
   const isArchived = client.status === "Archived";
 
+  // A failed save used to report nowhere: the panel dropped out of edit mode
+  // and showed the old values again, which reads as "this cannot be edited".
+  const [saveError, setSaveError] = useState("");
   const save = async () => {
     setSaving(true);
-    await supabase.from("clients").update(form).eq("id", client.id);
+    setSaveError("");
+    const err = await updateRows("clients", form, { id: client.id });
+    if (err) { setSaveError("Could not save: " + err); setSaving(false); return; }
     await onRefresh();
     setSaving(false);
     setEditing(false);
@@ -3907,6 +4683,7 @@ function ClientProfile({ client, db, onRefresh, onClose, isOwner, user }) {
               <div className="form-group"><label className="form-label">Contract Notes</label><textarea className="textarea" rows={3} placeholder="Payment schedule, deliverables, special terms..." value={form.contract_notes} onChange={e=>setForm({...form,contract_notes:e.target.value})}/></div>
               <div className="form-group"><label className="form-label">Contract URL</label><input className="form-input" placeholder="https://docs.google.com/..." value={form.contract_url} onChange={e=>setForm({...form,contract_url:e.target.value})}/></div>
             </div>
+            {saveError&&<ErrorMsg msg={saveError} />}
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setEditing(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving...":"Save"}</button>
@@ -4003,6 +4780,14 @@ function Analytics({ db }) {
   const approvedSubs = useMemo(() => {
     return (db.submissions || []).filter(s => s.status === "Approved");
   }, [db.submissions]);
+
+  // "Approved" is a decision; "Posted" is a fact. An approved video with no
+  // posted_link has not gone live yet, and it is also the one the social sync
+  // can do nothing with — it has no URL to read views from. Showing both
+  // numbers is what makes that gap visible instead of looking like missing data.
+  const postedSubs = useMemo(() => {
+    return approvedSubs.filter(s => (s.posted_link || "").trim() !== "");
+  }, [approvedSubs]);
 
   const enrichedPosts = useMemo(() => {
     return approvedSubs.map(s => {
@@ -4102,6 +4887,11 @@ function Analytics({ db }) {
           <div className="stat-label">Approved Videos</div>
           <div className="stat-value">{approvedSubs.length}</div>
           <div className="stat-sub">{db.submissions.filter(s=>s.status==="Submitted"||s.status==="Under Review").length} pending</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Posted Videos</div>
+          <div className="stat-value">{postedSubs.length}</div>
+          <div className="stat-sub">{approvedSubs.length-postedSubs.length} approved, not live yet</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Total Likes</div>
@@ -4883,14 +5673,17 @@ function RevenueTrendChart({ db, clientData }) {
   );
 }
 
-function CreatorPerformance({ db, isOwner, user }) {
+function CreatorPerformance({ db, isOwner, user, onRefresh }) {
   const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
+  const [overrideModal, setOverrideModal] = useState(null); // { creator, score, tier }
+  const [savingOverride, setSavingOverride] = useState(false);
+  const [overrideError, setOverrideError] = useState("");
   
   const creators = db.creators.filter(c => isOwner ? true : c.am_id===am?.id);
 
   const getScore = (creator) => {
     const subs = db.submissions.filter(s=>s.creator_id===creator.id);
-    if (subs.length===0) return { approvalRate:0, revisionRate:0, onTimeRate:0, totalRevenue:0, score:0, tier:"—", subs:0 };
+    if (subs.length===0) return { approvalRate:0, revisionRate:0, onTimeRate:0, totalRevenue:0, score:0, tier:"—", isOverridden: false, subs:0 };
     
     const approved = subs.filter(s=>s.status==="Approved").length;
     const revisions = subs.filter(s=>s.status==="Revision Requested").length;
@@ -4915,16 +5708,46 @@ function CreatorPerformance({ db, isOwner, user }) {
     const approvalScore = approvalRate * 0.4;
     const revisionScore = (100-revisionRate) * 0.3;
     const onTimeScore = onTimeRate!==null ? onTimeRate*0.3 : 25; // default 25 if no data
-    const score = Math.round(approvalScore + revisionScore + onTimeScore);
-    
-    const tier = score>=80?"A":score>=60?"B":score>=40?"C":"D";
-    return { approvalRate, revisionRate, onTimeRate, totalRevenue, score, tier, subs:subs.length };
+    const computedScore = Math.round(approvalScore + revisionScore + onTimeScore);
+    const computedTier = computedScore>=80?"A":computedScore>=60?"B":computedScore>=40?"C":"D";
+
+    const isOverridden = creator.score_override != null || creator.tier_override != null;
+    const score = creator.score_override != null ? Number(creator.score_override) : computedScore;
+    const tier = creator.tier_override != null ? creator.tier_override : (creator.score_override != null ? (score>=80?"A":score>=60?"B":score>=40?"C":"D") : computedTier);
+
+    return { approvalRate, revisionRate, onTimeRate, totalRevenue, score, tier, isOverridden, subs:subs.length };
   };
 
   const tierColor = (t) => t==="A"?"var(--green)":t==="B"?"var(--blue)":t==="C"?"var(--gold)":"var(--red)";
   const tierBg = (t) => t==="A"?"rgba(26,122,74,0.1)":t==="B"?"rgba(37,99,235,0.1)":t==="C"?"rgba(255,165,0,0.1)":"rgba(220,53,69,0.1)";
 
   const scored = creators.map(c=>({creator:c, ...getScore(c)})).sort((a,b)=>b.score-a.score);
+
+  // Goes through the database and back (onRefresh) rather than patching
+  // db.creators in place: mutating a prop made the table look right until the
+  // next load whether or not anything had been saved.
+  const writeOverride = async (creatorId, updates) => {
+    setSavingOverride(true);
+    setOverrideError("");
+    const err = await updateRows("creators", updates, { id: creatorId });
+    if (err) { setOverrideError(err); setSavingOverride(false); return; }
+    if (onRefresh) await onRefresh();
+    setSavingOverride(false);
+    setOverrideModal(null);
+  };
+
+  const saveOverride = () => {
+    if (!overrideModal) return;
+    const raw = overrideModal.score;
+    const score = raw === "" || raw == null ? null : Math.round(Number(raw));
+    if (score != null && (!Number.isFinite(score) || score < 0 || score > 100)) {
+      setOverrideError("The score has to be between 0 and 100.");
+      return;
+    }
+    return writeOverride(overrideModal.creator.id, { score_override: score, tier_override: overrideModal.tier || null });
+  };
+
+  const resetOverride = (creatorId) => writeOverride(creatorId, { score_override: null, tier_override: null });
 
   return (
     <div className="content">
@@ -4954,22 +5777,32 @@ function CreatorPerformance({ db, isOwner, user }) {
                 <th>Revision Rate</th>
                 <th>On-Time Rate</th>
                 <th>Revenue Generated</th>
+                <th style={{textAlign:"right"}}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {scored.map(({creator,tier,score,approvalRate,revisionRate,onTimeRate,totalRevenue,subs})=>(
+              {scored.map(({creator,tier,score,isOverridden,approvalRate,revisionRate,onTimeRate,totalRevenue,subs})=>(
                 <tr key={creator.id}>
                   <td>
                     <div className="fw-600">{creator.name}</div>
                     <div style={{fontSize:11,color:"var(--ink3)"}}>{creator.platform||"—"} · {creator.niche||"—"}</div>
                   </td>
                   <td>
-                    <span style={{background:tierBg(tier),color:tierColor(tier),fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:13}}>
-                      {tier==="—"?"—":`Tier ${tier}`}
-                    </span>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{background:tierBg(tier),color:tierColor(tier),fontWeight:700,borderRadius:20,padding:"3px 10px",fontSize:13}}>
+                        {tier==="—"?"—":`Tier ${tier}`}
+                      </span>
+                      {isOverridden && (
+                        <span className="badge badge-orange" style={{fontSize:10,padding:"2px 6px"}} title="Manual manager override">
+                          ⚡ Override
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td>
-                    <div style={{fontWeight:700,color:score>=80?"var(--green)":score>=60?"var(--blue)":score>=40?"var(--gold)":"var(--red)"}}>{subs===0?"—":`${score}/100`}</div>
+                    <div style={{fontWeight:700,color:score>=80?"var(--green)":score>=60?"var(--blue)":score>=40?"var(--gold)":"var(--red)"}}>
+                      {subs===0&&!isOverridden?"—":`${score}/100`}
+                    </div>
                   </td>
                   <td style={{fontSize:13}}>{subs}</td>
                   <td>
@@ -4980,6 +5813,20 @@ function CreatorPerformance({ db, isOwner, user }) {
                   </td>
                   <td style={{fontSize:13,color:"var(--ink3)"}}>{onTimeRate===null?"No data":`${onTimeRate}%`}</td>
                   <td className="text-green fw-600">{fmtMoney(totalRevenue)}</td>
+                  <td style={{textAlign:"right"}}>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => { setOverrideError(""); setOverrideModal({
+                        creator,
+                        score: creator.score_override != null ? creator.score_override : score,
+                        tier: creator.tier_override || (tier === "\u2014" ? "C" : tier),
+                        isOverridden
+                      }); }}
+                      title="Adjust score or tier override"
+                    >
+                      ✏️ Override
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -4987,16 +5834,87 @@ function CreatorPerformance({ db, isOwner, user }) {
         </div>
         {scored.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">⭐</div><h3>No creators yet</h3></div>}
       </div>
+
+      {/* Override Modal */}
+      {overrideModal && (
+        <div className="modal-overlay" onClick={() => setOverrideModal(null)}>
+          <div className="modal" style={{maxWidth:460}} onClick={e => e.stopPropagation()}>
+            <div className="modal-title">Creator Tier & Score Override</div>
+            <div className="modal-sub">
+              Manually calibrate performance scoring for <strong>{overrideModal.creator.name}</strong>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Tier Override</label>
+              <select
+                className="select"
+                value={overrideModal.tier}
+                onChange={e => setOverrideModal({ ...overrideModal, tier: e.target.value })}
+              >
+                <option value="A">Tier A (80-100 · Top Performer)</option>
+                <option value="B">Tier B (60-79 · Solid)</option>
+                <option value="C">Tier C (40-59 · Needs Improvement)</option>
+                <option value="D">Tier D (&lt;40 · At Risk)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Score Override (0 - 100)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                className="form-input"
+                value={overrideModal.score}
+                onChange={e => setOverrideModal({ ...overrideModal, score: e.target.value })}
+              />
+            </div>
+
+            {overrideError&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{overrideError}</div>}
+            <div className="modal-actions" style={{justifyContent:"space-between"}}>
+              {overrideModal.isOverridden ? (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{color:"var(--red)"}}
+                  onClick={() => resetOverride(overrideModal.creator.id)}
+                  disabled={savingOverride}
+                >
+                  ↩ Reset to Auto
+                </button>
+              ) : <div/>}
+
+              <div style={{display:"flex",gap:8}}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setOverrideModal(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={saveOverride}
+                  disabled={savingOverride}
+                >
+                  {savingOverride ? "Saving..." : "Save Override"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function RevenueAnalytics({ db, user, isOwner }) {
+function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
   const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
 
-  // Pure read/compute — budget and commission-rate edits live on Client
-  // Management and Manage Creators (owner-only) so there's a single place
-  // that writes these numbers instead of three.
+  // This page used to be pure read/compute, on the theory that budget and
+  // commission edits "live on Client Management and Manage Creators". In
+  // practice that meant the figures shown here could not be corrected from
+  // here, and the two screens that could write them discarded their errors, so
+  // to the owner every number on this table was a one-time entry.
+  //
+  // The owner can now edit a row in place (ClientFinanceEditor, below). It is
+  // still one write path, not a third: everything goes through updateRows().
+  const [editing, setEditing] = useState(null); // a clientData row
 
   // AM commission rate — 20% for senior, 10% default
   const getAMRate = (amRecord) => {
@@ -5020,20 +5938,57 @@ function RevenueAnalytics({ db, user, isOwner }) {
       const revenue = Number(c.budget||0);
       const amRate = getAMRate(clientAM);
       const amCost = revenue * amRate;
-      // Sales commission — any campaign for this client that is sales sourced adds 30%
-      const hasSalesSourced = clientCampaigns.some(camp=>camp.is_sales_sourced);
-      const salesCost = hasSalesSourced ? revenue * 0.30 : 0;
-      const grossProfit = revenue - creatorCost - amCost - salesCost;
+      
+      // Sales commission — determine rate from campaigns (10%, 20%, 30%)
+      const salesCampaigns = clientCampaigns.filter(camp => camp.is_sales_sourced);
+      const hasSalesSourced = salesCampaigns.length > 0;
+      const salesCommissionRate = hasSalesSourced
+        ? Math.max(...salesCampaigns.map(camp => Number(camp.sales_commission_rate ?? 0.30)))
+        : 0;
+      const salesCost = revenue * salesCommissionRate;
+
+      // Manager commission. ONE commission: the account manager's own rate,
+      // unless a campaign overrides it. Revenue here is per client while the
+      // override is per campaign, so — same rule as the sales rate above — the
+      // highest override in force wins. amCost/amRate stay in the row under
+      // their old names because the trend chart reads them.
+      const overrides = clientCampaigns
+        .filter(camp => camp.manager_commission_rate != null)
+        .map(camp => Number(camp.manager_commission_rate));
+      const managerRate = overrides.length ? Math.max(...overrides) : amRate;
+      const managerCost = revenue * managerRate;
+
+      const grossProfit = revenue - creatorCost - salesCost - managerCost;
       const margin = revenue > 0 ? Math.round((grossProfit/revenue)*100) : 0;
       const totalApproved = clientCampaigns.reduce((t,camp)=>t+db.submissions.filter(s=>s.campaign_id===camp.id&&s.status==="Approved").length,0);
-      const costPerVideo = totalApproved > 0 ? Math.round((creatorCost+amCost+salesCost)/totalApproved) : 0;
+      const costPerVideo = totalApproved > 0 ? Math.round((creatorCost+salesCost+managerCost)/totalApproved) : 0;
 
-      return { client:c, clientAM, revenue, creatorCost, amCost, amRate, salesCost, hasSalesSourced, grossProfit, margin, totalApproved, costPerVideo, campaigns:clientCampaigns.length };
+      return {
+        client: c,
+        clientAM,
+        clientCampaigns,
+        managerOverridden: overrides.length > 0,
+        revenue,
+        creatorCost,
+        amCost: managerCost,
+        amRate: managerRate,
+        managerCost,
+        managerRate,
+        salesCost,
+        salesCommissionRate,
+        hasSalesSourced,
+        grossProfit,
+        margin,
+        totalApproved,
+        costPerVideo,
+        campaigns: clientCampaigns.length
+      };
     });
 
   const totalRevenue = clientData.reduce((a,c)=>a+c.revenue,0);
   const totalCreatorCost = clientData.reduce((a,c)=>a+c.creatorCost,0);
   const totalAMCost = clientData.reduce((a,c)=>a+c.amCost,0);
+  const totalManagerCost = clientData.reduce((a,c)=>a+c.managerCost,0);
   const totalSalesCost = clientData.reduce((a,c)=>a+(c.salesCost||0),0);
   const totalProfit = clientData.reduce((a,c)=>a+c.grossProfit,0);
   const totalMargin = totalRevenue>0?Math.round((totalProfit/totalRevenue)*100):0;
@@ -5045,10 +6000,11 @@ function RevenueAnalytics({ db, user, isOwner }) {
       {isOwner&&<div className="mb-16"><span className="owner-badge">👑 Full Agency View</span></div>}
 
       {/* Top Stats */}
-      <div className="stats-grid" style={{gridTemplateColumns:"repeat(5,1fr)",marginBottom:24}}>
+      <div className="stats-grid" style={{gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",marginBottom:24}}>
         <div className="stat-card stat-highlight"><div className="stat-label">Monthly Revenue</div><div className="stat-value">{fmtMoney(totalRevenue)}</div></div>
         <div className="stat-card"><div className="stat-label">Creator Costs</div><div className="stat-value" style={{color:"var(--red)"}}>{fmtMoney(totalCreatorCost)}</div></div>
-        {isOwner&&<div className="stat-card"><div className="stat-label">AM Costs</div><div className="stat-value" style={{color:"var(--orange)"}}>{fmtMoney(totalAMCost)}</div></div>}
+        {isOwner&&<div className="stat-card"><div className="stat-label">Manager Commission</div><div className="stat-value" style={{color:"var(--orange)"}}>{fmtMoney(totalManagerCost)}</div></div>}
+        {isOwner&&<div className="stat-card"><div className="stat-label">Sales Commission</div><div className="stat-value" style={{color:"var(--orange)"}}>{fmtMoney(totalSalesCost)}</div></div>}
         <div className="stat-card"><div className="stat-label">Gross Profit</div><div className="stat-value" style={{color:"var(--green)"}}>{fmtMoney(totalProfit)}</div></div>
         <div className="stat-card"><div className="stat-label">Margin</div><div className="stat-value" style={{color:marginColor(totalMargin)}}>{totalMargin}%</div></div>
       </div>
@@ -5064,17 +6020,18 @@ function RevenueAnalytics({ db, user, isOwner }) {
                 {isOwner&&<th>AM</th>}
                 <th>Revenue</th>
                 <th>Creator Cost</th>
-                {isOwner&&<th>AM Cost</th>}
+                {isOwner&&<th>Manager Comm.</th>}
                 {isOwner&&<th>Sales Comm.</th>}
                 <th>Gross Profit</th>
                 <th>Margin</th>
                 <th>Videos</th>
                 <th>Cost/Video</th>
                 <th>Retention Risk</th>
+                {isOwner&&<th style={{textAlign:"right"}}>Edit</th>}
               </tr>
             </thead>
             <tbody>
-              {clientData.map(({client,clientAM,revenue,creatorCost,amCost,salesCost,hasSalesSourced,grossProfit,margin,totalApproved,costPerVideo})=>(
+              {clientData.map((row)=>{ const {client,clientAM,revenue,creatorCost,managerCost,managerRate,managerOverridden,salesCost,salesCommissionRate,hasSalesSourced,grossProfit,margin,totalApproved,costPerVideo} = row; return (
                 <tr key={client.id}>
                   <td>
                     <div className="fw-600">{client.name}</div>
@@ -5083,8 +6040,8 @@ function RevenueAnalytics({ db, user, isOwner }) {
                   {isOwner&&<td style={{fontSize:12,color:"var(--ink3)"}}>{clientAM?.name||"—"}<br/><span style={{fontSize:10,color:"var(--ink3)"}}>{clientAM?`${getAMRate(clientAM)*100}%`:"—"}</span></td>}
                   <td className="text-green fw-600">{fmtMoney(revenue)}</td>
                   <td style={{color:"var(--red)"}}>{fmtMoney(creatorCost)}</td>
-                  {isOwner&&<td style={{color:"var(--orange)"}}>{fmtMoney(amCost)}</td>}
-                  {isOwner&&<td style={{color:hasSalesSourced?"var(--orange)":"var(--ink3)",fontSize:12}}>{hasSalesSourced?fmtMoney(salesCost):"—"}</td>}
+                  {isOwner&&<td style={{color:"var(--orange)",fontSize:12}}>{fmtMoney(managerCost)}<br/><span style={{fontSize:10,color:"var(--ink3)"}}>{Math.round(managerRate*100)}%{managerOverridden?" · override":""}</span></td>}
+                  {isOwner&&<td style={{color:hasSalesSourced?"var(--orange)":"var(--ink3)",fontSize:12}}>{hasSalesSourced?`${fmtMoney(salesCost)} (${Math.round(salesCommissionRate*100)}%)`:"—"}</td>}
                   <td style={{color:grossProfit>=0?"var(--green)":"var(--red)",fontWeight:600}}>{fmtMoney(grossProfit)}</td>
                   <td>
                     <div style={{fontWeight:700,color:marginColor(margin)}}>{margin}%</div>
@@ -5102,8 +6059,9 @@ function RevenueAnalytics({ db, user, isOwner }) {
                       </div>
                     ); })()}
                   </td>
+                  {isOwner&&<td style={{textAlign:"right"}}><button className="btn btn-sm btn-ghost" onClick={()=>setEditing(row)}>✏️ Edit</button></td>}
                 </tr>
-              ))}
+              ); })}
             </tbody>
           </table>
         </div>
@@ -5160,6 +6118,154 @@ function RevenueAnalytics({ db, user, isOwner }) {
       )}
 
       
+      {editing&&(
+        <ClientFinanceEditor
+          row={editing}
+          onClose={()=>setEditing(null)}
+          onSaved={async()=>{ if (onRefresh) await onRefresh(); setEditing(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Owner-only editor behind the "Edit" button on each Revenue Analytics row.
+//
+// Every figure on that row is derived from four stored numbers, and this is
+// where each of them can be corrected after the fact:
+//
+//   Revenue          clients.budget
+//   Creator cost     campaigns.pay_per_video   (x approved videos)
+//   Sales comm.      campaigns.is_sales_sourced + sales_commission_rate
+//   Manager comm.    campaigns.manager_commission_rate, else the manager's own
+//                    account_managers.commission_rate
+//
+// Only rows that actually changed are written, each through updateRows(), and
+// the first failure stops the save and is shown — nothing here reports success
+// it did not have. The database enforces the same rules independently: only
+// the owner may change a rate, and only 10/20/30% are valid sales rates.
+function ClientFinanceEditor({ row, onClose, onSaved }) {
+  const { client, clientAM, clientCampaigns } = row;
+  const [budget, setBudget] = useState(String(client.budget ?? 0));
+  const [amRate, setAmRate] = useState(String(Math.round(Number(clientAM?.commission_rate ?? 0.10) * 100)));
+  const [camps, setCamps] = useState(() => clientCampaigns.map(c => ({
+    id: c.id,
+    name: c.name,
+    is_sales_sourced: Boolean(c.is_sales_sourced),
+    sales_commission_rate: Number(c.sales_commission_rate ?? 0.30),
+    manager_commission_rate: c.manager_commission_rate == null ? "" : String(Number(c.manager_commission_rate)),
+    pay_per_video: String(c.pay_per_video ?? 0),
+  })));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const setCamp = (id, patch) => setCamps(list => list.map(c => c.id === id ? { ...c, ...patch } : c));
+
+  const save = async () => {
+    setErr("");
+    const nextBudget = Number(budget);
+    if (!Number.isFinite(nextBudget) || nextBudget < 0) { setErr("Budget has to be a number, 0 or more."); return; }
+    const nextAmRate = Number(amRate) / 100;
+    if (clientAM && (!Number.isFinite(nextAmRate) || nextAmRate < 0 || nextAmRate > 0.5)) {
+      setErr("The manager's default commission has to be between 0% and 50%."); return;
+    }
+    for (const c of camps) {
+      const pay = Number(c.pay_per_video);
+      if (!Number.isFinite(pay) || pay < 0) { setErr(`Pay per video for "${c.name}" has to be a number, 0 or more.`); return; }
+    }
+
+    setSaving(true);
+    const fail = (where, message) => { setErr(`${where}: ${message}`); setSaving(false); };
+
+    if (nextBudget !== Number(client.budget ?? 0)) {
+      const e = await updateRows("clients", { budget: nextBudget }, { id: client.id });
+      if (e) return fail("Budget", e);
+    }
+    if (clientAM && nextAmRate !== Number(clientAM.commission_rate ?? 0.10)) {
+      const e = await updateRows("account_managers", { commission_rate: nextAmRate }, { id: clientAM.id });
+      if (e) return fail("Manager's default commission", e);
+    }
+    for (const c of camps) {
+      const before = clientCampaigns.find(x => x.id === c.id);
+      const patch = {};
+      if (c.is_sales_sourced !== Boolean(before.is_sales_sourced)) patch.is_sales_sourced = c.is_sales_sourced;
+      if (Number(c.sales_commission_rate) !== Number(before.sales_commission_rate ?? 0.30)) patch.sales_commission_rate = Number(c.sales_commission_rate);
+      const mgr = c.manager_commission_rate === "" ? null : Number(c.manager_commission_rate);
+      const mgrBefore = before.manager_commission_rate == null ? null : Number(before.manager_commission_rate);
+      if (mgr !== mgrBefore) patch.manager_commission_rate = mgr;
+      if (Number(c.pay_per_video) !== Number(before.pay_per_video ?? 0)) patch.pay_per_video = Number(c.pay_per_video);
+      if (Object.keys(patch).length === 0) continue;
+      const e = await updateRows("campaigns", patch, { id: c.id });
+      if (e) return fail(c.name, e);
+    }
+
+    await onSaved();
+    setSaving(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{maxWidth:640}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-title">Edit figures — {client.name}</div>
+        <div className="modal-sub">These are the stored numbers every column on this row is calculated from.</div>
+
+        <div className="grid-2" style={{gap:12}}>
+          <div className="form-group">
+            <label className="form-label">Monthly budget / revenue ($)</label>
+            <input className="form-input" type="number" min="0" value={budget} onChange={e=>setBudget(e.target.value)}/>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Manager's default commission (%)</label>
+            <input className="form-input" type="number" min="0" max="50" value={amRate} disabled={!clientAM} onChange={e=>setAmRate(e.target.value)}/>
+            <div className="form-hint">
+              {clientAM ? `Applies to every client managed by ${clientAM.name}, unless a campaign overrides it below.` : "No account manager is assigned to this client."}
+            </div>
+          </div>
+        </div>
+
+        <div style={{fontSize:13,fontWeight:600,margin:"8px 0"}}>Campaigns ({camps.length})</div>
+        {camps.length===0&&<div style={{fontSize:13,color:"var(--ink3)",marginBottom:12}}>This client has no campaigns yet.</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:320,overflowY:"auto",marginBottom:12}}>
+          {camps.map(c=>(
+            <div key={c.id} style={{border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 12px"}}>
+              <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{c.name}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))",gap:10,alignItems:"end"}}>
+                <div>
+                  <label className="form-label" style={{fontSize:10}}>Pay per video ($)</label>
+                  <input className="form-input" type="number" min="0" value={c.pay_per_video} onChange={e=>setCamp(c.id,{pay_per_video:e.target.value})}/>
+                </div>
+                <div>
+                  <label className="form-label" style={{fontSize:10}}>Sales commission</label>
+                  <select className="select" value={c.is_sales_sourced?String(c.sales_commission_rate):"none"}
+                          onChange={e=>e.target.value==="none"
+                            ? setCamp(c.id,{is_sales_sourced:false})
+                            : setCamp(c.id,{is_sales_sourced:true,sales_commission_rate:Number(e.target.value)})}>
+                    <option value="none">Not sales sourced</option>
+                    <option value="0.1">10%</option>
+                    <option value="0.2">20%</option>
+                    <option value="0.3">30%</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label" style={{fontSize:10}}>Manager commission</label>
+                  <select className="select" value={c.manager_commission_rate} onChange={e=>setCamp(c.id,{manager_commission_rate:e.target.value})}>
+                    <option value="">Manager's default</option>
+                    <option value="0.1">10%</option>
+                    <option value="0.15">15%</option>
+                    <option value="0.2">20%</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{err}</div>}
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving…":"Save changes"}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -5205,9 +6311,13 @@ function TeamPerformance({ db, onRefresh }) {
     setSaving(false);
   };
 
+  // Same defect, same fix, as Manage Creators: these used to close the modal
+  // whether or not the row was saved.
+  const [saveErr, setSaveErr] = useState("");
+
   const saveCreator = async () => {
-    setSaving(true);
-    await supabase.from("creators").update({
+    setSaving(true); setSaveErr("");
+    const err = await updateRows("creators", {
       name: editCreator.name,
       tiktok_handle: editCreator.tiktok_handle,
       instagram_handle: editCreator.instagram_handle,
@@ -5217,19 +6327,23 @@ function TeamPerformance({ db, onRefresh }) {
       payment_handle: editCreator.payment_handle,
       status: editCreator.status,
       am_id: editCreator.am_id||null,
-    }).eq("id", editCreator.id);
+    }, { id: editCreator.id });
+    if (err) { setSaveErr(err); setSaving(false); return; }
     await onRefresh();
     setEditCreator(null);
     setSaving(false);
   };
 
   const saveAM = async () => {
-    setSaving(true);
-    await supabase.from("account_managers").update({
+    const rate = Number(editAM.commission_rate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 0.5) { setSaveErr("Commission rate has to be between 0 and 0.50 (0% to 50%)."); return; }
+    setSaving(true); setSaveErr("");
+    const err = await updateRows("account_managers", {
       name: editAM.name,
       email: editAM.email,
-      commission_rate: Number(editAM.commission_rate||0.10),
-    }).eq("id", editAM.id);
+      commission_rate: rate,
+    }, { id: editAM.id });
+    if (err) { setSaveErr(err); setSaving(false); return; }
     await onRefresh();
     setEditAM(null);
     setSaving(false);
@@ -5425,6 +6539,7 @@ function TeamPerformance({ db, onRefresh }) {
             </div>
             <div className="form-group"><label className="form-label">Assign to Account Manager</label><select className="select" value={editCreator.am_id||""} onChange={e=>setEditCreator({...editCreator,am_id:e.target.value})}><option value="">No AM assigned</option>{db.accountManagers.map(am=><option key={am.id} value={am.id}>{am.name}</option>)}</select></div>
             <div className="form-group"><label className="form-label">Status</label><select className="select" value={editCreator.status||"Active"} onChange={e=>setEditCreator({...editCreator,status:e.target.value})}>{["Active","Paused","Offboarded"].map(s=><option key={s}>{s}</option>)}</select></div>
+            {saveErr&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{saveErr}</div>}
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setEditCreator(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={saveCreator} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
@@ -5446,6 +6561,7 @@ function TeamPerformance({ db, onRefresh }) {
                 {[0.05,0.08,0.10,0.12,0.15,0.18,0.20,0.25].map(r=><option key={r} value={r}>{r*100}%{r===0.10?" (default)":""}</option>)}
               </select>
             </div>
+            {saveErr&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{saveErr}</div>}
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setEditAM(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={saveAM} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
@@ -5672,9 +6788,12 @@ function PendingUsers({ onRefresh }) {
     setSaving(userId);
     try {
       const displayName = names[userId] || email.split("@")[0];
-      const { error: upError } = await supabase.from("user_profiles").update({ role, full_name: displayName }).eq("id", userId);
-      if(upError) throw upError;
 
+      // The role row is written LAST. It used to go first, so when the creators
+      // / account_managers / clients upsert below failed, the person was left
+      // holding the role with no record behind it: gone from this queue, absent
+      // from Manage Creators, and greeted with "Creator profile not found".
+      // In this order a failure leaves them pending, with the error on screen.
       if (role === "am" || role === "account_manager") {
         const { error: amError } = await supabase.from("account_managers").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "email" });
         if(amError) throw amError;
@@ -5687,6 +6806,11 @@ function PendingUsers({ onRefresh }) {
         const { error: clError } = await supabase.from("clients").upsert({ user_id: userId, contact_email: email, name: displayName, status: "Active" }, { onConflict: "user_id" });
         if(clError) throw clError;
       }
+
+      const { data: promoted, error: upError } = await supabase
+        .from("user_profiles").update({ role, full_name: displayName }).eq("id", userId).select("id");
+      if (upError) throw upError;
+      if (!promoted || promoted.length === 0) throw new Error("The role was not saved. You may not have permission to approve users.");
 
       // Email: welcome the newly approved user
       sendEmail("user_approved", {
@@ -5877,9 +7001,13 @@ function CreatorsManage({ db, onRefresh, user }) {
     setSaving(false);
   };
 
+  // Both of these closed their modal whatever happened. commission_rate in
+  // particular is a figure the owner comes back to change, and a refused write
+  // looked exactly like a saved one until the next reload undid it.
   const saveCreator = async () => {
     setSaving(true);
-    await supabase.from("creators").update({
+    setCreatorMsg({ type: "", text: "" });
+    const err = await updateRows("creators", {
       name: editCreator.name,
       tiktok_handle: editCreator.tiktok_handle,
       instagram_handle: editCreator.instagram_handle,
@@ -5889,19 +7017,27 @@ function CreatorsManage({ db, onRefresh, user }) {
       payment_handle: editCreator.payment_handle,
       status: editCreator.status,
       am_id: editCreator.am_id||null,
-    }).eq("id", editCreator.id);
+    }, { id: editCreator.id });
+    if (err) { setCreatorMsg({ type: "error", text: `Could not save ${editCreator.name}: ${err}` }); setSaving(false); return; }
     await onRefresh();
     setEditCreator(null);
     setSaving(false);
   };
 
   const saveAM = async () => {
+    const rate = Number(editAM.commission_rate);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 0.5) {
+      setAmMsg({ type: "error", text: "Commission rate has to be between 0 and 0.50 (that is, 0% to 50%)." });
+      return;
+    }
     setSaving(true);
-    await supabase.from("account_managers").update({
+    setAmMsg({ type: "", text: "" });
+    const err = await updateRows("account_managers", {
       name: editAM.name,
       email: editAM.email,
-      commission_rate: Number(editAM.commission_rate||0.10),
-    }).eq("id", editAM.id);
+      commission_rate: rate,
+    }, { id: editAM.id });
+    if (err) { setAmMsg({ type: "error", text: `Could not save ${editAM.name}: ${err}` }); setSaving(false); return; }
     await onRefresh();
     setEditAM(null);
     setSaving(false);
@@ -6209,6 +7345,7 @@ function CreatorsManage({ db, onRefresh, user }) {
             </div>
             <div className="form-group"><label className="form-label">Assign to Account Manager</label><select className="select" value={editCreator.am_id||""} onChange={e=>setEditCreator({...editCreator,am_id:e.target.value})}><option value="">No AM assigned</option>{db.accountManagers.map(am=><option key={am.id} value={am.id}>{am.name}</option>)}</select></div>
             <div className="form-group"><label className="form-label">Status</label><select className="select" value={editCreator.status||"Active"} onChange={e=>setEditCreator({...editCreator,status:e.target.value})}>{["Active","Paused","Offboarded"].map(s=><option key={s}>{s}</option>)}</select></div>
+            {creatorMsg.type==="error"&&creatorMsg.text&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{creatorMsg.text}</div>}
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setEditCreator(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={saveCreator} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
@@ -6229,6 +7366,7 @@ function CreatorsManage({ db, onRefresh, user }) {
                 {[0.05,0.08,0.10,0.12,0.15,0.18,0.20,0.25].map(r=><option key={r} value={r}>{r*100}%{r===0.10?" (default)":""}</option>)}
               </select>
             </div>
+            {amMsg.type==="error"&&amMsg.text&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{amMsg.text}</div>}
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={()=>setEditAM(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={saveAM} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
@@ -6617,7 +7755,8 @@ export default function App() {
         { key: 'accountManagers', name: 'account_managers' },
         { key: 'payments', name: 'payments' },
         { key: 'userProfiles', name: 'user_profiles' },
-        { key: 'analytics', name: 'video_analytics' }
+        { key: 'analytics', name: 'video_analytics' },
+        { key: 'campaignCreators', name: 'campaign_creators' }
       ];
 
       const results = {};
@@ -6664,6 +7803,7 @@ export default function App() {
         payments: results.payments || [],
         userProfiles: results.userProfiles || [],
         analytics: results.analytics || [],
+        campaignCreators: results.campaignCreators || [],
         _currentUser: user
       });
     } catch(e) { 
@@ -6804,6 +7944,11 @@ export default function App() {
     "social-connections": "Social Connections",
     "campaign-analytics": "Campaign Analytics",
     "payout-manager": "Payout Manager",
+    "content-gallery": "Delivered Content",
+    "creator-performance": "Creator Performance",
+    "user-management": "User Management",
+    "audit": "Audit History",
+    "system-config": "System Config",
   };
 
   const renderPage = ()=>{
@@ -6835,13 +7980,13 @@ export default function App() {
     if(role==="am"||role==="account_manager"){
       if(page==="dashboard") return <ErrorBoundary label="AM Dashboard"><AMDashboard user={user} db={db} setPage={setPage}/></ErrorBoundary>;
       if(page==="review-queue") return <ErrorBoundary label="Review Queue"><ReviewQueue db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
-      if(page==="my-creators") return <ErrorBoundary label="My Creators"><MyCreators user={user} db={db}/></ErrorBoundary>;
+      if(page==="my-creators") return <ErrorBoundary label="My Creators"><MyCreators user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="campaigns") return <ErrorBoundary label="Campaigns"><CampaignsPage user={user} db={db} onRefresh={loadDB} isOwner={false}/></ErrorBoundary>;
       if(page==="clients") return <ErrorBoundary label="Clients"><ClientsPage isOwner={false} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="content-library") return <ErrorBoundary label="Content Library"><ContentLibrary db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="analytics") return <ErrorBoundary label="Analytics"><Analytics db={db}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={false} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={false} user={user}/></ErrorBoundary>;
+      if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={false} user={user} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
@@ -6849,7 +7994,7 @@ export default function App() {
       if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser} setPage={setPage}/></ErrorBoundary>;
       if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user}/></ErrorBoundary>;
+      if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="team") return <ErrorBoundary label="Team Performance"><TeamPerformance db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="pending-users") return <ErrorBoundary label="Pending Users"><PendingUsers onRefresh={loadDB}/></ErrorBoundary>;
