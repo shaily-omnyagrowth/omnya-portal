@@ -31,6 +31,7 @@ node tests/regression.test.cjs           # the three former false alarms
 node tests/role-boundaries.test.cjs      # the authorization matrix
 node tests/payout-acceptance.test.cjs    # the money path, end to end
 node supabase/migrations/__tests__/migration.test.cjs
+node tests/vercel-rewrites.test.cjs        # does vercel.json route the SPA? (path-to-regexp 6, in devDependencies)
 ```
 
 `payout-acceptance.test.cjs` needs only the dev server, not CRA.

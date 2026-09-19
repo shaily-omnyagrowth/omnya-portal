@@ -64,8 +64,8 @@
       "destination": "/privacypolicy.html"
     },
     {
-      "source": "/((?!api|static|.*\\..*).*)",
-      "destination": "/index.html"
+      "source": "/((?!api/|static/)[^.]*)",
+      "destination": "/"
     }
   ]
 }
