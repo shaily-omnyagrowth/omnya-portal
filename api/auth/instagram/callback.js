@@ -22,7 +22,7 @@
 const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
 const { consumeOAuthState, finishOAuth, appBaseUrl, redirectUriFor } = require('../../_utils/oauth');
 const { upsertSocialAccount } = require('../../_utils/socialAccounts');
-const { instagramGraph } = require('../../_utils/meta');
+const { instagramGraph, instagramAppCredentials } = require('../../_utils/meta');
 
 const SCOPES = ['instagram_business_basic', 'instagram_business_manage_insights'];
 
@@ -47,14 +47,16 @@ module.exports = async (req, res) => {
     return redirectBack(res, { error: 'instagram_invalid_state' });
   }
 
-  const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || process.env.FACEBOOK_APP_ID;
-  const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET;
+  // Same credentials the start route used. They must match exactly, or the
+  // code exchange fails even though the creator approved the request.
+  const creds = instagramAppCredentials();
   const redirectUri = redirectUriFor('instagram');
 
-  if (!appId || !appSecret) {
-    console.error('[instagram/callback] env vars not set');
+  if (creds.error) {
+    console.error('[instagram/callback]', creds.error);
     return redirectBack(res, { error: 'instagram_misconfigured' });
   }
+  const { appId, appSecret } = creds;
 
   try {
     // Step 1: exchange code for short-lived token.

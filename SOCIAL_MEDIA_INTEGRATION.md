@@ -269,6 +269,108 @@ For deeper debugging, check Vercel function logs for `[<platform>/callback]
 *_failed` lines. Logs intentionally omit token bodies; you'll see HTTP status
 and a short error description only.
 
+### Every provider fails, each with a different error
+
+Seen 2026-09-20: all four Connect buttons reached the provider and each was
+refused on the provider's own page. That pattern is itself the diagnosis — the
+portal is building correct requests and the faults are in the four developer
+consoles, not in this codebase. Each provider is configured independently, so
+they are four separate jobs.
+
+| Provider | What the creator sees | Cause | Section |
+|---|---|---|---|
+| TikTok | "Something went wrong … client_key" | App not Live; production key unusable | [below](#tiktok-something-went-wrong--correct-the-following-client_key) |
+| YouTube | "Access blocked: … has not completed the Google verification process", `Error 403: access_denied` | Consent screen in **Testing**; signer is not a test user | [below](#youtube-access-blocked--has-not-completed-the-google-verification-process) |
+| Facebook | "App not active" | Meta app in **Development** mode; signer has no app role | [below](#facebook-app-not-active) |
+| Instagram | "Invalid Request: Request parameters are invalid: Invalid platform app" | Wrong app id — the Facebook one, not the Instagram one | [below](#instagram-invalid-platform-app) |
+
+The common shape: **all four platforms restrict an unreviewed app to a named
+list of people.** Until each app passes its review, only accounts you add
+explicitly can connect. Two of the four below are fixed by adding the tester;
+one needs a different credential; one needs a sandbox.
+
+---
+
+### Instagram: "Invalid platform app"
+
+The only one of the four that was a fault on our side, now fixed in code.
+
+A Meta app that has *API setup with Instagram login* configured carries **two
+different app ids**. The Facebook app id (the one in the Facebook Login dialog
+URL) is *not* accepted by `instagram.com/oauth/authorize`; that endpoint wants
+the **Instagram App ID**, found at *App Dashboard → Instagram → API setup with
+Instagram login → 3. Set up Instagram business login → Business login settings*.
+
+`INSTAGRAM_APP_ID` had been set to the Facebook app id, so Instagram rejected
+the request before showing a consent screen.
+
+Fix:
+
+1. Copy the **Instagram App ID** from the path above.
+2. Set `INSTAGRAM_APP_ID` in Vercel to that value, and `INSTAGRAM_APP_SECRET`
+   to the matching **Instagram App Secret** from the same panel.
+3. Register the redirect URI under *Business login settings → OAuth redirect
+   URIs*: `https://www.portalomnyagrowth.com/api/auth/instagram/callback`.
+   It must match exactly; Meta sometimes appends a trailing slash, so check
+   what was saved.
+4. Redeploy.
+
+The portal now refuses to start this flow when `INSTAGRAM_APP_ID` is missing or
+equals the Facebook app id, and says which it is — on the Connect button and on
+*System Config → Social sign-in redirect URIs*. Previously it sent the creator
+to Instagram's black error page, which names nothing.
+
+While the app is in Development mode, the Instagram account must also be added
+under *App roles → Roles* (or as an Instagram tester) and the invitation
+accepted.
+
+---
+
+### Facebook: "App not active"
+
+Meta's wording is misleading — nothing is broken and no outage is in progress.
+It means the app is in **Development mode** and the signing-in account has no
+role on it. Meta says apps in Development mode "can only request permissions
+from role users."
+
+Fix, either:
+
+- **For testing now:** *App Dashboard → App roles → Roles → Add people* and add
+  the tester as Administrator, Developer or Tester. They must accept the
+  invitation (it arrives in their Facebook notifications) before it works.
+- **For real creators:** switch the app to **Live**, which requires a privacy
+  policy URL and completing **App Review** for the permissions requested. The
+  portal asks for `pages_show_list`, `pages_read_engagement` and
+  `pages_read_user_content`; in Live mode, only permissions approved through
+  App Review are granted.
+
+---
+
+### YouTube: "Access blocked — has not completed the Google verification process"
+
+`Error 403: access_denied`, with "The app is currently being tested, and can
+only be accessed by developer-approved testers." The Google Cloud OAuth consent
+screen is in **Testing**, where only listed test users can sign in.
+
+Fix, either:
+
+- **For testing now:** Google Cloud Console → *APIs & Services → OAuth consent
+  screen → Audience → Test users → Add users*, and add the exact Google account
+  (the screenshot shows `koinyannelson0@gmail.com` being refused). Up to 100.
+  Note that in Testing, refresh tokens expire after **7 days**, so connections
+  will need remaking — expected, not a bug.
+- **For real creators:** *Publish app*, then *Prepare for verification*.
+  `youtube.readonly` and `yt-analytics.readonly` are sensitive scopes, so
+  Google requires verification: scope justification and a demo video of the
+  OAuth flow. Until verified, users see an "unverified app" warning they can
+  click through, or are blocked outright.
+
+Also note `YOUTUBE_CLIENT_ID` is a placeholder in the local `.env`; the real
+value is only in Vercel. That is fine for production but means the YouTube flow
+cannot be exercised locally.
+
+---
+
 ### TikTok: "Something went wrong — correct the following: client_key"
 
 This is TikTok's own page (on tiktok.com, after the creator signs in), so the

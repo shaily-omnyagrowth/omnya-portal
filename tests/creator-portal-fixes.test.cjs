@@ -99,10 +99,19 @@ console.log('\n=== Guards against defects that have already happened once');
     'the TikTok redirect URI the code sends is the one the setup guide says to register',
     `code=${redirectUriFor('tiktok')} docs=${documented}`);
 
+  // The catch-all is identified by its SOURCE being a pattern, not by its
+  // destination. This guard first read `destination === '/index.html'`, which
+  // PR #10 changed to '/' for cleanUrls -- findIndex then returned -1, the
+  // comparison became `n < -1`, and a correctly ordered file failed the test.
+  // Verified against production at the time: /oauth-complete served the real
+  // page. A wrong test must fail as a broken test, not as a false bug report.
   const vercel = JSON.parse(read('vercel.json'));
-  R(vercel.rewrites.some((r) => r.source === '/oauth-complete') &&
-    vercel.rewrites.findIndex((r) => r.source === '/oauth-complete') < vercel.rewrites.findIndex((r) => r.destination === '/index.html'),
-    '/oauth-complete is routed to its page before the SPA catch-all can swallow it');
+  const isCatchAll = (r) => /\(\?!|\(\.\*\)|\[\^\.\]\*/.test(r.source || '');
+  const ocIndex = vercel.rewrites.findIndex((r) => r.source === '/oauth-complete');
+  const catchAllIndex = vercel.rewrites.findIndex(isCatchAll);
+  R(ocIndex > -1 && catchAllIndex > -1 && ocIndex < catchAllIndex,
+    '/oauth-complete is routed to its page before the SPA catch-all can swallow it',
+    `oauth-complete@${ocIndex}, catch-all@${catchAllIndex}`);
 }
 
 // ---- P0-B -------------------------------------------------------------------
