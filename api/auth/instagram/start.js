@@ -10,6 +10,7 @@ const { applyCors } = require('../../_utils/cors');
 const { requireAuth } = require('../../_utils/auth');
 const { Errors, sendOk } = require('../../_utils/errors');
 const { storeOAuthState, redirectUriFor } = require('../../_utils/oauth');
+const { instagramAppCredentials } = require('../../_utils/meta');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -18,11 +19,14 @@ module.exports = async (req, res) => {
   const user = await requireAuth(req, res);
   if (!user) return;
 
-  const appId = process.env.INSTAGRAM_APP_ID || process.env.META_APP_ID || process.env.FACEBOOK_APP_ID;
+  const creds = instagramAppCredentials();
   const redirectUri = redirectUriFor('instagram');
 
-  if (!appId) {
-    return Errors.internal(res, 'Instagram OAuth is not configured (INSTAGRAM_APP_ID missing)');
+  // Refuse here, with the reason, rather than sending the creator to
+  // Instagram's "Invalid platform app" page, which says nothing they can act on.
+  if (creds.error) {
+    console.error('[instagram/start]', creds.error);
+    return Errors.internal(res, `Instagram is not set up correctly. ${creds.error}`);
   }
 
   try {
@@ -34,7 +38,7 @@ module.exports = async (req, res) => {
 
     // Instagram Business Login — shows instagram.com branding, not facebook.com.
     const params = new URLSearchParams({
-      client_id: appId,
+      client_id: creds.appId,
       redirect_uri: redirectUri,
       response_type: 'code',
       state,

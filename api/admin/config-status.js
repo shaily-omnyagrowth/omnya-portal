@@ -27,6 +27,7 @@ const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 const { applyRateLimit } = require('../_utils/rateLimit');
 const { requireOwner } = require('../_lib/adminGuard');
 const { redirectUriFor } = require('../_utils/oauth');
+const { instagramAppCredentials } = require('../_utils/meta');
 
 // Values that mean "somebody copied .env.example and never came back".
 const PLACEHOLDERS = [
@@ -201,6 +202,10 @@ module.exports = async (req, res) => {
     console: o.console,
     redirectUri: redirectUriFor(o.key),
     source: process.env[o.env] ? `${o.env} (override)` : 'APP_BASE_URL (default)',
+    // A credential fault we can detect from here. Instagram Business Login uses
+    // its own app id, and setting it to the Facebook one fails on Instagram's
+    // side with "Invalid platform app" -- a page that names nothing.
+    problem: o.key === 'instagram' ? (instagramAppCredentials().error || null) : null,
   }));
 
   return sendOk(res, {

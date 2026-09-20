@@ -197,6 +197,14 @@ export default function SystemConfig() {
                 {o.redirectUri}
               </div>
               <div style={{ fontSize: 11, color: 'var(--ink3)' }}>Register it under: {o.console}</div>
+              {o.problem && (
+                <div role="alert" style={{
+                  marginTop: 6, padding: '8px 10px', borderRadius: 6,
+                  background: 'rgba(192,57,43,0.08)', color: 'var(--red)', fontSize: 12, lineHeight: 1.45,
+                }}>
+                  {o.problem}
+                </div>
+              )}
             </div>
           ))}
         </div>
