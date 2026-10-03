@@ -87,5 +87,28 @@ for (const p of ['/api/campaigns/share-report', '/api/auth/tiktok/callback', '/s
   R(destinationFor(p) !== APP_SHELL, `${p} is not rewritten to the app shell`, `got ${destinationFor(p)}`);
 }
 
+// The legal URLs are registered in the TikTok and Meta developer consoles, and
+// their review crawlers do not run JavaScript. Each must be a static file
+// (served before rewrites under cleanUrls), never the SPA shell, and the old
+// URLs must keep redirecting to them.
+for (const p of ['/privacy', '/terms', '/data-deletion']) {
+  const file = path.join(ROOT, 'public', p.slice(1) + '.html');
+  R(fs.existsSync(file), `${p} is a static page (public${p}.html)`);
+  if (fs.existsSync(file)) {
+    const html = fs.readFileSync(file, 'utf8');
+    R(/hello@omnyagrowth\.com/.test(html), `${p} names a contact address`);
+  }
+}
+const redirectFor = (p) => (config.redirects || []).find(r => pathToRegexp(r.source).test(p));
+for (const [from, to] of [['/privacypolicy', '/privacy'], ['/termsofservice', '/terms']]) {
+  const r = redirectFor(from);
+  R(r && r.destination === to, `${from} redirects to ${to}`, r ? r.destination : 'no redirect');
+}
+// TikTok verifies URL ownership with files under the old prefixes; the exact
+// path redirects must not swallow them.
+for (const p of ['/privacypolicy/tiktokbHGO5moTndtQNl5u2WIG21Gf3t2J3SnI.txt', '/termsofservice/tiktokXcaN82BdlRpeiVi4OCgeEdpqtjPkiYKP.txt']) {
+  R(!redirectFor(p) && fs.existsSync(path.join(ROOT, 'public', p)), `${p} is served, not redirected`);
+}
+
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
