@@ -38,6 +38,12 @@
       ]
     }
   ],
+  "redirects": [
+    { "source": "/privacypolicy", "destination": "/privacy", "permanent": true },
+    { "source": "/privacy-policy", "destination": "/privacy", "permanent": true },
+    { "source": "/termsofservice", "destination": "/terms", "permanent": true },
+    { "source": "/terms-of-service", "destination": "/terms", "permanent": true }
+  ],
   "rewrites": [
     {
       "source": "/tiktokoqK4VOs7KRWPD6HowmYcFknpWtvZthbs.txt",
@@ -54,14 +60,6 @@
     {
       "source": "/oauth-complete",
       "destination": "/oauth-complete.html"
-    },
-    {
-      "source": "/termsofservice",
-      "destination": "/termsofservice.html"
-    },
-    {
-      "source": "/privacypolicy",
-      "destination": "/privacypolicy.html"
     },
     {
       "source": "/((?!api/|static/)[^.]*)",
