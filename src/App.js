@@ -8084,8 +8084,9 @@ export default function App() {
           {content}
           {showFooter && (
             <div className="public-footer">
-              <a href="/termsofservice" style={{textDecoration: 'none', color: 'inherit'}}>Terms of Service</a>
-              <a href="/privacypolicy" style={{textDecoration: 'none', color: 'inherit'}}>Privacy Policy</a>
+              <a href="/terms" style={{textDecoration: 'none', color: 'inherit'}}>Terms of Service</a>
+              <a href="/privacy" style={{textDecoration: 'none', color: 'inherit'}}>Privacy Policy</a>
+              <a href="/data-deletion" style={{textDecoration: 'none', color: 'inherit'}}>Data Deletion</a>
             </div>
           )}
         </div>
