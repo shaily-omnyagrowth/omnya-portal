@@ -42,6 +42,7 @@ module.exports = async (req, res) => {
 
   // Account creation is a privileged, outward-facing action (it sends mail).
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 20,
     windowSecs: 3600,
     endpoint: 'admin-users-create',

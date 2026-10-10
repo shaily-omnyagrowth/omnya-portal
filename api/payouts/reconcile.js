@@ -32,6 +32,7 @@ module.exports = async (req, res) => {
 
   // The reconcile query aggregates the whole ledger, so it is not free.
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 20,
     windowSecs: 60,
     endpoint: 'payouts-reconcile',

@@ -10,6 +10,7 @@ module.exports = async (req, res) => {
 
   // Rate limit: 5 requests per minute per caller.
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 5,
     windowSecs: 60,
     endpoint: 'payouts-create-batch',

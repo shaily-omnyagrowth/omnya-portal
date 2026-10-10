@@ -10,6 +10,7 @@ module.exports = async (req, res) => {
 
   // Rate limit: 10 grants per hour.
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 10,
     windowSecs: 3600,
     endpoint: 'payment-managers-grant',

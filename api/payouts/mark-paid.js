@@ -22,6 +22,7 @@ module.exports = async (req, res) => {
 
   // Rate limit: 5 per minute — destructive financial write.
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 5,
     windowSecs: 60,
     endpoint: 'payouts-mark-paid',

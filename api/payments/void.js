@@ -39,6 +39,7 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return Errors.methodNotAllowed(res);
 
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 20,
     windowSecs: 60,
     endpoint: 'payments-void',
