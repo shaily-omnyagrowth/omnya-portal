@@ -198,7 +198,7 @@ const ids = rows => new Set(rows.map(r => r.id));
   // defect is how a green-able system gets treated as a broken one.
   //
   // The old text here said N-10 was "expected to be RED until the extra policy
-  // on clients is found and dropped — run VERIFY_20260821.sql section 6 to
+  // on clients is found and dropped — run supabase/verify/VERIFY_20260821.sql section 6 to
   // name it." It has since been found, and it was never an extra policy in
   // production: 20260527130000_client_rls_security.sql adds three policies
   // whose USING clause ends in

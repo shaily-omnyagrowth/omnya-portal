@@ -67,6 +67,8 @@ const ORDER = [
 // refuses the cycle — SQLSTATE 42P17 — breaking every campaign read for every
 // role. Step 20260822000005 supersedes it. Asserted at the bottom.
 const EXCLUDED = '20260821000001_client_creator_visibility.sql';
+// It lives in supabase/superseded/ so no apply command can pick it up (spec 0001, AC-1).
+const SUPERSEDED = path.join(MIG, '..', 'superseded');
 
 // The base schema.
 //
@@ -232,7 +234,7 @@ const one = async (db, sql) => (await db.query(sql)).rows[0];
 
   console.log('\n  --- why ' + EXCLUDED + ' stays out ---\n');
 
-  if (!fs.existsSync(path.join(MIG, EXCLUDED))) {
+  if (!fs.existsSync(path.join(SUPERSEDED, EXCLUDED))) {
     R(true, 'the superseded migration is absent from the repo', 'nothing to exclude');
   } else {
     const db2 = await fresh();
@@ -242,7 +244,7 @@ const one = async (db, sql) => (await db.query(sql)).rows[0];
         const p = path.join(MIG, f);
         if (fs.existsSync(p)) await db2.exec(fs.readFileSync(p, 'utf8'));
       }
-      await db2.exec(fs.readFileSync(path.join(MIG, EXCLUDED), 'utf8'));
+      await db2.exec(fs.readFileSync(path.join(SUPERSEDED, EXCLUDED), 'utf8'));
       // Now try to read campaigns as a non-superuser, where RLS applies.
       await db2.exec("grant select on public.campaigns to authenticated; set role authenticated;");
       await db2.query('select count(*) from public.campaigns');

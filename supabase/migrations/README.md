@@ -1,201 +1,66 @@
 # Database migrations
 
-This folder is the new home for forward-and-rollback SQL migrations against the
-Supabase database. The earlier loose SQL files in the repo root
-(`database_setup.sql`, `database_update.sql`, `analytics_setup.sql`,
-`meta_setup.sql`, `fix_role_constraint.sql`) are kept for historical reference
-but are **not** the source of truth going forward — new schema changes belong
-here, with numeric timestamps in the filename.
+This folder is the source of truth for the production schema. Every schema change is a new `YYYYMMDDHHMMSS_short_name.sql` file here. The root `*.sql` files and `SETUP_FROM_SCRATCH.sql` are historical.
 
-## ⚠️ Only forward migrations belong in this directory
+## The only way to apply to production: `npm run db:migrate`
 
-`npx supabase db push` applies **every** `<timestamp>_name.sql` file here, in
-filename order. Rollback scripts therefore live in
-[`supabase/rollbacks/`](../rollbacks/README.md) — never here. Left in this
-directory, `<version>.rollback.sql` sorts *before* `<version>.sql` and gets
-applied first, which on 2026-09-04 meant a `db push` began by trying to undo
-the security hardening on production. See that README for the full account.
-
-Wrap every migration in `BEGIN; … COMMIT;`. That is what made the above a
-no-op rather than an incident.
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `20260521000000_omnya_hardening.sql` | Phase 2/3 migration: adds missing columns (`payments.batch_id`, `payout_batches.period_type`, `creators.payout_email/payout_preference`), aligns `creator_tokens` on the canonical `user_id` key, adds foreign-key indexes, replaces `USING (true)` RLS with role-scoped policies. |
-| `20260521000000_omnya_hardening.rollback.sql` | Restores the original `Allow all` policies + drops the new indexes/helper. Intentionally does NOT drop columns; see notes inside. |
-
-## ⚠️ Before you apply
-
-This migration changes the database security model. Once it lands, anything
-that used to silently work because RLS was permissive will need to either:
-
-1. Pass through one of the role-scoped policies (creator viewing their own
-   submissions, AM viewing their assigned creators, owner viewing everything),
-   OR
-2. Run server-side under the service-role key (which bypasses RLS).
-
-Most of the existing client code reads via the anon key and was implicitly
-filtered in JavaScript. Once policies are in place, those queries will return
-*only the rows the policy allows*. That's the desired outcome — it's actual
-security — but it means you should test in staging first.
-
-### Pre-flight checklist
-
-- [ ] **Rotate the leaked Supabase keys** (see SECURITY_NOTES.md). Both anon
-      and service-role keys were in `VERCEL_DEPLOY.md` revision history.
-- [ ] Have a **staging Supabase project** ready, with a copy of production data.
-- [ ] Backup production: Supabase → Settings → Database → Backups. Make sure
-      a recent point-in-time recovery point exists.
-- [ ] Confirm the app is on the `hardening` branch (or merged version) so the
-      analytics sync fix and removed hardcoded keys are deployed.
-- [ ] Confirm `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY` are
-      set in Vercel — the new `supabaseClient.js` throws if they're missing.
-
-## Apply procedure
-
-### Option A — Supabase SQL Editor (simplest)
-
-1. Open Supabase → your project → **SQL Editor**.
-2. Open `20260521000000_omnya_hardening.sql` in your editor, copy the full
-   contents.
-3. Paste into a new SQL Editor query and click **Run**.
-4. The script is wrapped in `BEGIN; ... COMMIT;` so it's all-or-nothing.
-5. Inspect the output for errors. If any step fails, the whole transaction
-   rolls back — nothing is applied.
-
-### Option B — Supabase CLI (recommended for repeatable deploys)
+Spec: [`docs/specs/0001-production-config-migrations`](../../docs/specs/0001-production-config-migrations/index.md). Do not paste files into the SQL editor and do not run a bare `supabase db push`. Production's migration history was empty for months while files were pasted by hand, so a bare push would run everything again, and some files are not safe to repeat (`20260530000001` would bring back the unguarded payout functions).
 
 ```bash
-# One-time: install and login
-npm install -g supabase
-supabase login
-supabase link --project-ref <your-project-ref>
-
-# Apply this migration (and any others in supabase/migrations/)
-supabase db push
+npm run db:migrate -- --status     # read only: what is recorded, what is present
+npm run db:migrate -- --baseline   # record files that are present but unrecorded (history only)
+npm run db:migrate                 # apply pending files
 ```
 
-### Order of staging deploy
+What a write run (`--baseline` or push) does, in order:
 
-1. Apply forward migration on staging.
-2. Run the smoke tests below.
-3. Test the affected user flows manually (see Manual QA section).
-4. If all passes, apply on production.
-5. Keep the rollback file at hand for the first 24h.
+1. **Prerequisites.** Supabase CLI 2.20 or newer (a devDependency, so `npm install` is enough), `.env.migrate`, a session pooler or direct URL (never port 6543), the URL's project ref equal to `SUPABASE_PROJECT_REF`, and a dump tool: `pg_dump` whose major version is at least the server's (install the PostgreSQL 17 client tools), or Docker running for `supabase db dump`.
+2. **Probe.** For every file, two witnesses: is it recorded in `supabase_migrations.schema_migrations`, and is the object it creates present (from `probes.json`)? The table it prints:
 
-## Smoke tests after applying
+   | recorded | probe | state |
+   |---|---|---|
+   | yes | present | applied |
+   | yes | missing | broken (a person resolves it) |
+   | no | missing | pending (push applies it) |
+   | no | present | drift (baseline records it) |
 
-Run these from the SQL Editor or `supabase db query`. Expected results assume
-your test users exist and have known roles.
+3. **Plan.** Lists what it will record or apply (push also prints the CLI's dry run). Push refuses while any row is `drift`: run `--baseline` first. Both refuse on a `broken` row, or when `probes.json` and this folder disagree.
+4. **Confirm.** You type the project ref.
+5. **Backup.** A schema dump and a data dump (schemas `public`, `auth`, `storage`, `supabase_migrations`) into `MIGRATE_BACKUP_DIR/<UTC timestamp>/`. The folder must be outside the repo and outside OneDrive, because the dump holds creator emails and the payout ledger.
+6. **Apply.** `supabase migration repair --status applied` (baseline) or `supabase db push --include-all` (push), over `--db-url`. If the CLI still hits the Management API 403, the runner applies each file itself through `pg`, one transaction per file, recording each only after it commits.
+7. **Probe again.** Exit 0 only when every row is applied. If a file fails, it stops and prints what landed, the failed file, the Postgres error, and the matching file in `supabase/rollbacks/`. It never runs a rollback.
 
-### 1. Helper function exists and resolves your role
-```sql
--- Run as authenticated user via Supabase JS, or impersonate in SQL Editor.
-SELECT public.current_user_role();
--- Expected: 'owner' | 'am' | 'creator' | 'pending' | 'denied'
+Exit codes: `0` every row applied, `1` gaps remain or an apply failed, `2` refused. Every run appends a line to `MIGRATE_BACKUP_DIR/migrate.log`.
+
+### One time setup
+
+```bash
+cp .env.migrate.example .env.migrate   # then fill it in; it is gitignored
 ```
 
-### 2. Schema additions
-```sql
--- All four should return rows.
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'payments' AND column_name = 'batch_id';
+`SUPABASE_DB_URL` is the session pooler string from Supabase → Project Settings → Database (port 5432), with the database password. That password stays in `.env.migrate` on your machine. It never goes into Vercel, GitHub, or this repo.
 
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'payout_batches' AND column_name = 'period_type';
+## Writing a migration
 
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'creators'
-  AND column_name IN ('payout_email','payout_preference');
+- Name it `YYYYMMDDHHMMSS_short_name.sql` and wrap the whole file in `BEGIN; … COMMIT;`.
+- Make it safe to run twice (`IF NOT EXISTS`, `CREATE OR REPLACE`, drop policy before create). The PGlite tests apply files twice.
+- **Add its entry to `probes.json` in the same commit.** Name the most specific object the file leaves behind that no earlier file created. Kinds: `table`, `columns`, `function`, `function_body` (with a `marker` only the new body contains), `policy`, `trigger`, `index`, `constraint`. `manual` (with a `why`) is a last resort and blocks readiness. When a later file replaces or drops an earlier file's object, give the earlier entry `"retiredBy": "<later file>"`. `tests/migration-guards.test.cjs` fails if a file has no entry.
+- **Expand only.** Previews and production share one database, so a migration may add but must not drop or rename anything the deployed code reads. `DROP TABLE`, `DROP COLUMN`, `RENAME TO` and `RENAME COLUMN` fail `tests/migration-guards.test.cjs` unless the file carries a `-- contract: <release that stopped reading it>` line. Contracting happens a release later.
+- Write a rollback in [`supabase/rollbacks/`](../rollbacks/README.md) for anything that changes security or data.
+- **Migrate first, then merge.** The PR whose code reads the new schema merges only after `npm run db:migrate` reports the file applied. The app's `42703` / `PGRST204` hints stay as the safety net.
 
-SELECT column_name FROM information_schema.columns
-WHERE table_name = 'creator_tokens'
-  AND column_name IN ('user_id','account_id','account_name','scopes');
-```
+## Only forward migrations belong in this directory
 
-### 3. Indexes present
-```sql
-SELECT indexname FROM pg_indexes
-WHERE schemaname = 'public'
-  AND indexname LIKE 'idx\_%'
-ORDER BY indexname;
--- Expected: 16 idx_ entries (see migration file for full list).
-```
+`db push` applies every `<timestamp>_name.sql` file here, in filename order. So:
 
-### 4. RLS policies are role-scoped (not `Allow all`)
-```sql
-SELECT tablename, policyname
-FROM pg_policies
-WHERE schemaname = 'public'
-ORDER BY tablename, policyname;
--- Expected: no policy named "Allow all". Each table should have one or more
--- policies prefixed with <table>_select_..., <table>_modify_..., etc.
-```
+- Rollbacks live in [`supabase/rollbacks/`](../rollbacks/README.md). Left here, `<version>.rollback.sql` sorts before `<version>.sql` and runs first, which on 2026-09-04 meant a push began by undoing the security hardening on production.
+- Superseded files live in [`supabase/superseded/`](../superseded/README.md).
+- Read only verify scripts live in `supabase/verify/`.
 
-### 5. Cross-tenant smoke (the actual security test)
+## Where to see the state
 
-Sign in as **Creator A** in a browser, open DevTools, and run:
+System Config (owner only) shows one row per file as applied, broken, pending, drift or manual, from the same probes the runner uses, and a single ready banner for configuration plus migrations.
 
-```js
-// Should return only Creator A's payments.
-const { data, error } = await supabase.from('payments').select('*');
-console.log('rows:', data?.length, 'error:', error);
-```
+## Historical runbooks
 
-Then sign in as **Creator B** and run the same query — you should see B's
-rows, not A's. Repeat for `submissions`, `creator_tokens`, `video_analytics`.
-Repeat for an **AM** account — should see only their assigned creators'
-data.
-
-If any creator sees another creator's rows, **roll back immediately** and
-investigate the offending policy.
-
-## Manual QA after applying (production)
-
-| Role | Flow | Expected |
-|---|---|---|
-| Owner | Sign in, open Owner Dashboard | All clients/campaigns/creators visible. |
-| Owner | Generate a payout batch | Succeeds. `payments.batch_id` populated. |
-| Owner | Export CSV | CSV downloads with creator names and `payout_email`/`payout_preference` columns (which will be NULL/default for existing creators — fill in via Creator profile). |
-| Owner | Mark batch paid | Status flips; `payment_sent` emails dispatched. |
-| AM | Sign in | Only their assigned creators/clients visible. Cannot see other AMs' clients. |
-| AM | Try to load another AM's client URL | RLS returns empty; UI shows "not found" or similar. |
-| Creator | Sign in | Sees own profile, own submissions, own payments. |
-| Creator | Try `supabase.from('payments').select('*')` in DevTools | Returns only their own rows, NOT another creator's. |
-| Creator | Connect TikTok | OAuth flow completes; token written to `creator_tokens` keyed by user_id. |
-| Pending user | Sign up, click verification link | Lands on "waiting for approval" page; cannot read other tables. |
-
-## What this migration does NOT do (deferred)
-
-- **Status case normalization.** The schema default is lowercase
-  (`'draft'`, `'pending'`, `'paid'`) but the API writes Capitalized values
-  (`'Pending'`, `'Paid'`). Adding `CHECK` constraints now would break the
-  running app. Phase 5 (API hardening) normalizes the API to write lowercase;
-  a follow-up migration then adds the CHECKs.
-- **Dropping dead columns/tables** like `payout_line_items` or the legacy
-  `creator_tokens.platform_account_id`. Kept for now; a separate cleanup
-  migration follows once Phase 10 confirms no callers.
-- **Renaming columns** to the names the user spec recommends
-  (`platform_user_id`, `platform_username`). The existing names
-  (`account_id`, `account_name`) match what `src/CreatorConnections.js` reads.
-  Rename can happen after Phase 4 cleans up the API surface.
-- **Encrypting OAuth tokens at rest.** AUDIT.md §3.8 recommends pgcrypto for
-  `creator_tokens.access_token`/`refresh_token`. Not in this migration —
-  needs a code change so the API can encrypt-on-write and decrypt-on-read.
-
-## If something goes wrong
-
-1. Apply `20260521000000_omnya_hardening.rollback.sql` (same procedure as
-   forward — paste into SQL Editor and run).
-2. After rollback, the database is back to permissive `Allow all` policies.
-   That restores app behavior but undoes the security improvements.
-3. Filing what failed is more useful than guessing. Capture:
-   - The exact error message (from `SELECT ... ` failures or from the app's
-     Supabase error responses).
-   - Which role was running.
-   - Which table.
-4. Open an issue with the above. Most failures will be policy logic that
-   needs adjustment (e.g. an AM workflow we didn't anticipate). Adjust the
-   policy in a follow-up migration rather than reverting wholesale.
+`APPLY_*.md` in this folder describe how batches were pasted by hand before the runner existed. They are kept for their reasoning, not as instructions.
