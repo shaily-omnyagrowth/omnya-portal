@@ -335,6 +335,7 @@ module.exports = async (req, res) => {
 
   // Rate limit: 10 email sends per minute per IP/user.
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 10,
     windowSecs: 60,
     endpoint: 'send-email',

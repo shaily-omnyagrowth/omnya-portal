@@ -217,7 +217,7 @@ try {
 // ============================================================ client policy
 console.log('\n9. Apply 20260821000001 (client creator visibility)');
 try {
-  await db.exec(read(MIG + '/20260821000001_client_creator_visibility.sql'));
+  await db.exec(read(MIG + '/../superseded/20260821000001_client_creator_visibility.sql'));
   const p = await db.query(`select policyname from pg_policies
     where schemaname='public' and tablename='creators'
       and policyname='client_select_creators_on_own_campaigns'`);
@@ -229,7 +229,7 @@ try {
 // ============================================================ verify script
 console.log('\n10. VERIFY_20260821.sql runs');
 try {
-  const sql = read(MIG + '/VERIFY_20260821.sql');
+  const sql = read(MIG + '/../verify/VERIFY_20260821.sql');
   const out = await db.exec(sql);
   R(true, 'verify script executes', `${out.length} result sets`);
   for (const rs of out) {

@@ -26,7 +26,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const blocked = await applyRateLimit(req, res, { max: 10, windowSecs: 60, endpoint: 'stripe-connect-url' });
+  const blocked = await applyRateLimit(req, res, { max: 10, windowSecs: 60, endpoint: 'stripe-connect-url', failClosed: true });
   if (blocked) return;
 
   const user = await requireAuth(req, res);

@@ -33,3 +33,6 @@ yarn-error.log*
 
 # Supabase CLI local state (contains project ref and pooler URL)
 supabase/.temp/
+
+# Migration runner credentials (spec 0001). Holds the production DB password.
+.env.migrate

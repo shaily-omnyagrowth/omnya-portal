@@ -17,6 +17,7 @@ module.exports = async (req, res) => {
 
   // Rate limit: 3 requests per hour per caller (financial write).
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 3,
     windowSecs: 3600,
     endpoint: 'withdrawals-request',

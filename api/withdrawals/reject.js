@@ -25,6 +25,7 @@ module.exports = async (req, res) => {
 
   // Rate limit: 20 rejections per minute per IP.
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 20,
     windowSecs: 60,
     endpoint: 'withdrawals-reject',

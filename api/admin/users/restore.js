@@ -30,6 +30,7 @@ module.exports = async (req, res) => {
   if (req.method !== 'POST') return Errors.methodNotAllowed(res);
 
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 30,
     windowSecs: 3600,
     endpoint: 'admin-users-restore',

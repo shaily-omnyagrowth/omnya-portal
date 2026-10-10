@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const blocked = await applyRateLimit(req, res, { max: 10, windowSecs: 60, endpoint: 'stripe-transfer' });
+  const blocked = await applyRateLimit(req, res, { max: 10, windowSecs: 60, endpoint: 'stripe-transfer', failClosed: true });
   if (blocked) return;
 
   const authCtx = await requirePaymentPermission(req, res, 'mark_paid');

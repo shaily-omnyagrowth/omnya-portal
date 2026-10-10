@@ -126,6 +126,7 @@ module.exports = async (req, res) => {
 
   // -- Rate limit: 10 exports per minute --
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 10,
     windowSecs: 60,
     endpoint: 'payouts-export',

@@ -280,7 +280,7 @@ async function main() {
 
   // ── 13. rollback ───────────────────────────────────────────────────────────
   try {
-    await db.exec(read(path.join(MIG, ROLLBACK)));
+    await db.exec(read(path.join(MIG, '..', 'rollbacks', ROLLBACK)));
     R(true, 'the rollback applies');
   } catch (e) {
     R(false, 'the rollback applies', e.message);

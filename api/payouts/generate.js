@@ -10,6 +10,7 @@ module.exports = async (req, res) => {
 
   // Rate limit: payout generation is an expensive write — 5 per minute per caller.
   const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
     max: 5,
     windowSecs: 60,
     endpoint: 'payouts-generate',

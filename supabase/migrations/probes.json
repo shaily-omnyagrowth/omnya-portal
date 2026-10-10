@@ -1,0 +1,113 @@
+{
+  "20260521000000_omnya_hardening.sql": {
+    "label": "Hardening: payout columns, indexes, scoped RLS",
+    "kind": "columns", "table": "public.creators",
+    "columns": ["payout_email", "payout_preference"]
+  },
+  "20260522000000_social_media_feature.sql": {
+    "label": "OAuth state store",
+    "kind": "table", "table": "public.oauth_states"
+  },
+  "20260527120000_client_system_integration.sql": {
+    "label": "Clients linked to users, client safe views",
+    "kind": "columns", "table": "public.clients", "columns": ["user_id"]
+  },
+  "20260527130000_client_rls_security.sql": {
+    "label": "Client self read policies",
+    "kind": "policy", "table": "public.clients", "policy": "client_select_own_profile",
+    "retiredBy": "20260822000005_tenant_policy_reset.sql"
+  },
+  "20260528000000_security_hardening.sql": {
+    "label": "Auto create clients row on role change",
+    "kind": "function", "signature": "public.handle_new_client_user()"
+  },
+  "20260528000001_fix_user_profiles_insert_policy.sql": {
+    "label": "Self insert limited to pending and client roles",
+    "kind": "manual",
+    "why": "Only rewrites the WITH CHECK of user_profiles_insert_self_or_owner, a policy 20260521000000 already created under the same name, so no catalog object can tell the two apart. Check by hand that pg_policies.with_check for that policy contains 'pending' and 'client'."
+  },
+  "20260530000000_payout_system.sql": {
+    "label": "Payout system tables",
+    "kind": "table", "table": "public.creator_earnings"
+  },
+  "20260530000001_payout_rpc_functions.sql": {
+    "label": "Payout RPC functions",
+    "kind": "function", "signature": "public.create_payout_batch(uuid[], uuid, text)",
+    "retiredBy": "20260821000000_payout_drift_and_authz.sql"
+  },
+  "20260530000002_stripe_connect.sql": {
+    "label": "Stripe Connect columns",
+    "kind": "columns", "table": "public.creators",
+    "columns": ["stripe_account_id", "stripe_account_status", "stripe_charges_enabled", "stripe_payouts_enabled"]
+  },
+  "20260604000000_tiktok_integration.sql": {
+    "label": "Encrypted social accounts",
+    "kind": "table", "table": "public.creator_social_accounts"
+  },
+  "20260821000000_payout_drift_and_authz.sql": {
+    "label": "Payout permission helpers and guarded RPCs",
+    "kind": "function", "signature": "public.has_payout_permission(text)"
+  },
+  "20260822000002_token_migration.sql": {
+    "label": "Retire creator_tokens",
+    "kind": "manual",
+    "why": "Creates nothing: it drops every policy on creator_tokens, makes access_token nullable and adds comments. Check by hand that creator_tokens has no rows in pg_policies and that its table comment starts with 'LEGACY, NOT WRITTEN TO'."
+  },
+  "20260822000003_campaign_creators.sql": {
+    "label": "Campaign assignment table",
+    "kind": "table", "table": "public.campaign_creators"
+  },
+  "20260822000004_payout_ledger.sql": {
+    "label": "Append only payout ledger",
+    "kind": "table", "table": "public.payout_ledger"
+  },
+  "20260822000005_tenant_policy_reset.sql": {
+    "label": "Tenant policy reset (N-10)",
+    "kind": "function", "signature": "public.client_may_see_creator(uuid)"
+  },
+  "20260822000006_signup_pending_role.sql": {
+    "label": "Sign up lands in pending",
+    "kind": "function_body", "signature": "public.handle_new_user()",
+    "marker": "Never the requested role"
+  },
+  "20260823000000_owner_lifecycle_controls.sql": {
+    "label": "Owner lifecycle and admin audit log",
+    "kind": "table", "table": "public.admin_audit_logs"
+  },
+  "20260824000000_hard_delete_triggers.sql": {
+    "label": "Hard delete refusal triggers",
+    "kind": "trigger", "table": "public.creators", "trigger": "trg_creators_no_delete"
+  },
+  "20260825000000_creator_submission_archival.sql": {
+    "label": "Archive columns on creators and submissions",
+    "kind": "columns", "table": "public.creators",
+    "columns": ["archived_at", "archived_by", "archive_reason"]
+  },
+  "20260826000000_submission_unified_status.sql": {
+    "label": "Unified submission status",
+    "kind": "columns", "table": "public.submissions", "columns": ["status"]
+  },
+  "20260904000000_owner_only_client_am_lifecycle.sql": {
+    "label": "Owner only client writes, audited client delete",
+    "kind": "function", "signature": "public.audit_client_delete()"
+  },
+  "20260904000001_fix_archive_audit_signature.sql": {
+    "label": "Archive audit trigger argument order fix",
+    "kind": "function_body", "signature": "public.trg_audit_creator_archive()",
+    "marker": "p_entity_label"
+  },
+  "20260908000000_campaign_shares_and_progress.sql": {
+    "label": "Campaign share links",
+    "kind": "columns", "table": "public.campaigns",
+    "columns": ["share_token", "share_enabled", "share_created_at"]
+  },
+  "20260918000000_creator_portal_fixes.sql": {
+    "label": "Commission rates, client CPM, applications",
+    "kind": "columns", "table": "public.campaigns",
+    "columns": ["sales_commission_rate", "manager_commission_rate", "show_client_cpm"]
+  },
+  "20261001000000_admin_migration_status.sql": {
+    "label": "Migration status function",
+    "kind": "function", "signature": "public.admin_migration_status(jsonb)"
+  }
+}

@@ -45,21 +45,24 @@ module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
   if (req.method !== 'PATCH') return Errors.methodNotAllowed(res);
 
+  // Rate limit: 5 requests per hour per caller IP. It runs before auth, and
+  // fails closed in production, so the 503 when the limiter is down never
+  // depends on who is calling (spec 0001, AC-11). That means the key cannot
+  // carry the user id any more.
+  const blocked = await applyRateLimit(req, res, {
+    failClosed: true,
+    max: 5,
+    windowSecs: 3600,
+    endpoint: 'creators-payment-method',
+  });
+  if (blocked) return;
+
   // Auth: creators, owners, and account managers may call this endpoint.
   const authCtx = await requireRole(req, res, ['creator', 'owner', 'am', 'account_manager']);
   if (!authCtx) return;
 
   const { user, profile } = authCtx;
   const callerRole = profile.role; // already normalised by requireRole
-
-  // Rate limit: 5 requests per hour per authenticated user.
-  const blocked = await applyRateLimit(req, res, {
-    max: 5,
-    windowSecs: 3600,
-    endpoint: 'creators-payment-method',
-    userId: user.id,
-  });
-  if (blocked) return;
 
   // ---------------------------------------------------------------------------
   // Parse body
