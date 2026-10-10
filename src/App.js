@@ -4,6 +4,7 @@ import React from "react";
 import { supabase, SUPABASE_URL } from "./supabaseClient";
 import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor, fmtCompactNum, fmtRelativeTime, platformMeta, calcPacing, isBreakoutVideo } from "./utils";
 const Legal = React.lazy(() => import('./Legal'));
+const Landing = React.lazy(() => import('./pages/Landing'));
 const CreatorDashboard = React.lazy(() => import('./pages/CreatorDashboard'));
 const ClientDashboard = React.lazy(() => import('./pages/ClientDashboard'));
 const ClientCampaignsPage = React.lazy(() =>
@@ -54,7 +55,7 @@ class ErrorBoundary extends React.Component {
         localStorage.clear();
         sessionStorage.clear();
       } catch(_) {}
-      setTimeout(() => window.location.replace("/"), 1500);
+      setTimeout(() => window.location.replace("/login"), 1500);
     }
   }
   componentDidUpdate(prevProps) {
@@ -7527,16 +7528,19 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Sync state to URL safely without infinitely pushing history
+    // Sync state to URL safely without infinitely pushing history.
+    // Signed out, leave "/" (landing) and "/login" clean: a "?page=" on "/" means a portal deep link.
+    if (!user) return;
     const url = new URL(window.location);
-    const currentUrlPage = url.searchParams.get('page');
-    
-    if (currentUrlPage !== page) {
+    // Signing in from /login moves into the portal at "/"; replace so Back does not return to the form.
+    const fromLogin = url.pathname.toLowerCase().replace(/\/+$/, "") === "/login";
+    if (fromLogin) url.pathname = "/";
+    if (fromLogin || url.searchParams.get('page') !== page) {
       url.searchParams.set('page', page);
-      window.history.pushState({}, '', url);
+      window.history[fromLogin ? 'replaceState' : 'pushState']({}, '', url);
     }
     localStorage.setItem("last_page", page);
-  }, [page]);
+  }, [page, user]);
 
   // Check auth on load
   useEffect(() => {
@@ -7930,7 +7934,8 @@ export default function App() {
     syncProfile();
   };
 
-  const handleLogout = async()=>{ await supabase.auth.signOut(); setUser(null); setPage("dashboard"); };
+  // Signed out users land on the sign-in form, not the marketing page at "/".
+  const handleLogout = async()=>{ await supabase.auth.signOut(); window.history.replaceState({}, '', '/login'); setUser(null); setPage("dashboard"); };
   const handleSetupComplete = ()=>{ setNeedsSetup(false); loadDB(); };
 
 
@@ -8101,6 +8106,17 @@ export default function App() {
   if(isPublicShare) return <React.Suspense fallback={<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>}><SharedCampaignReport /></React.Suspense>;
 
   if(isPublicLegal) return <React.Suspense fallback={<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>}><Legal onBack={() => { if(path === '/termsofservice' || path === '/privacypolicy') window.location.href = '/'; else setIsPublicLegal(false); }} initialTab={publicLegalTab} /></React.Suspense>;
+
+  // "/" is the public landing page for signed-out visitors; the sign-in form lives at "/login".
+  // A "?page=" deep link or an auth redirect (tokens in the hash, ?code=) is portal traffic, not a visit.
+  const isLandingPath = path === '/' && !searchParams.has('page') && !searchParams.has('code') &&
+    !/access_token|refresh_token|error_description|type=recovery/.test(window.location.hash);
+  if (isLandingPath && !user) {
+    // With no stored Supabase session there is nothing to restore, so skip the spinner.
+    let hasStoredSession = true;
+    try { hasStoredSession = Object.keys(localStorage).some(k => /^sb-.+-auth-token$/.test(k)); } catch (_) {}
+    if (!loading || !hasStoredSession) return <React.Suspense fallback={null}><Landing /></React.Suspense>;
+  }
 
   // Display initialization spinner while checking session
   if (loading && !user) return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><Spinner label="Restoring session…" /></div>, false);
