@@ -898,7 +898,7 @@ function ConnectionCard({ platform, connection, busy, onConnect, onDisconnect, o
         </div>
       )}
 
-      {platform === 'tiktok' && !state.connected && <TikTokLinkPanel />}
+      {/* {platform === 'tiktok' && !state.connected && <TikTokLinkPanel />} */}
     </div>
   );
 }
@@ -919,6 +919,7 @@ function fmtDate(iso) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// eslint-disable-next-line no-unused-vars
 function TikTokLinkPanel() {
   const [row, setRow] = useState(null);
   const [loaded, setLoaded] = useState(false);
