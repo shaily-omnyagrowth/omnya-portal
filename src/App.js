@@ -861,7 +861,7 @@ Return this exact JSON:
   return JSON.parse(text.replace(/```json|```/g,"").trim());
 }
 
-function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
+function AIInsightsPanel({ sub, campaign, client, onUpdate, canEditStats = false }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [editingStats, setEditingStats] = useState(false);
@@ -903,9 +903,11 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
       <div className="card mb-16">
         <div className="flex-between mb-16">
           <div className="card-title" style={{margin:0}}>📊 Video Metrics</div>
-          <button className="btn btn-ghost btn-sm" onClick={() => setEditingStats(!editingStats)}>
-            {editingStats ? "Cancel" : "✏️ Edit Stats"}
-          </button>
+          {canEditStats && (
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditingStats(!editingStats)}>
+              {editingStats ? "Cancel" : "✏️ Edit Stats"}
+            </button>
+          )}
         </div>
         {editingStats ? (
           <div>
@@ -922,7 +924,7 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
           </div>
         ) : (
           <div className="metrics-row">
-            {[["👁️",sub.views_1w||sub.views_72h||sub.views_24h,"Views"],["❤️",sub.likes,"Likes"],["💬",sub.comments,"Comments"],["🔗",sub.shares,"Shares"],["🔖",sub.saves,"Saves"]].map(([icon,val,label],i) => (
+            {[["👁️",sub.analytics_synced_at?sub.views_24h:(sub.views_1w||sub.views_72h||sub.views_24h),"Views"],["❤️",sub.likes,"Likes"],["💬",sub.comments,"Comments"],["🔗",sub.shares,"Shares"],["🔖",sub.saves,"Saves"]].map(([icon,val,label],i) => (
               <div key={i} className="metric-mini">
                 <div style={{fontSize:16,marginBottom:4}}>{icon}</div>
                 <div className="metric-mini-val" style={{color:val?"var(--ink)":"var(--ink4)"}}>{val?fmtNum(val):"—"}</div>
@@ -5124,7 +5126,7 @@ function ContentLibrary({ db, onRefresh }) {
               <div><div className="modal-title">{campaign?.name}</div><div className="modal-sub">{db.creators.find(c=>c.id===sub.creator_id)?.name} · {sub.platform} · <a href={sub.posted_link} target="_blank" rel="noreferrer" className="link">View video →</a></div></div>
               <button className="btn btn-ghost btn-sm" onClick={()=>setSelected(null)}>✕</button>
             </div>
-            <AIInsightsPanel sub={sub} campaign={campaign} client={client} onUpdate={async()=>{ await onRefresh(); }}/>
+            <AIInsightsPanel sub={sub} campaign={campaign} client={client} canEditStats onUpdate={async()=>{ await onRefresh(); }}/>
           </div>
         </div>
       )}
