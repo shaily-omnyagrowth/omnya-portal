@@ -1695,7 +1695,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     platform: "TikTok",
     handle: "",
     comment: "",
-    due_date: "",
   });
   const [file, setFile] = useState(null);
   const [uploadMode, setUploadMode] = useState("file"); // "file" or "link"
@@ -1709,10 +1708,24 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
   const [verifying, setVerifying] = useState(false);
   const [verifyErr, setVerifyErr] = useState("");
   const [verifiedVideo, setVerifiedVideo] = useState(null);
+  const [tiktokConnected, setTiktokConnected] = useState(false);
 
   const creator = isOverride
     ? db.creators.find(c=>c.id===overrideCreatorId)
     : ownCreator;
+
+  // TikTok videos are verified only through the creator's connected TikTok login
+  useEffect(() => {
+    setTiktokConnected(false);
+    if (!creator?.user_id) return;
+    supabase
+      .from("creator_social_accounts_safe")
+      .select("connection_status")
+      .eq("user_id", creator.user_id)
+      .eq("platform", "tiktok")
+      .maybeSingle()
+      .then(({ data }) => setTiktokConnected(data?.connection_status === "connected"));
+  }, [creator?.user_id]);
 
   const myJobs = db.campaigns.filter(
     c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed"&&c.status!=="Archived"
@@ -1757,12 +1770,17 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     const url = (targetUrl || form.concept_link || "").trim();
     const handle = (targetHandle || form.handle || "").trim();
     const platform = (targetPlatform || form.platform || "TikTok").trim();
+    const isTikTok = platform === "TikTok";
 
     if (!url) {
       setVerifyErr("Please enter a video link first.");
       return null;
     }
-    if (!handle) {
+    if (isTikTok && !tiktokConnected) {
+      setVerifyErr("Connect TikTok on the Social Channels page to verify TikTok videos.");
+      return null;
+    }
+    if (!handle && !isTikTok) {
       setVerifyErr("Please enter your account handle to verify ownership.");
       return null;
     }
@@ -1784,7 +1802,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ url, handle, platform }),
+        body: JSON.stringify({ url, handle, platform, creatorId: creator?.id }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -1796,10 +1814,11 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
         return null;
       }
 
-      setVerifiedVideo(data.video || null);
+      const video = data?.data?.video || null;
+      setVerifiedVideo(video);
       setVerifyErr("");
       setVerifying(false);
-      return data.video;
+      return video;
     } catch (e) {
       setVerifyErr(e.message || "Network error while verifying video link.");
       setVerifiedVideo(null);
@@ -1891,7 +1910,11 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     if (!form.campaign_id) { setErr("Please select a campaign"); return; }
     if (uploadMode==="file" && !file) { setErr("Please select a video file to upload"); return; }
     if (uploadMode==="link" && !form.concept_link) { setErr("Please enter a video link"); return; }
-    if (form.type === "Final" && uploadMode === "link" && !form.handle) {
+    if (form.type === "Final" && uploadMode === "link" && form.platform === "TikTok" && !tiktokConnected) {
+      setErr("Connect TikTok on the Social Channels page to submit TikTok videos");
+      return;
+    }
+    if (form.type === "Final" && uploadMode === "link" && form.platform !== "TikTok" && !form.handle) {
       setErr("Please enter your account handle to verify ownership");
       return;
     }
@@ -1941,7 +1964,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
       notes: isOverride
         ? `[Filed by ${user.email} on the creator's behalf] ${form.comment||""}`.trim()
         : (form.comment||null),
-      due_date: form.due_date||null
     };
 
     const { data: insertedSub, error } = await supabase.from("submissions").insert(newSub).select().single();
@@ -2020,7 +2042,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     setFile(null);
     setUploadProgress(0);
     setSubmitting(false);
-    setForm({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",handle:"",comment:"",due_date:""});
+    setForm({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",handle:"",comment:""});
     setVerifiedVideo(null);
     setVerifyErr("");
     setSuccess(true);
@@ -2169,37 +2191,58 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
 
             {uploadMode==="link"&&(
               <div className="form-group">
-                <label className="form-label">
-                  Platform Account Handle <span style={{color:"var(--ink3)",fontWeight:400}}>(must match the video author)</span>
-                </label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <div style={{ position: "relative", flex: 1 }}>
-                    <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ink3)", fontWeight: 600 }}>@</span>
-                    <input
-                      className="form-input"
-                      style={{ paddingLeft: 28 }}
-                      placeholder="e.g. alex_ugc"
-                      value={form.handle}
-                      onChange={e => {
-                        setForm({ ...form, handle: e.target.value });
-                        setVerifiedVideo(null);
-                        setVerifyErr("");
-                      }}
-                    />
+                {form.platform === "TikTok" ? (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div className="form-hint" style={{ flex: 1, margin: 0 }}>
+                      {tiktokConnected
+                        ? "We check the video is yours through your connected TikTok."
+                        : "Connect TikTok on the Social Channels page to submit TikTok videos."}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => verifyLink()}
+                      disabled={verifying || !form.concept_link || !tiktokConnected}
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {verifying ? "⏳ Verifying..." : "⚡ Verify Video"}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    onClick={() => verifyLink()}
-                    disabled={verifying || !form.concept_link || !form.handle}
-                    style={{ whiteSpace: "nowrap" }}
-                  >
-                    {verifying ? "⏳ Verifying..." : "⚡ Verify Video"}
-                  </button>
-                </div>
-                <div className="form-hint" style={{ marginTop: 4 }}>
-                  Pre filled from your profile. We verify that the author of the video matches your handle before recording views.
-                </div>
+                ) : (
+                  <>
+                    <label className="form-label">
+                      Platform Account Handle <span style={{color:"var(--ink3)",fontWeight:400}}>(must match the video author)</span>
+                    </label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <div style={{ position: "relative", flex: 1 }}>
+                        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ink3)", fontWeight: 600 }}>@</span>
+                        <input
+                          className="form-input"
+                          style={{ paddingLeft: 28 }}
+                          placeholder="e.g. alex_ugc"
+                          value={form.handle}
+                          onChange={e => {
+                            setForm({ ...form, handle: e.target.value });
+                            setVerifiedVideo(null);
+                            setVerifyErr("");
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => verifyLink()}
+                        disabled={verifying || !form.concept_link || !form.handle}
+                        style={{ whiteSpace: "nowrap" }}
+                      >
+                        {verifying ? "⏳ Verifying..." : "⚡ Verify Video"}
+                      </button>
+                    </div>
+                    <div className="form-hint" style={{ marginTop: 4 }}>
+                      Pre filled from your profile. We verify that the author of the video matches your handle before recording views.
+                    </div>
+                  </>
+                )}
 
                 {verifyErr && (
                   <div style={{
@@ -2243,9 +2286,11 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
                         <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--green)", letterSpacing: 0.5 }}>
                           ✓ Ownership Confirmed
                         </span>
-                        <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>
-                          @{verifiedVideo.authorHandle}
-                        </span>
+                        {verifiedVideo.authorHandle && (
+                          <span style={{ fontSize: 12, color: "var(--ink2)", fontWeight: 600 }}>
+                            @{verifiedVideo.authorHandle}
+                          </span>
+                        )}
                       </div>
                       {verifiedVideo.title && (
                         <div style={{ fontSize: 12, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 4 }}>
@@ -2265,11 +2310,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
           </>
         )}
 
-        <div className="form-group">
-          <label className="form-label">Due Date <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
-          <input className="form-input" type="date" value={form.due_date||""} onChange={e=>setForm({...form,due_date:e.target.value})}/>
-          <div className="form-hint">When is this content due? Used to track your on-time rate.</div>
-        </div>
         <div className="form-group">
           <label className="form-label">Comment <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
           <textarea className="textarea" rows={2} placeholder="Any notes for your AM about this submission..." value={form.comment} onChange={e=>setForm({...form,comment:e.target.value})}/>
@@ -7992,6 +8032,8 @@ export default function App() {
         if (session && mounted) {
           setUser(prevUser => {
             if (!prevUser) return { ...session.user };
+            // Same user (tab refocus re-emits SIGNED_IN): keep the object so loadDB doesn't rerun
+            if (prevUser.id === session.user.id) return prevUser;
             // Profile fields win; only merge session.user fields that prevUser
             // doesn't already have (e.g. id/email on the initial SIGNED_IN).
             return { ...session.user, ...prevUser };

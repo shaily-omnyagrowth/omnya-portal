@@ -166,17 +166,18 @@ function stubFetch(list) {
 
   stubFetch([{ status: 200, body: { data: { videos: [{ id: '7700902300537113908', title: 'Mine', view_count: 4200, like_count: 50 }] }, error: { code: 'ok' } } }]);
   const own = await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl);
-  R(own && own.source === 'oauth', 'video on the connected account is verified through the login');
+  R(own.ok && own.source === 'oauth', 'video on the connected account is verified through the login');
   R(own && own.video.views === 4200 && own.video.title === 'Mine', 'views and title come from TikTok');
   R(calls[0] && calls[0].url.includes('open.tiktokapis.com/v2/video/query') && calls[0].headers.Authorization === 'Bearer tok-123', 'queries TikTok with the creator token');
   R(calls[0] && JSON.parse(calls[0].body).filters.video_ids[0] === '7700902300537113908', 'asks for the video id from the link');
 
   stubFetch([{ status: 200, body: { data: { videos: [] }, error: { code: 'ok' } } }]);
-  R(await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl) === null, 'video not on the connected account falls back (null)');
+  R((await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl)).kind === 'not_yours', 'video not on the connected account is refused');
 
   stubFetch([{ status: 500, body: {} }]);
-  R(await fetchOwnTikTokVideo(fakeSupabase(null), 'user-1', ownUrl) === null && calls.length === 0, 'no connected login falls back without calling TikTok');
-  R(await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', 'https://www.instagram.com/reel/C9xyz123/') === null, 'non TikTok link falls back');
+  R((await fetchOwnTikTokVideo(fakeSupabase(null), 'user-1', ownUrl)).kind === 'not_connected' && calls.length === 0, 'no connected login is refused without calling TikTok');
+  R((await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), null, ownUrl)).kind === 'not_connected', 'no creator to check is refused');
+  R((await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', 'https://www.instagram.com/reel/C9xyz123/')).kind === 'not_tiktok', 'non TikTok link is left to the Instagram/YouTube path');
 
   console.log(`\n========================================`);
   console.log(`Results: ${pass} passed, ${fail} failed`);

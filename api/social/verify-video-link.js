@@ -2,13 +2,13 @@
 //
 // POST /api/social/verify-video-link
 //   Headers: Authorization: Bearer <supabase-jwt>
-//   Body:    { url: string, handle: string, platform?: string, submissionId?: uuid }
+//   Body:    { url: string, handle?: string, platform?: string, submissionId?: uuid, creatorId?: uuid }
 //
 // Single video link verification for TikTok, Instagram, and YouTube (spec 0003).
-// For TikTok it first asks TikTok through the creator's connected login, which
-// proves ownership. Otherwise it unrolls mobile redirects, queries ScrapeCreators
-// for the single video, confirms that the author returned by the provider matches
-// the creator handle, and writes verified views and analytics.
+// TikTok videos are checked only through the creator's connected TikTok login,
+// which proves ownership. Instagram and YouTube unroll mobile redirects, query
+// ScrapeCreators for the single video and confirm the author matches the creator
+// handle. Then it writes verified views and analytics.
 
 const { applyCors } = require('../_utils/cors');
 const { requireRole, normalizeRole } = require('../_utils/auth');
@@ -42,19 +42,18 @@ module.exports = async (req, res) => {
   const rawHandle = body && typeof body.handle === 'string' ? body.handle.trim() : '';
   const platform = body && typeof body.platform === 'string' ? body.platform.trim() : '';
   const submissionId = body && typeof body.submissionId === 'string' ? body.submissionId.trim() : null;
+  const creatorId = body && typeof body.creatorId === 'string' ? body.creatorId.trim() : null;
 
   if (!rawUrl) {
     return Errors.badRequest(res, 'A video link is required.');
-  }
-  if (!rawHandle) {
-    return Errors.badRequest(res, 'An account handle is required to verify ownership.');
   }
 
   const supabase = getSupabaseAdminClient();
   const role = normalizeRole(ctx.profile.role);
 
-  // 1. If submissionId was passed, load it and check the caller may verify it
+  // 1. Work out whose video this is and check the caller may verify it
   let sub = null;
+  let target = null; // { user_id, am_id } of the creator
   if (submissionId) {
     const { data, error: subErr } = await supabase
       .from('submissions')
@@ -66,37 +65,56 @@ module.exports = async (req, res) => {
       return Errors.notFound(res, 'Submission not found.');
     }
     sub = data;
+    target = sub.creators;
+  } else if (creatorId && role !== 'creator') {
+    const { data } = await supabase
+      .from('creators')
+      .select('user_id, am_id')
+      .eq('id', creatorId)
+      .maybeSingle();
+    if (!data) return Errors.notFound(res, 'Creator not found.');
+    target = data;
+  }
 
-    // Role check: creators can only update their own submissions
-    const creatorUserId = sub.creators?.user_id;
-    if (role === 'creator' && creatorUserId !== ctx.user.id) {
+  if (target) {
+    // Role check: creators can only verify their own videos
+    if (role === 'creator' && target.user_id !== ctx.user.id) {
       return Errors.forbidden(res, 'You may only verify your own submissions.');
     }
 
-    // AMs can only update their assigned creators
+    // AMs can only verify their assigned creators
     if (role === 'am') {
       const { data: amRecord } = await supabase
         .from('account_managers')
         .select('id')
         .eq('user_id', ctx.user.id)
         .maybeSingle();
-      if (!amRecord || sub.creators?.am_id !== amRecord.id) {
+      if (!amRecord || target.am_id !== amRecord.id) {
         return Errors.forbidden(res, 'You may only verify submissions for creators assigned to you.');
       }
     }
   }
 
-  // 2. TikTok: ask TikTok through the creator's connected login first
-  const ownerUserId = sub ? sub.creators?.user_id : (role === 'creator' ? ctx.user.id : null);
-  let fetchResult = await fetchOwnTikTokVideo(supabase, ownerUserId, rawUrl).catch((err) => {
-    console.error('[verify-video-link] TikTok login lookup failed:', err && err.message);
-    return null;
-  });
+  const ownerUserId = role === 'creator' ? ctx.user.id : (target && target.user_id) || null;
 
-  if (fetchResult) {
+  // 2. TikTok: only through the creator's connected login
+  let fetchResult = await fetchOwnTikTokVideo(supabase, ownerUserId, rawUrl);
+
+  if (fetchResult.ok) {
     if (!fetchResult.video.authorHandle) fetchResult.video.authorHandle = normalizeHandle(rawHandle);
+  } else if (fetchResult.kind === 'not_connected') {
+    return Errors.unprocessable(res, 'Connect TikTok on the Social Channels page to verify TikTok videos.', { code: 'tiktok_not_connected' });
+  } else if (fetchResult.kind === 'not_yours') {
+    return Errors.unprocessable(res, "This video isn't on the connected TikTok account.", { code: 'author_mismatch' });
+  } else if (fetchResult.kind === 'provider') {
+    return Errors.badGateway(res, 'TikTok is unavailable right now. Please try again in a few moments.');
+  } else if (fetchResult.kind === 'validation') {
+    return Errors.badRequest(res, 'Could not read the video from this TikTok link.');
   } else {
-    // 3. Otherwise fetch the single video from the provider
+    // 3. Instagram and YouTube: fetch the single video from the provider
+    if (!rawHandle) {
+      return Errors.badRequest(res, 'An account handle is required to verify ownership.');
+    }
     fetchResult = await fetchPublicVideo({ url: rawUrl, platform });
     if (!fetchResult.ok) {
       if (fetchResult.kind === 'provider') {

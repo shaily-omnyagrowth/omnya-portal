@@ -211,13 +211,14 @@ async function fetchPublicVideo({ url, platform }) {
 
 // Looks the video up with the creator's own TikTok login. TikTok's video/query
 // only returns videos owned by the token's account, so a hit proves ownership.
-// Returns null when there is no usable login or the video isn't on that account.
+// Failure kinds: not_tiktok, validation, not_connected, not_yours, provider.
 async function fetchOwnTikTokVideo(supabase, userId, url) {
-  if (!userId || !url) return null;
+  if (!url) return fail('url_required', 'validation', 400);
   const resolvedUrl = await resolveShortLink(url);
-  if (detectPlatformFromUrl(resolvedUrl) !== 'tiktok') return null;
+  if (detectPlatformFromUrl(resolvedUrl) !== 'tiktok') return fail('not_tiktok', 'not_tiktok', null);
   const videoId = extractVideoId('tiktok', resolvedUrl);
-  if (!videoId) return null;
+  if (!videoId) return fail('video_id_unparseable', 'validation', 400);
+  if (!userId) return fail('tiktok_not_connected', 'not_connected', null);
 
   const { data: account } = await supabase
     .from('creator_social_accounts')
@@ -229,13 +230,17 @@ async function fetchOwnTikTokVideo(supabase, userId, url) {
     .eq('platform', 'tiktok')
     .not('access_token_encrypted', 'is', null)
     .maybeSingle();
-  if (!account) return null;
+  if (!account) return fail('tiktok_not_connected', 'not_connected', null);
 
   const refresh = await refreshIfNeeded(account, { supabase });
-  if (!refresh.accessToken) return null;
+  if (!refresh.accessToken) return fail('tiktok_reauth_required', 'not_connected', null);
 
   const m = await fetchTikTokMetrics({ access_token: refresh.accessToken }, { videoId });
-  if (!m || m.error) return null;
+  if (m.error) {
+    if (m.content) return fail('video_not_on_account', 'not_yours', 404);
+    if (m.auth) return fail('tiktok_reauth_required', 'not_connected', 401);
+    return fail(m.error, 'provider', null);
+  }
 
   const v = m.raw || {};
   return {
