@@ -2045,8 +2045,9 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     setForm({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",handle:"",comment:""});
     setVerifiedVideo(null);
     setVerifyErr("");
-    setSuccess(true);
     if (onRefresh) onRefresh();
+    if (isOverride) setSuccess(true);
+    else setPage("submissions");
   };
 
   if (!creator) return <div className="content"><ErrorMsg msg="Creator profile not found." /></div>;
