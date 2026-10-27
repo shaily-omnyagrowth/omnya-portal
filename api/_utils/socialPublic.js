@@ -4,7 +4,10 @@
 // Backed by ScrapeCreators. Unrolls mobile share short links, calls the single video
 // endpoint, and normalizes into a consistent shape with author handle confirmation.
 
-const { resolveShortLink, detectPlatformFromUrl, normalizePlatformLabel } = require('./analytics');
+const {
+  resolveShortLink, detectPlatformFromUrl, normalizePlatformLabel, extractVideoId, fetchTikTokMetrics,
+} = require('./analytics');
+const { refreshIfNeeded } = require('./tokenRefresh');
 
 const BASE_URL = 'https://api.scrapecreators.com';
 const TIMEOUT_MS = 15000;
@@ -206,11 +209,65 @@ async function fetchPublicVideo({ url, platform }) {
   };
 }
 
+// Looks the video up with the creator's own TikTok login. TikTok's video/query
+// only returns videos owned by the token's account, so a hit proves ownership.
+// Returns null when there is no usable login or the video isn't on that account.
+async function fetchOwnTikTokVideo(supabase, userId, url) {
+  if (!userId || !url) return null;
+  const resolvedUrl = await resolveShortLink(url);
+  if (detectPlatformFromUrl(resolvedUrl) !== 'tiktok') return null;
+  const videoId = extractVideoId('tiktok', resolvedUrl);
+  if (!videoId) return null;
+
+  const { data: account } = await supabase
+    .from('creator_social_accounts')
+    .select(
+      'id, user_id, platform, username, access_token_encrypted, refresh_token_encrypted, ' +
+      'token_expires_at, refresh_token_expires_at, connection_status, metadata, created_at, updated_at'
+    )
+    .eq('user_id', userId)
+    .eq('platform', 'tiktok')
+    .not('access_token_encrypted', 'is', null)
+    .maybeSingle();
+  if (!account) return null;
+
+  const refresh = await refreshIfNeeded(account, { supabase });
+  if (!refresh.accessToken) return null;
+
+  const m = await fetchTikTokMetrics({ access_token: refresh.accessToken }, { videoId });
+  if (!m || m.error) return null;
+
+  const v = m.raw || {};
+  return {
+    ok: true,
+    source: 'oauth',
+    resolvedUrl,
+    platform: 'tiktok',
+    video: {
+      platform: 'tiktok',
+      id: String(v.id || videoId),
+      url: v.share_url || resolvedUrl,
+      authorHandle: normalizeHandle(account.username) || null,
+      title: v.title || null,
+      thumbnailUrl: v.cover_image_url || null,
+      durationSeconds: num(v.duration) || null,
+      postedAt: v.create_time ? new Date(Number(v.create_time) * 1000).toISOString() : null,
+      views: num(m.views),
+      likes: num(m.likes),
+      comments: num(m.comments),
+      shares: num(m.shares),
+      saves: 0,
+      raw: { video_id: String(v.id || videoId), source: 'oauth', statistics: { view_count: m.views, like_count: m.likes, comment_count: m.comments, share_count: m.shares } },
+    },
+  };
+}
+
 module.exports = {
   normalizeHandle,
   isAuthorMatch,
   callScrapeCreators,
   fetchPublicVideo,
+  fetchOwnTikTokVideo,
   normalizeTikTok,
   normalizeInstagram,
   normalizeYouTube,

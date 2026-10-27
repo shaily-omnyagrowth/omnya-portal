@@ -5,16 +5,17 @@
 //   Body:    { url: string, handle: string, platform?: string, submissionId?: uuid }
 //
 // Single video link verification for TikTok, Instagram, and YouTube (spec 0003).
-// Unrolls mobile redirects, queries ScrapeCreators for the single video, confirms
-// that the author returned by the provider matches the creator handle, and
-// writes verified views and analytics.
+// For TikTok it first asks TikTok through the creator's connected login, which
+// proves ownership. Otherwise it unrolls mobile redirects, queries ScrapeCreators
+// for the single video, confirms that the author returned by the provider matches
+// the creator handle, and writes verified views and analytics.
 
 const { applyCors } = require('../_utils/cors');
 const { requireRole, normalizeRole } = require('../_utils/auth');
 const { Errors, sendOk } = require('../_utils/errors');
 const { applyRateLimit } = require('../_utils/rateLimit');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
-const { fetchPublicVideo, isAuthorMatch, normalizeHandle } = require('../_utils/socialPublic');
+const { fetchPublicVideo, fetchOwnTikTokVideo, isAuthorMatch, normalizeHandle } = require('../_utils/socialPublic');
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -49,49 +50,22 @@ module.exports = async (req, res) => {
     return Errors.badRequest(res, 'An account handle is required to verify ownership.');
   }
 
-  // 1. Fetch single video from the provider
-  const fetchResult = await fetchPublicVideo({ url: rawUrl, platform });
-  if (!fetchResult.ok) {
-    if (fetchResult.kind === 'provider') {
-      return Errors.badGateway(res, 'Social data service is currently unavailable. Please try again in a few moments.');
-    }
-    if (fetchResult.kind === 'not_found') {
-      return Errors.notFound(res, 'Video could not be found. Please check that the link is correct and publicly viewable.');
-    }
-    return Errors.badRequest(res, fetchResult.error || 'Could not fetch video details.');
-  }
-
-  const video = fetchResult.video;
-
-  // 2. Author verification
-  const authorMatches = isAuthorMatch(video.authorHandle, rawHandle);
-  if (!authorMatches) {
-    return Errors.unprocessable(
-      res,
-      `This video was posted by @${video.authorHandle || 'another account'}, not @${normalizeHandle(rawHandle)}.`,
-      {
-        code: 'author_mismatch',
-        actualAuthor: video.authorHandle,
-        expectedAuthor: normalizeHandle(rawHandle),
-      }
-    );
-  }
-
-  // 3. If submissionId was passed, persist verified views and metrics
   const supabase = getSupabaseAdminClient();
   const role = normalizeRole(ctx.profile.role);
-  let updatedSubmission = null;
 
+  // 1. If submissionId was passed, load it and check the caller may verify it
+  let sub = null;
   if (submissionId) {
-    const { data: sub, error: subErr } = await supabase
+    const { data, error: subErr } = await supabase
       .from('submissions')
       .select('id, creator_id, campaign_id, platform, view_count_verified, creators!inner(user_id, am_id)')
       .eq('id', submissionId)
       .maybeSingle();
 
-    if (subErr || !sub) {
+    if (subErr || !data) {
       return Errors.notFound(res, 'Submission not found.');
     }
+    sub = data;
 
     // Role check: creators can only update their own submissions
     const creatorUserId = sub.creators?.user_id;
@@ -110,14 +84,56 @@ module.exports = async (req, res) => {
         return Errors.forbidden(res, 'You may only verify submissions for creators assigned to you.');
       }
     }
+  }
 
+  // 2. TikTok: ask TikTok through the creator's connected login first
+  const ownerUserId = sub ? sub.creators?.user_id : (role === 'creator' ? ctx.user.id : null);
+  let fetchResult = await fetchOwnTikTokVideo(supabase, ownerUserId, rawUrl).catch((err) => {
+    console.error('[verify-video-link] TikTok login lookup failed:', err && err.message);
+    return null;
+  });
+
+  if (fetchResult) {
+    if (!fetchResult.video.authorHandle) fetchResult.video.authorHandle = normalizeHandle(rawHandle);
+  } else {
+    // 3. Otherwise fetch the single video from the provider
+    fetchResult = await fetchPublicVideo({ url: rawUrl, platform });
+    if (!fetchResult.ok) {
+      if (fetchResult.kind === 'provider') {
+        return Errors.badGateway(res, 'Social data service is currently unavailable. Please try again in a few moments.');
+      }
+      if (fetchResult.kind === 'not_found') {
+        return Errors.notFound(res, 'Video could not be found. Please check that the link is correct and publicly viewable.');
+      }
+      return Errors.badRequest(res, fetchResult.error || 'Could not fetch video details.');
+    }
+
+    // Author verification
+    if (!isAuthorMatch(fetchResult.video.authorHandle, rawHandle)) {
+      return Errors.unprocessable(
+        res,
+        `This video was posted by @${fetchResult.video.authorHandle || 'another account'}, not @${normalizeHandle(rawHandle)}.`,
+        {
+          code: 'author_mismatch',
+          actualAuthor: fetchResult.video.authorHandle,
+          expectedAuthor: normalizeHandle(rawHandle),
+        }
+      );
+    }
+  }
+
+  const video = fetchResult.video;
+  let updatedSubmission = null;
+
+  // 4. Persist verified views and metrics
+  if (sub) {
     const newViews = Math.max(Number(sub.view_count_verified || 0), Number(video.views || 0));
     const nowIso = new Date().toISOString();
 
     const updatePayload = {
       view_count_verified: newViews,
       view_count_verified_at: nowIso,
-      verified_views_source: 'link',
+      verified_views_source: fetchResult.source === 'oauth' ? 'oauth' : 'link',
       posted_link: fetchResult.resolvedUrl,
       posted_url: fetchResult.resolvedUrl,
       likes: video.likes || 0,

@@ -227,7 +227,7 @@ function notFound(error) {
 
 async function fetchTikTokMetrics(token, submission) {
   const resp = await fetch(
-    'https://open.tiktokapis.com/v2/video/query/?fields=id,view_count,like_count,comment_count,share_count',
+    'https://open.tiktokapis.com/v2/video/query/?fields=id,title,cover_image_url,create_time,share_url,duration,view_count,like_count,comment_count,share_count',
     {
       method: 'POST',
       headers: {
@@ -864,6 +864,7 @@ module.exports = {
   // Token refresh lives in api/_utils/tokenRefresh.js -- see the note above.
   // Per-platform fetchers (exported for testing; sync uses fetchPlatformMetrics)
   fetchPlatformMetrics,
+  fetchTikTokMetrics,
   providerError,
   // Storage
   upsertVideoAnalytics,

@@ -12,6 +12,8 @@ const assert = require('assert');
 
 const ROOT = path.join(__dirname, '..');
 process.env.SCRAPECREATORS_API_KEY = 'test-key';
+process.env.ENCRYPTION_KEY = 'a'.repeat(64);
+const { encrypt } = require(path.join(ROOT, 'api/_utils/encryption'));
 
 const {
   normalizeHandle,
@@ -20,6 +22,7 @@ const {
   normalizeInstagram,
   normalizeYouTube,
   fetchPublicVideo,
+  fetchOwnTikTokVideo,
 } = require(path.join(ROOT, 'api/_utils/socialPublic'));
 
 let pass = 0, fail = 0;
@@ -35,7 +38,7 @@ function stubFetch(list) {
   calls = [];
   answers = list.slice();
   global.fetch = async (url, opts) => {
-    calls.push({ url: String(url), headers: (opts && opts.headers) || {} });
+    calls.push({ url: String(url), headers: (opts && opts.headers) || {}, body: opts && opts.body });
     const a = answers.length > 1 ? answers.shift() : answers[0];
     if (a.throw) { const e = new Error(a.throw); e.name = a.throw; throw e; }
     return {
@@ -147,6 +150,33 @@ function stubFetch(list) {
   const errRes = await fetchPublicVideo({ url: 'https://www.tiktok.com/@user/video/9999999', platform: 'tiktok' });
   R(errRes.ok === false, 'fetchPublicVideo reports error');
   R(errRes.kind === 'not_found', 'error classified as not_found');
+
+  console.log('\n--- TikTok ownership through the connected login ---');
+  const tiktokRow = {
+    id: 'acc-1', user_id: 'user-1', platform: 'tiktok', username: null,
+    access_token_encrypted: encrypt('tok-123'),
+    token_expires_at: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+    created_at: new Date().toISOString(),
+  };
+  const fakeSupabase = (row) => {
+    const q = { select: () => q, eq: () => q, not: () => q, maybeSingle: async () => ({ data: row, error: null }) };
+    return { from: () => q };
+  };
+  const ownUrl = 'https://www.tiktok.com/@someone/video/7700902300537113908';
+
+  stubFetch([{ status: 200, body: { data: { videos: [{ id: '7700902300537113908', title: 'Mine', view_count: 4200, like_count: 50 }] }, error: { code: 'ok' } } }]);
+  const own = await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl);
+  R(own && own.source === 'oauth', 'video on the connected account is verified through the login');
+  R(own && own.video.views === 4200 && own.video.title === 'Mine', 'views and title come from TikTok');
+  R(calls[0] && calls[0].url.includes('open.tiktokapis.com/v2/video/query') && calls[0].headers.Authorization === 'Bearer tok-123', 'queries TikTok with the creator token');
+  R(calls[0] && JSON.parse(calls[0].body).filters.video_ids[0] === '7700902300537113908', 'asks for the video id from the link');
+
+  stubFetch([{ status: 200, body: { data: { videos: [] }, error: { code: 'ok' } } }]);
+  R(await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl) === null, 'video not on the connected account falls back (null)');
+
+  stubFetch([{ status: 500, body: {} }]);
+  R(await fetchOwnTikTokVideo(fakeSupabase(null), 'user-1', ownUrl) === null && calls.length === 0, 'no connected login falls back without calling TikTok');
+  R(await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', 'https://www.instagram.com/reel/C9xyz123/') === null, 'non TikTok link falls back');
 
   console.log(`\n========================================`);
   console.log(`Results: ${pass} passed, ${fail} failed`);

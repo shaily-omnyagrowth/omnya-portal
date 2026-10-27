@@ -1789,7 +1789,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const msg = data?.error || data?.message || "Failed to verify video link.";
+        const msg = data?.error?.message || data?.message || "Failed to verify video link.";
         setVerifyErr(msg);
         setVerifiedVideo(null);
         setVerifying(false);
