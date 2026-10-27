@@ -1953,7 +1953,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     const newSub = {
       creator_id: creator.id, campaign_id: form.campaign_id,
       submission_type: form.type, concept_link: fileLink,
-      status: "Pending",
+      status: "Submitted",
       posted_link: postedUrl,
       posted_url: postedUrl,
       platform: form.platform,
