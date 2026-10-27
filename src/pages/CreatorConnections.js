@@ -898,7 +898,7 @@ function ConnectionCard({ platform, connection, busy, onConnect, onDisconnect, o
         </div>
       )}
 
-      {platform === 'tiktok' && <TikTokLinkPanel />}
+      {platform === 'tiktok' && !state.connected && <TikTokLinkPanel />}
     </div>
   );
 }
