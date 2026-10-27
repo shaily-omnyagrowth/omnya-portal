@@ -185,6 +185,9 @@ Put the DB password and `.env.migrate` values in a team password vault so a seco
 ### I. Align the connection status CHECK on fresh databases · planned · from spec 0002
 `20260604000000_tiktok_integration.sql` creates the `connection_status` CHECK without `sync_failed` and `expired`, but production accepts both. A fresh database (PGlite tests, the restore drill in #2) rejects the `sync_failed` write in the analytics sync. A small migration should align the CHECK with production.
 
+### J. Stop creators writing video stats · planned
+`submissions_update_scoped` lets a creator update every column on their own submissions, so they can still set `views_*`, `likes`, `comments`, `shares` and `saves` straight through the API. Only the verified view columns are guarded today (spec 0002, AC-17). A migration should reject creator writes to the stat columns the same way, so only sync and verify (service role) can set them.
+
 ## Legend
 
 **The decision box.** Every feature carries exactly one, the sub task whose label ends with `(spec)`. Its wording varies, so skills locate it by that `(spec)` suffix, never by an exact label. Every other box is an execution box and `/architect` never ticks one.

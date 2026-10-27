@@ -861,36 +861,16 @@ Return this exact JSON:
   return JSON.parse(text.replace(/```json|```/g,"").trim());
 }
 
-function AIInsightsPanel({ sub, campaign, client, onUpdate, canEditStats = false }) {
+function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [editingStats, setEditingStats] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [stats, setStats] = useState({
-    views_24h: sub.views_24h||"", views_72h: sub.views_72h||"",
-    views_1w: sub.views_1w||"", views_2w: sub.views_2w||"", views_1m: sub.views_1m||"",
-    likes: sub.likes||"", comments: sub.comments||"",
-    shares: sub.shares||"", saves: sub.saves||""
-  });
-
-  const saveStats = async () => {
-    setSaving(true);
-    const updates = {};
-    Object.entries(stats).forEach(([k,v]) => { updates[k] = v ? Number(v) : null; });
-    const { error } = await supabase.from("submissions").update(updates).eq("id", sub.id);
-    if (!error) { onUpdate({...sub, ...updates}); setEditingStats(false); }
-    else setError("Failed to save stats");
-    setSaving(false);
-  };
 
   const analyze = async () => {
     setLoading(true); setError("");
     try {
-      const statNums = {};
-      Object.entries(stats).forEach(([k,v]) => { statNums[k] = v ? Number(v) : null; });
-      const insights = await fetchAIInsights({...sub,...statNums}, campaign, client);
-      const { error } = await supabase.from("submissions").update({ai_insights: insights, ...statNums}).eq("id", sub.id);
-      if (!error) onUpdate({...sub, ...statNums, ai_insights: insights});
+      const insights = await fetchAIInsights(sub, campaign, client);
+      const { error } = await supabase.from("submissions").update({ai_insights: insights}).eq("id", sub.id);
+      if (!error) onUpdate({...sub, ai_insights: insights});
       else setError("Saved locally but DB update failed");
     } catch(e) { setError("AI analysis failed. Please try again."); }
     setLoading(false);
@@ -903,36 +883,16 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate, canEditStats = false
       <div className="card mb-16">
         <div className="flex-between mb-16">
           <div className="card-title" style={{margin:0}}>📊 Video Metrics</div>
-          {canEditStats && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setEditingStats(!editingStats)}>
-              {editingStats ? "Cancel" : "✏️ Edit Stats"}
-            </button>
-          )}
         </div>
-        {editingStats ? (
-          <div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
-              {[["views_24h","Views 24h"],["views_72h","Views 72h"],["views_1w","Views 1 Week"],["views_2w","Views 2 Weeks"],["views_1m","Views 1 Month"],["likes","Likes"],["comments","Comments"],["shares","Shares"],["saves","Saves"]].map(([k,label]) => (
-                <div key={k}>
-                  <label className="form-label" style={{fontSize:10}}>{label}</label>
-                  <input className="form-input" style={{padding:"8px 10px",fontSize:13}} type="number" placeholder="0" value={stats[k]} onChange={e=>setStats({...stats,[k]:e.target.value})} />
-                </div>
-              ))}
+        <div className="metrics-row">
+          {[["👁️",sub.views_24h,"Views"],["❤️",sub.likes,"Likes"],["💬",sub.comments,"Comments"],["🔗",sub.shares,"Shares"],["🔖",sub.saves,"Saves"]].map(([icon,val,label],i) => (
+            <div key={i} className="metric-mini">
+              <div style={{fontSize:16,marginBottom:4}}>{icon}</div>
+              <div className="metric-mini-val" style={{color:val?"var(--ink)":"var(--ink4)"}}>{val?fmtNum(val):"—"}</div>
+              <div className="metric-mini-label">{label}</div>
             </div>
-            {error && <div style={{color:"var(--red)",fontSize:12,marginBottom:8}}>{error}</div>}
-            <button className="btn btn-primary btn-sm" onClick={saveStats} disabled={saving}>{saving?"Saving...":"Save Stats"}</button>
-          </div>
-        ) : (
-          <div className="metrics-row">
-            {[["👁️",sub.analytics_synced_at?sub.views_24h:(sub.views_1w||sub.views_72h||sub.views_24h),"Views"],["❤️",sub.likes,"Likes"],["💬",sub.comments,"Comments"],["🔗",sub.shares,"Shares"],["🔖",sub.saves,"Saves"]].map(([icon,val,label],i) => (
-              <div key={i} className="metric-mini">
-                <div style={{fontSize:16,marginBottom:4}}>{icon}</div>
-                <div className="metric-mini-val" style={{color:val?"var(--ink)":"var(--ink4)"}}>{val?fmtNum(val):"—"}</div>
-                <div className="metric-mini-label">{label}</div>
-              </div>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
       </div>
       {ins ? (
         <div className="premium-card fade-in">
@@ -1710,24 +1670,32 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
   const [verifying, setVerifying] = useState(false);
   const [verifyErr, setVerifyErr] = useState("");
   const [verifiedVideo, setVerifiedVideo] = useState(null);
-  const [tiktokConnected, setTiktokConnected] = useState(false);
+  const [connectedPlatforms, setConnectedPlatforms] = useState(new Set());
 
   const creator = isOverride
     ? db.creators.find(c=>c.id===overrideCreatorId)
     : ownCreator;
 
-  // TikTok videos are verified only through the creator's connected TikTok login
+  // Final videos can only be submitted for platforms whose stats we can pull
   useEffect(() => {
-    setTiktokConnected(false);
+    setConnectedPlatforms(new Set());
     if (!creator?.user_id) return;
     supabase
       .from("creator_social_accounts_safe")
-      .select("connection_status")
+      .select("platform, connection_status, metadata")
       .eq("user_id", creator.user_id)
-      .eq("platform", "tiktok")
-      .maybeSingle()
-      .then(({ data }) => setTiktokConnected(data?.connection_status === "connected"));
+      .then(({ data }) => {
+        const set = new Set();
+        for (const a of data || []) {
+          if (a.connection_status !== "connected") continue;
+          set.add(a.platform);
+          if (a.platform === "facebook" && a.metadata?.provider === "meta") set.add("instagram");
+        }
+        setConnectedPlatforms(set);
+      });
   }, [creator?.user_id]);
+  const isConnected = (platform) => connectedPlatforms.has((platform || "").toLowerCase());
+  const tiktokConnected = isConnected("TikTok");
 
   const myJobs = db.campaigns.filter(
     c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed"&&c.status!=="Archived"
@@ -1912,8 +1880,8 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     if (!form.campaign_id) { setErr("Please select a campaign"); return; }
     if (uploadMode==="file" && !file) { setErr("Please select a video file to upload"); return; }
     if (uploadMode==="link" && !form.concept_link) { setErr("Please enter a video link"); return; }
-    if (form.type === "Final" && uploadMode === "link" && form.platform === "TikTok" && !tiktokConnected) {
-      setErr("Connect TikTok on the Social Channels page to submit TikTok videos");
+    if (form.type === "Final" && !isConnected(form.platform)) {
+      setErr(`Connect ${form.platform} on the Social Channels page to submit ${form.platform} videos`);
       return;
     }
     if (form.type === "Final" && uploadMode === "link" && form.platform !== "TikTok" && !form.handle) {
@@ -2189,6 +2157,11 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
               <select className="select" value={form.platform} onChange={e => handlePlatformChange(e.target.value)}>
                 {["TikTok","Instagram","YouTube","Facebook"].map(p=><option key={p}>{p}</option>)}
               </select>
+              {!isConnected(form.platform) && (
+                <div className="form-hint" style={{ color: "var(--red)", marginTop: 4 }}>
+                  Connect {form.platform} on the Social Channels page to submit {form.platform} videos.
+                </div>
+              )}
             </div>
 
             {uploadMode==="link"&&(
@@ -2196,9 +2169,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
                 {form.platform === "TikTok" ? (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <div className="form-hint" style={{ flex: 1, margin: 0 }}>
-                      {tiktokConnected
-                        ? "We check the video is yours through your connected TikTok."
-                        : "Connect TikTok on the Social Channels page to submit TikTok videos."}
+                      We check the video is yours through your connected TikTok.
                     </div>
                     <button
                       type="button"
@@ -5126,7 +5097,7 @@ function ContentLibrary({ db, onRefresh }) {
               <div><div className="modal-title">{campaign?.name}</div><div className="modal-sub">{db.creators.find(c=>c.id===sub.creator_id)?.name} · {sub.platform} · <a href={sub.posted_link} target="_blank" rel="noreferrer" className="link">View video →</a></div></div>
               <button className="btn btn-ghost btn-sm" onClick={()=>setSelected(null)}>✕</button>
             </div>
-            <AIInsightsPanel sub={sub} campaign={campaign} client={client} canEditStats onUpdate={async()=>{ await onRefresh(); }}/>
+            <AIInsightsPanel sub={sub} campaign={campaign} client={client} onUpdate={async()=>{ await onRefresh(); }}/>
           </div>
         </div>
       )}
