@@ -891,7 +891,7 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
           {[["👁️",sub.views_24h,"Views"],["❤️",sub.likes,"Likes"],["💬",sub.comments,"Comments"],["🔗",sub.shares,"Shares"],["🔖",sub.saves,"Saves"]].map(([icon,val,label],i) => (
             <div key={i} className="metric-mini">
               <div style={{fontSize:16,marginBottom:4}}>{icon}</div>
-              <div className="metric-mini-val" style={{color:val?"var(--ink)":"var(--ink4)"}}>{val?fmtNum(val):"—"}</div>
+              <div className="metric-mini-val" style={{color:val!=null?"var(--ink)":"var(--ink4)"}}>{val!=null?fmtNum(val):"—"}</div>
               <div className="metric-mini-label">{label}</div>
             </div>
           ))}
