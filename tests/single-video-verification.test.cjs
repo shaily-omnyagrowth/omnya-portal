@@ -22,7 +22,7 @@ const {
   normalizeInstagram,
   normalizeYouTube,
   fetchPublicVideo,
-  fetchOwnTikTokVideo,
+  fetchOwnVideo,
 } = require(path.join(ROOT, 'api/_utils/socialPublic'));
 
 let pass = 0, fail = 0;
@@ -165,19 +165,38 @@ function stubFetch(list) {
   const ownUrl = 'https://www.tiktok.com/@someone/video/7700902300537113908';
 
   stubFetch([{ status: 200, body: { data: { videos: [{ id: '7700902300537113908', title: 'Mine', view_count: 4200, like_count: 50 }] }, error: { code: 'ok' } } }]);
-  const own = await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl);
+  const own = await fetchOwnVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl);
   R(own.ok && own.source === 'oauth', 'video on the connected account is verified through the login');
   R(own && own.video.views === 4200 && own.video.title === 'Mine', 'views and title come from TikTok');
   R(calls[0] && calls[0].url.includes('open.tiktokapis.com/v2/video/query') && calls[0].headers.Authorization === 'Bearer tok-123', 'queries TikTok with the creator token');
   R(calls[0] && JSON.parse(calls[0].body).filters.video_ids[0] === '7700902300537113908', 'asks for the video id from the link');
 
   stubFetch([{ status: 200, body: { data: { videos: [] }, error: { code: 'ok' } } }]);
-  R((await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl)).kind === 'not_yours', 'video not on the connected account is refused');
+  R((await fetchOwnVideo(fakeSupabase(tiktokRow), 'user-1', ownUrl)).kind === 'not_yours', 'video not on the connected account is refused');
 
   stubFetch([{ status: 500, body: {} }]);
-  R((await fetchOwnTikTokVideo(fakeSupabase(null), 'user-1', ownUrl)).kind === 'not_connected' && calls.length === 0, 'no connected login is refused without calling TikTok');
-  R((await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), null, ownUrl)).kind === 'not_connected', 'no creator to check is refused');
-  R((await fetchOwnTikTokVideo(fakeSupabase(tiktokRow), 'user-1', 'https://www.instagram.com/reel/C9xyz123/')).kind === 'not_tiktok', 'non TikTok link is left to the Instagram/YouTube path');
+  R((await fetchOwnVideo(fakeSupabase(null), 'user-1', ownUrl)).kind === 'not_connected' && calls.length === 0, 'no connected login is refused without calling TikTok');
+  R((await fetchOwnVideo(fakeSupabase(tiktokRow), null, ownUrl)).kind === 'not_connected', 'no creator to check is refused');
+  R((await fetchOwnVideo(fakeSupabase(tiktokRow), 'user-1', 'https://www.instagram.com/reel/C9xyz123/')).kind === 'not_supported', 'Instagram link is left to the ScrapeCreators path');
+
+  console.log('\n--- YouTube ownership through the connected login ---');
+  const ytRow = { ...tiktokRow, platform: 'youtube', platform_user_id: 'UC_mine' };
+  const ytUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  const ytVideo = (channelId) => ({ status: 200, body: { items: [{ id: 'dQw4w9WgXcQ', snippet: { channelId, title: 'My short', thumbnails: { medium: { url: 'https://i.ytimg.com/x.jpg' } } }, statistics: { viewCount: '900', likeCount: '40', commentCount: '3' } }] } });
+
+  stubFetch([ytVideo('UC_mine')]);
+  const yt = await fetchOwnVideo(fakeSupabase(ytRow), 'user-1', ytUrl);
+  R(yt.ok && yt.platform === 'youtube' && yt.video.views === 900 && yt.video.title === 'My short', 'video on the connected channel is verified through the login');
+  R(calls[0] && calls[0].url.includes('videos?part=snippet,statistics&id=dQw4w9WgXcQ') && calls[0].headers.Authorization === 'Bearer tok-123', 'queries YouTube with the creator token');
+
+  stubFetch([ytVideo('UC_someone_else')]);
+  R((await fetchOwnVideo(fakeSupabase(ytRow), 'user-1', ytUrl)).kind === 'not_yours', 'video from another channel is refused');
+
+  stubFetch([{ status: 200, body: { items: [] } }]);
+  R((await fetchOwnVideo(fakeSupabase(ytRow), 'user-1', ytUrl)).kind === 'not_yours', 'missing or private video is refused');
+
+  stubFetch([{ status: 200, body: { items: [{ id: 'UC_mine' }] } }, ytVideo('UC_mine')]);
+  R((await fetchOwnVideo(fakeSupabase({ ...ytRow, platform_user_id: null }), 'user-1', ytUrl)).ok, 'looks up the channel when it was not stored at connect');
 
   console.log(`\n========================================`);
   console.log(`Results: ${pass} passed, ${fail} failed`);

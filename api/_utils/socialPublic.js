@@ -209,60 +209,112 @@ async function fetchPublicVideo({ url, platform }) {
   };
 }
 
-// Looks the video up with the creator's own TikTok login. TikTok's video/query
-// only returns videos owned by the token's account, so a hit proves ownership.
-// Failure kinds: not_tiktok, validation, not_connected, not_yours, provider.
-async function fetchOwnTikTokVideo(supabase, userId, url) {
-  if (!url) return fail('url_required', 'validation', 400);
-  const resolvedUrl = await resolveShortLink(url);
-  if (detectPlatformFromUrl(resolvedUrl) !== 'tiktok') return fail('not_tiktok', 'not_tiktok', null);
-  const videoId = extractVideoId('tiktok', resolvedUrl);
-  if (!videoId) return fail('video_id_unparseable', 'validation', 400);
-  if (!userId) return fail('tiktok_not_connected', 'not_connected', null);
+const LOGIN_PLATFORMS = new Set(['tiktok', 'youtube']);
 
-  const { data: account } = await supabase
-    .from('creator_social_accounts')
-    .select(
-      'id, user_id, platform, username, access_token_encrypted, refresh_token_encrypted, ' +
-      'token_expires_at, refresh_token_expires_at, connection_status, metadata, created_at, updated_at'
-    )
-    .eq('user_id', userId)
-    .eq('platform', 'tiktok')
-    .not('access_token_encrypted', 'is', null)
-    .maybeSingle();
-  if (!account) return fail('tiktok_not_connected', 'not_connected', null);
-
-  const refresh = await refreshIfNeeded(account, { supabase });
-  if (!refresh.accessToken) return fail('tiktok_reauth_required', 'not_connected', null);
-
-  const m = await fetchTikTokMetrics({ access_token: refresh.accessToken }, { videoId });
+// TikTok: video/query only returns videos owned by the token's account.
+async function lookupTikTok(token, videoId, account, resolvedUrl) {
+  const m = await fetchTikTokMetrics({ access_token: token }, { videoId });
   if (m.error) {
     if (m.content) return fail('video_not_on_account', 'not_yours', 404);
     if (m.auth) return fail('tiktok_reauth_required', 'not_connected', 401);
     return fail(m.error, 'provider', null);
   }
-
   const v = m.raw || {};
+  return {
+    id: String(v.id || videoId),
+    url: v.share_url || resolvedUrl,
+    title: v.title || null,
+    thumbnailUrl: v.cover_image_url || null,
+    durationSeconds: num(v.duration) || null,
+    postedAt: v.create_time ? new Date(Number(v.create_time) * 1000).toISOString() : null,
+    views: num(m.views),
+    likes: num(m.likes),
+    comments: num(m.comments),
+    shares: num(m.shares),
+  };
+}
+
+// YouTube: the video's channelId must be the connected channel.
+async function lookupYouTube(token, videoId, account, resolvedUrl) {
+  const headers = { Authorization: `Bearer ${token}` };
+  let channelId = account.platform_user_id;
+  if (!channelId) {
+    const r = await fetch('https://www.googleapis.com/youtube/v3/channels?part=id&mine=true', { headers });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401) return fail('youtube_reauth_required', 'not_connected', 401);
+    channelId = d?.items?.[0]?.id;
+    if (!channelId) return fail(`youtube_http_${r.status}`, 'provider', r.status);
+  }
+
+  const resp = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${encodeURIComponent(videoId)}`,
+    { headers }
+  );
+  const data = await resp.json().catch(() => ({}));
+  if (resp.status === 401) return fail('youtube_reauth_required', 'not_connected', 401);
+  if (!resp.ok) return fail(`youtube_http_${resp.status}`, 'provider', resp.status);
+  const item = data?.items?.[0];
+  if (!item || item.snippet?.channelId !== channelId) return fail('video_not_on_account', 'not_yours', 404);
+
+  const sn = item.snippet || {};
+  const st = item.statistics || {};
+  const thumbs = sn.thumbnails || {};
+  return {
+    id: String(item.id),
+    url: resolvedUrl,
+    title: sn.title || null,
+    thumbnailUrl: (thumbs.medium || thumbs.default || {}).url || null,
+    durationSeconds: null,
+    postedAt: sn.publishedAt || null,
+    views: num(st.viewCount),
+    likes: num(st.likeCount),
+    comments: num(st.commentCount),
+    shares: 0,
+  };
+}
+
+// Looks the video up with the creator's own TikTok or YouTube login, which
+// proves ownership. Failure kinds: not_supported, validation, not_connected,
+// not_yours, provider.
+async function fetchOwnVideo(supabase, userId, url) {
+  if (!url) return fail('url_required', 'validation', 400);
+  const resolvedUrl = await resolveShortLink(url);
+  const platform = detectPlatformFromUrl(resolvedUrl);
+  if (!LOGIN_PLATFORMS.has(platform)) return fail('not_supported', 'not_supported', null);
+  const videoId = extractVideoId(platform, resolvedUrl);
+  if (!videoId) return fail('video_id_unparseable', 'validation', 400);
+  if (!userId) return fail(`${platform}_not_connected`, 'not_connected', null);
+
+  const { data: account } = await supabase
+    .from('creator_social_accounts')
+    .select(
+      'id, user_id, platform, platform_user_id, username, access_token_encrypted, refresh_token_encrypted, ' +
+      'token_expires_at, refresh_token_expires_at, connection_status, metadata, created_at, updated_at'
+    )
+    .eq('user_id', userId)
+    .eq('platform', platform)
+    .not('access_token_encrypted', 'is', null)
+    .maybeSingle();
+  if (!account) return fail(`${platform}_not_connected`, 'not_connected', null);
+
+  const refresh = await refreshIfNeeded(account, { supabase });
+  if (!refresh.accessToken) return fail(`${platform}_reauth_required`, 'not_connected', null);
+
+  const lookup = platform === 'tiktok' ? lookupTikTok : lookupYouTube;
+  const v = await lookup(refresh.accessToken, videoId, account, resolvedUrl);
+  if (v.ok === false) return v;
+
   return {
     ok: true,
     source: 'oauth',
     resolvedUrl,
-    platform: 'tiktok',
+    platform,
     video: {
-      platform: 'tiktok',
-      id: String(v.id || videoId),
-      url: v.share_url || resolvedUrl,
+      platform,
+      ...v,
       authorHandle: normalizeHandle(account.username) || null,
-      title: v.title || null,
-      thumbnailUrl: v.cover_image_url || null,
-      durationSeconds: num(v.duration) || null,
-      postedAt: v.create_time ? new Date(Number(v.create_time) * 1000).toISOString() : null,
-      views: num(m.views),
-      likes: num(m.likes),
-      comments: num(m.comments),
-      shares: num(m.shares),
       saves: 0,
-      raw: { video_id: String(v.id || videoId), source: 'oauth', statistics: { view_count: m.views, like_count: m.likes, comment_count: m.comments, share_count: m.shares } },
+      raw: { video_id: v.id, source: 'oauth', statistics: { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares } },
     },
   };
 }
@@ -272,7 +324,7 @@ module.exports = {
   isAuthorMatch,
   callScrapeCreators,
   fetchPublicVideo,
-  fetchOwnTikTokVideo,
+  fetchOwnVideo,
   normalizeTikTok,
   normalizeInstagram,
   normalizeYouTube,

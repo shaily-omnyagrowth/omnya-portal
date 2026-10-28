@@ -28,10 +28,7 @@ module.exports = async (req, res) => {
       redirectAfter: '/?page=social-connections',
     });
 
-    const scope = [
-      'https://www.googleapis.com/auth/youtube.readonly',
-      'https://www.googleapis.com/auth/yt-analytics.readonly',
-    ].join(' ');
+    const scope = 'https://www.googleapis.com/auth/youtube.readonly';
 
     const params = new URLSearchParams({
       client_id: clientId,

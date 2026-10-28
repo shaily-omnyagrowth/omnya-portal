@@ -1698,7 +1698,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
       });
   }, [creator?.user_id]);
   const isConnected = (platform) => connectedPlatforms.has((platform || "").toLowerCase());
-  const tiktokConnected = isConnected("TikTok");
 
   const myJobs = db.campaigns.filter(
     c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed"&&c.status!=="Archived"
@@ -1743,17 +1742,17 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     const url = (targetUrl || form.concept_link || "").trim();
     const handle = (targetHandle || form.handle || "").trim();
     const platform = (targetPlatform || form.platform || "TikTok").trim();
-    const isTikTok = platform === "TikTok";
+    const byLogin = platform === "TikTok" || platform === "YouTube";
 
     if (!url) {
       setVerifyErr("Please enter a video link first.");
       return null;
     }
-    if (isTikTok && !tiktokConnected) {
-      setVerifyErr("Connect TikTok on the Social Channels page to verify TikTok videos.");
+    if (byLogin && !isConnected(platform)) {
+      setVerifyErr(`Connect ${platform} on the Social Channels page to verify ${platform} videos.`);
       return null;
     }
-    if (!handle && !isTikTok) {
+    if (!handle && !byLogin) {
       setVerifyErr("Please enter your account handle to verify ownership.");
       return null;
     }
@@ -1887,7 +1886,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
       setErr(`Connect ${form.platform} on the Social Channels page to submit ${form.platform} videos`);
       return;
     }
-    if (form.type === "Final" && uploadMode === "link" && form.platform !== "TikTok" && !form.handle) {
+    if (form.type === "Final" && uploadMode === "link" && form.platform === "Instagram" && !form.handle) {
       setErr("Please enter your account handle to verify ownership");
       return;
     }
@@ -2169,16 +2168,16 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
 
             {uploadMode==="link"&&(
               <div className="form-group">
-                {form.platform === "TikTok" ? (
+                {form.platform === "TikTok" || form.platform === "YouTube" ? (
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <div className="form-hint" style={{ flex: 1, margin: 0 }}>
-                      We check the video is yours through your connected TikTok.
+                      We check the video is yours through your connected {form.platform}.
                     </div>
                     <button
                       type="button"
                       className="btn btn-ghost"
                       onClick={() => verifyLink()}
-                      disabled={verifying || !form.concept_link || !tiktokConnected}
+                      disabled={verifying || !form.concept_link || !isConnected(form.platform)}
                       style={{ whiteSpace: "nowrap" }}
                     >
                       {verifying ? "⏳ Verifying..." : "⚡ Verify Video"}

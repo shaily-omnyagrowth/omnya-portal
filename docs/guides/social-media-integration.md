@@ -360,7 +360,7 @@ Fix, either:
   Note that in Testing, refresh tokens expire after **7 days**, so connections
   will need remaking — expected, not a bug.
 - **For real creators:** *Publish app*, then *Prepare for verification*.
-  `youtube.readonly` and `yt-analytics.readonly` are sensitive scopes, so
+  `youtube.readonly` is a sensitive scope, so
   Google requires verification: scope justification and a demo video of the
   OAuth flow. Until verified, users see an "unverified app" warning they can
   click through, or are blocked outright.
