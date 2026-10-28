@@ -861,6 +861,9 @@ Return this exact JSON:
   return JSON.parse(text.replace(/```json|```/g,"").trim());
 }
 
+// Hidden until AI insights run server side (scope #10)
+const AI_INSIGHTS_ENABLED = false;
+
 function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -894,7 +897,7 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
           ))}
         </div>
       </div>
-      {ins ? (
+      {AI_INSIGHTS_ENABLED && (ins ? (
         <div className="premium-card fade-in">
           <div className="flex-between mb-24 pb-16" style={{ borderBottom: '1px solid var(--border)' }}>
             <div className="ai-badge" style={{ margin: 0 }}>✨ AI Performance Analysis</div>
@@ -969,7 +972,7 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
             </div>
           )}
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -2486,7 +2489,7 @@ function CreatorInsights({ user, db, onRefresh }) {
                 <div key={s.id} className="card mb-8" style={{cursor:"pointer",border:selected===s.id?"1px solid var(--ink)":"1px solid var(--border)"}} onClick={()=>setSelected(s.id)}>
                   <div className="flex-between">
                     <div><div className="fw-600 fs-13" style={{marginBottom:2}}>{camp?.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{s.platform} · Approved {fmtDate(s.approved_date)}</div></div>
-                    {ins?<div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20,color:scoreColor(ins.score)}}>{ins.score}</div>:<span className="badge badge-gray">No score</span>}
+                    {AI_INSIGHTS_ENABLED&&(ins?<div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20,color:scoreColor(ins.score)}}>{ins.score}</div>:<span className="badge badge-gray">No score</span>)}
                   </div>
                 </div>
               );
