@@ -126,6 +126,17 @@ module.exports = async (req, res) => {
   const video = fetchResult.video;
   let updatedSubmission = null;
 
+  // 3. Reject a video already tracked on another submission
+  const { data: existing } = await supabase
+    .from('video_analytics')
+    .select('submission_id')
+    .eq('platform', fetchResult.platform)
+    .eq('video_id', video.id)
+    .maybeSingle();
+  if (existing && (!sub || existing.submission_id !== sub.id)) {
+    return Errors.unprocessable(res, 'This video has already been submitted.', { code: 'duplicate_video' });
+  }
+
   // 4. Persist verified views and metrics
   if (sub) {
     const newViews = Math.max(Number(sub.view_count_verified || 0), Number(video.views || 0));
@@ -156,6 +167,15 @@ module.exports = async (req, res) => {
       console.error('[verify-video-link] submission update failed:', updateErr.message);
     } else {
       updatedSubmission = updated;
+    }
+
+    // Save the thumbnail in its own write
+    if (video.thumbnailUrl) {
+      const { error: thumbErr } = await supabase
+        .from('submissions')
+        .update({ thumbnail_url: video.thumbnailUrl })
+        .eq('id', sub.id);
+      if (thumbErr) console.error('[verify-video-link] thumbnail not saved (migration 20261029000000 applied?):', thumbErr.message);
     }
 
     // Upsert into video_analytics
