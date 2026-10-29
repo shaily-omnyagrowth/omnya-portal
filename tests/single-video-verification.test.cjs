@@ -203,10 +203,11 @@ function stubFetch(list) {
   const metaRow = { ...tiktokRow, platform: 'facebook', metadata: { provider: 'meta', flow: 'meta' } };
   const igUrl = 'https://www.instagram.com/reel/C9xyz123/';
 
-  stubFetch([{ status: 200, body: { data: [{ id: 'm1', shortcode: 'C9xyz123', like_count: 7, comments_count: 2 }] } }, { status: 200, body: { data: [{ name: 'views', values: [{ value: 300 }] }] } }]);
+  stubFetch([{ status: 200, body: { data: [{ id: 'm1', shortcode: 'C9xyz123', like_count: 7, comments_count: 2, thumbnail_url: 'https://cdn/t.jpg' }] } }, { status: 200, body: { data: [{ name: 'views', values: [{ value: 300 }] }] } }]);
   const ig = await fetchOwnVideo(fakeSupabase(igRow), 'user-1', igUrl);
   R(ig.ok && ig.platform === 'instagram' && ig.video.views === 300 && ig.video.likes === 7, 'reel on the connected Instagram account is verified');
   R(calls[0] && calls[0].url.includes('graph.instagram.com'), 'Instagram is read through Instagram login, not Facebook');
+  R(ig.video.thumbnailUrl === 'https://cdn/t.jpg', 'Instagram thumbnail is returned');
 
   stubFetch([{ status: 200, body: { data: [{ id: 'm2', shortcode: 'OTHER', like_count: 1 }] } }]);
   R((await fetchOwnVideo(fakeSupabase(igRow), 'user-1', igUrl)).kind === 'not_yours', 'reel not on the connected account is refused');

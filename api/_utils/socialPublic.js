@@ -290,7 +290,7 @@ async function lookupInstagram(token, videoId, account, resolvedUrl) {
     id: String(r.id || videoId),
     url: resolvedUrl,
     title: null,
-    thumbnailUrl: null,
+    thumbnailUrl: r.thumbnail_url || r.media_url || null,
     durationSeconds: null,
     postedAt: r.timestamp || null,
     views: num(m.views),

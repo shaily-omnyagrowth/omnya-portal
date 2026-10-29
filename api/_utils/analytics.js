@@ -277,7 +277,7 @@ async function fetchYouTubeMetrics(token, submission) {
 
 // ── Instagram ────────────────────────────────────────────────────────────────
 
-const IG_MEDIA_FIELDS = 'id,shortcode,like_count,comments_count,media_type,timestamp';
+const IG_MEDIA_FIELDS = 'id,shortcode,like_count,comments_count,media_type,timestamp,thumbnail_url,media_url';
 
 // Media lists are paged, 25 per page by default. Only the first page used to
 // be read, so any post older than a creator's 25 most recent returned
