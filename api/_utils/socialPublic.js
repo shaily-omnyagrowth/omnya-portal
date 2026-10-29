@@ -6,7 +6,7 @@
 
 const {
   resolveShortLink, detectPlatformFromUrl, normalizePlatformLabel, extractVideoId, fetchTikTokMetrics,
-  fetchInstagramViaMetaMetrics,
+  fetchInstagramBusinessMetrics,
 } = require('./analytics');
 const { facebookGraph } = require('./meta');
 const { refreshIfNeeded } = require('./tokenRefresh');
@@ -212,8 +212,8 @@ async function fetchPublicVideo({ url, platform }) {
 }
 
 const LOGIN_PLATFORMS = new Set(['tiktok', 'youtube', 'instagram', 'facebook']);
-// Instagram and Facebook both connect through Facebook login, stored on the facebook row
-const STORAGE_PLATFORM = { tiktok: 'tiktok', youtube: 'youtube', instagram: 'facebook', facebook: 'facebook' };
+// Facebook connects through Facebook login, stored on the facebook row
+const STORAGE_PLATFORM = { tiktok: 'tiktok', youtube: 'youtube', instagram: 'instagram', facebook: 'facebook' };
 
 // TikTok: video/query only returns videos owned by the token's account.
 async function lookupTikTok(token, videoId, account, resolvedUrl) {
@@ -277,11 +277,10 @@ async function lookupYouTube(token, videoId, account, resolvedUrl) {
   };
 }
 
-// Instagram: the post must be in the media of the Instagram account linked to the creator's Page.
+// Instagram: the post must be in the media of the connected Instagram account.
 async function lookupInstagram(token, videoId, account, resolvedUrl) {
-  const m = await fetchInstagramViaMetaMetrics({ access_token: token }, { videoId }, {});
+  const m = await fetchInstagramBusinessMetrics({ access_token: token }, { videoId }, {});
   if (m.error) {
-    if (m.error === 'ig_no_business_account') return fail(m.error, 'not_linked', null);
     if (m.content) return fail('video_not_on_account', 'not_yours', 404);
     if (m.auth) return fail('instagram_reauth_required', 'not_connected', 401);
     return fail(m.error, 'provider', null);

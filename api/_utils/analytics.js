@@ -866,6 +866,7 @@ module.exports = {
   fetchPlatformMetrics,
   fetchTikTokMetrics,
   fetchInstagramViaMetaMetrics,
+  fetchInstagramBusinessMetrics,
   providerError,
   // Storage
   upsertVideoAnalytics,

@@ -1691,7 +1691,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
         for (const a of data || []) {
           if (a.connection_status !== "connected") continue;
           set.add(a.platform);
-          if (a.platform === "facebook" && a.metadata?.flow === "meta") set.add("instagram");
         }
         setConnectedPlatforms(set);
       });

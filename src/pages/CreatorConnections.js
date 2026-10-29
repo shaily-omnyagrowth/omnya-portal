@@ -183,7 +183,7 @@ function fmtRelative(iso) {
 }
 
 // Instagram and Facebook share one Facebook login (Meta isn't offering Instagram login on new apps)
-const flowFor = (platform) => (platform === 'instagram' || platform === 'facebook' ? 'meta' : platform);
+const flowFor = (platform) => (platform === 'facebook' ? 'meta' : platform);
 
 // Must match public/oauth-complete.js.
 const OAUTH_CHANNEL = 'omnya-oauth';

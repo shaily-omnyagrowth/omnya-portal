@@ -198,20 +198,18 @@ function stubFetch(list) {
   stubFetch([{ status: 200, body: { items: [{ id: 'UC_mine' }] } }, ytVideo('UC_mine')]);
   R((await fetchOwnVideo(fakeSupabase({ ...ytRow, platform_user_id: null }), 'user-1', ytUrl)).ok, 'looks up the channel when it was not stored at connect');
 
-  console.log('\n--- Instagram and Facebook through the connected Facebook login ---');
+  console.log('\n--- Instagram through Instagram login, Facebook through Facebook login ---');
+  const igRow = { ...tiktokRow, platform: 'instagram', metadata: { provider: 'instagram' } };
   const metaRow = { ...tiktokRow, platform: 'facebook', metadata: { provider: 'meta', flow: 'meta' } };
   const igUrl = 'https://www.instagram.com/reel/C9xyz123/';
-  const igAccounts = { status: 200, body: { data: [{ instagram_business_account: { id: 'IG1' } }] } };
 
-  stubFetch([igAccounts, { status: 200, body: { data: [{ id: 'm1', shortcode: 'C9xyz123', like_count: 7, comments_count: 2 }] } }, { status: 200, body: { data: [{ name: 'views', values: [{ value: 300 }] }] } }]);
-  const ig = await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl);
-  R(ig.ok && ig.platform === 'instagram' && ig.video.views === 300 && ig.video.likes === 7, 'reel in the linked Instagram account is verified');
+  stubFetch([{ status: 200, body: { data: [{ id: 'm1', shortcode: 'C9xyz123', like_count: 7, comments_count: 2 }] } }, { status: 200, body: { data: [{ name: 'views', values: [{ value: 300 }] }] } }]);
+  const ig = await fetchOwnVideo(fakeSupabase(igRow), 'user-1', igUrl);
+  R(ig.ok && ig.platform === 'instagram' && ig.video.views === 300 && ig.video.likes === 7, 'reel on the connected Instagram account is verified');
+  R(calls[0] && calls[0].url.includes('graph.instagram.com'), 'Instagram is read through Instagram login, not Facebook');
 
-  stubFetch([igAccounts, { status: 200, body: { data: [{ id: 'm2', shortcode: 'OTHER', like_count: 1 }] } }]);
-  R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl)).kind === 'not_yours', 'reel not in the linked account is refused');
-
-  stubFetch([{ status: 200, body: { data: [] } }]);
-  R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl)).kind === 'not_linked', 'no Instagram account linked to a Page is reported as not linked');
+  stubFetch([{ status: 200, body: { data: [{ id: 'm2', shortcode: 'OTHER', like_count: 1 }] } }]);
+  R((await fetchOwnVideo(fakeSupabase(igRow), 'user-1', igUrl)).kind === 'not_yours', 'reel not on the connected account is refused');
 
   const fbUrl = 'https://www.facebook.com/watch/?v=1234567890';
   const fbPages = { status: 200, body: { data: [{ id: 'P1', access_token: 'page-tok' }] } };
