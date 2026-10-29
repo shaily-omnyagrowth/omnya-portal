@@ -1724,7 +1724,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     }
     const detected = linkPlatform(url);
     if (detected && detected !== platform) {
-      setVerifyErr(`This is a ${detected} link. Set Platform to ${detected}.`);
+      setVerifyErr(`This link is from ${detected}. Set Platform to ${detected}.`);
       return null;
     }
     if (!isConnected(platform)) {
