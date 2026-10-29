@@ -17,10 +17,19 @@ const K = env.SUPABASE_SERVICE_ROLE_KEY;
 const H = { apikey: K, Authorization: `Bearer ${K}`, 'Content-Type': 'application/json',
             Prefer: 'return=representation' };
 
+// Exit SKIPPED (4) unless database writes were asked for
+function requireWriteOptIn() {
+  if (process.env.TEST_DB_WRITES === '1') return;
+  console.log('SKIPPED: this suite creates accounts and rows in the database in .env.');
+  console.log('Point .env at a non-production Supabase project and set TEST_DB_WRITES=1 to run it.');
+  process.exit(4);
+}
+
 const rest = (q, o = {}) => fetch(`${U}/rest/v1/${q}`, { ...o, headers: { ...H, ...(o.headers || {}) } });
 const post = async (t, b) => (await rest(t, { method: 'POST', body: JSON.stringify(b) })).json();
 
 async function setup({ roles = ['owner', 'am', 'creator', 'client'], seed = true } = {}) {
+  requireWriteOptIn();
   const ts = Date.now();
   const password = 'ClaudeTest!' + ts;
   const fx = { ts, password, users: [], ids: {} };
@@ -81,6 +90,7 @@ async function setup({ roles = ['owner', 'am', 'creator', 'client'], seed = true
  * Returns { password, users, owner, tenants: [A, B], campaignIds }.
  */
 async function setupTenants() {
+  requireWriteOptIn();
   const ts = Date.now();
   const password = 'ClaudeTest!' + ts;
   const fx = { ts, password, users: [], ids: {}, campaignIds: [], tenants: [] };

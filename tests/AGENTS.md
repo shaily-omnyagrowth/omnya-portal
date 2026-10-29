@@ -27,7 +27,7 @@ node tests/run-all.cjs --no-servers     # CRA and devServer already running
 
 ## Conventions
 
-- Exit codes: `0` pass, `1` real failure, `3` BLOCKED on an unapplied migration (name the migration that fixes it). Never report BLOCKED as FAILED.
+- Exit codes: `0` pass, `1` real failure, `3` BLOCKED on an unapplied migration (name the migration that fixes it), `4` SKIPPED because it would write to the database. Never report BLOCKED or SKIPPED as FAILED.
 - Query tables with `schema.select()` / `selectOne()`, and parse handler responses with `parseBody()` (bodies are JSON strings).
 - Select tabs explicitly and wait for content; never assume the default screen state.
 - Assert on the tables actually touched, not only on summary counts.
@@ -36,7 +36,7 @@ node tests/run-all.cjs --no-servers     # CRA and devServer already running
 ## Gotchas
 
 - Browser tests must point at :3100, not :3000, or every API call 404s.
-- Live suites create real accounts named `claude-test-<role>+<timestamp>@example.com` in production Supabase and delete them in `finally`. Keep teardown intact.
+- Suites that create data (`regression`, `role-boundaries`, `payout-acceptance`) skip unless `TEST_DB_WRITES=1`. Only set it with `.env` pointing at a non-production Supabase project; they create `claude-test-<role>+<timestamp>@example.com` accounts and delete them in `finally`. Keep teardown intact.
 - `/api/send-email` returns 500 locally while `RESEND_API_KEY` is a placeholder. The harness reports that as an env gap, not a failure.
 
 ## Agent skills

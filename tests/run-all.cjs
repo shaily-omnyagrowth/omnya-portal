@@ -582,6 +582,7 @@ function runSuite(suite, opts) {
       else if (harnessAborted) status = 'ERROR';
       else if (code === 1) status = 'FAIL';
       else if (code === 3) status = 'BLOCKED';
+      else if (code === 4) status = 'SKIPPED';
       else status = 'ERROR';
 
       const blockers = json && json.blockers && json.blockers.length
