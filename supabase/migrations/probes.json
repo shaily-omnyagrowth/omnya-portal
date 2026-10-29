@@ -122,5 +122,10 @@
   "20261029000000_submission_thumbnail.sql": {
     "label": "Submission video thumbnail",
     "kind": "columns", "table": "public.submissions", "columns": ["thumbnail_url"]
+  },
+  "20261030000000_fix_client_may_see_creator.sql": {
+    "label": "Client creator visibility reads status",
+    "kind": "function_body", "signature": "public.client_may_see_creator(uuid)",
+    "marker": "s.status     = 'Approved'"
   }
 }
