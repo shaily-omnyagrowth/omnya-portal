@@ -281,7 +281,7 @@ async function lookupYouTube(token, videoId, account, resolvedUrl) {
 async function lookupInstagram(token, videoId, account, resolvedUrl) {
   const m = await fetchInstagramViaMetaMetrics({ access_token: token }, { videoId }, {});
   if (m.error) {
-    if (m.error === 'ig_no_business_account') return fail(m.error, 'not_connected', null);
+    if (m.error === 'ig_no_business_account') return fail(m.error, 'not_linked', null);
     if (m.content) return fail('video_not_on_account', 'not_yours', 404);
     if (m.auth) return fail('instagram_reauth_required', 'not_connected', 401);
     return fail(m.error, 'provider', null);
@@ -310,7 +310,7 @@ async function lookupFacebook(token, videoId, account, resolvedUrl) {
   if (resp.status === 401 || data?.error?.code === 190) return fail('facebook_reauth_required', 'not_connected', 401);
   if (!resp.ok) return fail(`fb_accounts_http_${resp.status}`, 'provider', resp.status);
   const pages = (data.data || []).filter((p) => p && p.id && p.access_token);
-  if (!pages.length) return fail('fb_no_pages', 'not_connected', null);
+  if (!pages.length) return fail('fb_no_pages', 'not_linked', null);
 
   const id = String(videoId);
   for (const page of pages) {

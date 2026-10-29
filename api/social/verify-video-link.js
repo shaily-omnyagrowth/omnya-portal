@@ -105,6 +105,12 @@ module.exports = async (req, res) => {
     if (fetchResult.kind === 'not_connected') {
       return Errors.unprocessable(res, `Connect ${label} on the Social Channels page to verify ${label} videos.`, { code: 'not_connected' });
     }
+    if (fetchResult.kind === 'not_linked') {
+      const msg = label === 'Instagram'
+        ? 'No Instagram professional account is linked to your Facebook Pages. Link it in Instagram (Accounts Center), then reconnect Instagram.'
+        : "Your Facebook login doesn't include any Pages. Reconnect Facebook and select your Page.";
+      return Errors.unprocessable(res, msg, { code: fetchResult.error });
+    }
     if (fetchResult.kind === 'not_yours') {
       return Errors.unprocessable(res, `This video isn't on the connected ${label} account.`, { code: 'author_mismatch' });
     }

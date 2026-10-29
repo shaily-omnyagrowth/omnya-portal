@@ -211,7 +211,7 @@ function stubFetch(list) {
   R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl)).kind === 'not_yours', 'reel not in the linked account is refused');
 
   stubFetch([{ status: 200, body: { data: [] } }]);
-  R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl)).kind === 'not_connected', 'no Instagram account linked to a Page is not connected');
+  R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl)).kind === 'not_linked', 'no Instagram account linked to a Page is reported as not linked');
 
   const fbUrl = 'https://www.facebook.com/watch/?v=1234567890';
   const fbPages = { status: 200, body: { data: [{ id: 'P1', access_token: 'page-tok' }] } };
