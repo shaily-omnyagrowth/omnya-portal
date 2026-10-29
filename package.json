@@ -16,6 +16,8 @@
   },
   "scripts": {
     "start": "react-scripts start",
+    "dev": "BROWSER=none react-scripts start & node tests/lib/devServer.cjs",
+    "portless": "BROWSER=none react-scripts start & portless omnya-portal node tests/lib/devServer.cjs",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
