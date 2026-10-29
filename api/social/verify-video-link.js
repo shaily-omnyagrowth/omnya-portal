@@ -2,20 +2,22 @@
 //
 // POST /api/social/verify-video-link
 //   Headers: Authorization: Bearer <supabase-jwt>
-//   Body:    { url: string, handle?: string, platform?: string, submissionId?: uuid, creatorId?: uuid }
+//   Body:    { url: string, submissionId?: uuid, creatorId?: uuid }
 //
-// Single video link verification for TikTok, Instagram, and YouTube (spec 0003).
-// TikTok and YouTube videos are checked only through the creator's connected
-// login, which proves ownership. Instagram unrolls mobile redirects, queries
-// ScrapeCreators for the single video and confirms the author matches the
-// creator handle. Then it writes verified views and analytics.
+// Single video link verification for TikTok, Instagram, YouTube and Facebook
+// (spec 0003). Every video is checked through the creator's connected login on
+// that platform, which proves ownership, then verified views and analytics are
+// written.
 
 const { applyCors } = require('../_utils/cors');
 const { requireRole, normalizeRole } = require('../_utils/auth');
 const { Errors, sendOk } = require('../_utils/errors');
 const { applyRateLimit } = require('../_utils/rateLimit');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
-const { fetchPublicVideo, fetchOwnVideo, isAuthorMatch, normalizeHandle } = require('../_utils/socialPublic');
+const { fetchOwnVideo } = require('../_utils/socialPublic');
+const { detectPlatformFromUrl } = require('../_utils/analytics');
+
+const PLATFORM_LABELS = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook' };
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -39,8 +41,6 @@ module.exports = async (req, res) => {
   }
 
   const rawUrl = body && typeof body.url === 'string' ? body.url.trim() : '';
-  const rawHandle = body && typeof body.handle === 'string' ? body.handle.trim() : '';
-  const platform = body && typeof body.platform === 'string' ? body.platform.trim() : '';
   const submissionId = body && typeof body.submissionId === 'string' ? body.submissionId.trim() : null;
   const creatorId = body && typeof body.creatorId === 'string' ? body.creatorId.trim() : null;
 
@@ -97,48 +97,24 @@ module.exports = async (req, res) => {
 
   const ownerUserId = role === 'creator' ? ctx.user.id : (target && target.user_id) || null;
 
-  // 2. TikTok and YouTube: only through the creator's connected login
-  let fetchResult = await fetchOwnVideo(supabase, ownerUserId, rawUrl);
-  const label = fetchResult.platform === 'youtube' || /youtu/i.test(rawUrl) ? 'YouTube' : 'TikTok';
+  // 2. Only through the creator's connected login on that platform
+  const fetchResult = await fetchOwnVideo(supabase, ownerUserId, rawUrl);
+  const label = PLATFORM_LABELS[detectPlatformFromUrl(rawUrl)] || 'that platform';
 
-  if (fetchResult.ok) {
-    if (!fetchResult.video.authorHandle) fetchResult.video.authorHandle = normalizeHandle(rawHandle);
-  } else if (fetchResult.kind === 'not_connected') {
-    return Errors.unprocessable(res, `Connect ${label} on the Social Channels page to verify ${label} videos.`, { code: 'not_connected' });
-  } else if (fetchResult.kind === 'not_yours') {
-    return Errors.unprocessable(res, `This video isn't on the connected ${label} account.`, { code: 'author_mismatch' });
-  } else if (fetchResult.kind === 'provider') {
-    return Errors.badGateway(res, `${label} is unavailable right now. Please try again in a few moments.`);
-  } else if (fetchResult.kind === 'validation') {
+  if (!fetchResult.ok) {
+    if (fetchResult.kind === 'not_connected') {
+      return Errors.unprocessable(res, `Connect ${label} on the Social Channels page to verify ${label} videos.`, { code: 'not_connected' });
+    }
+    if (fetchResult.kind === 'not_yours') {
+      return Errors.unprocessable(res, `This video isn't on the connected ${label} account.`, { code: 'author_mismatch' });
+    }
+    if (fetchResult.kind === 'provider') {
+      return Errors.badGateway(res, `${label} is unavailable right now. Please try again in a few moments.`);
+    }
+    if (fetchResult.kind === 'not_supported') {
+      return Errors.badRequest(res, 'Paste a TikTok, Instagram, YouTube or Facebook video link.');
+    }
     return Errors.badRequest(res, `Could not read the video from this ${label} link.`);
-  } else {
-    // 3. Instagram: fetch the single video from the provider
-    if (!rawHandle) {
-      return Errors.badRequest(res, 'An account handle is required to verify ownership.');
-    }
-    fetchResult = await fetchPublicVideo({ url: rawUrl, platform });
-    if (!fetchResult.ok) {
-      if (fetchResult.kind === 'provider') {
-        return Errors.badGateway(res, 'Social data service is currently unavailable. Please try again in a few moments.');
-      }
-      if (fetchResult.kind === 'not_found') {
-        return Errors.notFound(res, 'Video could not be found. Please check that the link is correct and publicly viewable.');
-      }
-      return Errors.badRequest(res, fetchResult.error || 'Could not fetch video details.');
-    }
-
-    // Author verification
-    if (!isAuthorMatch(fetchResult.video.authorHandle, rawHandle)) {
-      return Errors.unprocessable(
-        res,
-        `This video was posted by @${fetchResult.video.authorHandle || 'another account'}, not @${normalizeHandle(rawHandle)}.`,
-        {
-          code: 'author_mismatch',
-          actualAuthor: fetchResult.video.authorHandle,
-          expectedAuthor: normalizeHandle(rawHandle),
-        }
-      );
-    }
   }
 
   const video = fetchResult.video;
@@ -152,7 +128,7 @@ module.exports = async (req, res) => {
     const updatePayload = {
       view_count_verified: newViews,
       view_count_verified_at: nowIso,
-      verified_views_source: fetchResult.source === 'oauth' ? 'oauth' : 'link',
+      verified_views_source: 'oauth',
       posted_link: fetchResult.resolvedUrl,
       posted_url: fetchResult.resolvedUrl,
       likes: video.likes || 0,

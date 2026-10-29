@@ -177,7 +177,7 @@ function stubFetch(list) {
   stubFetch([{ status: 500, body: {} }]);
   R((await fetchOwnVideo(fakeSupabase(null), 'user-1', ownUrl)).kind === 'not_connected' && calls.length === 0, 'no connected login is refused without calling TikTok');
   R((await fetchOwnVideo(fakeSupabase(tiktokRow), null, ownUrl)).kind === 'not_connected', 'no creator to check is refused');
-  R((await fetchOwnVideo(fakeSupabase(tiktokRow), 'user-1', 'https://www.instagram.com/reel/C9xyz123/')).kind === 'not_supported', 'Instagram link is left to the ScrapeCreators path');
+  R((await fetchOwnVideo(fakeSupabase(tiktokRow), 'user-1', 'https://vimeo.com/123456')).kind === 'not_supported', 'unsupported link is refused');
 
   console.log('\n--- YouTube ownership through the connected login ---');
   const ytRow = { ...tiktokRow, platform: 'youtube', platform_user_id: 'UC_mine' };
@@ -197,6 +197,31 @@ function stubFetch(list) {
 
   stubFetch([{ status: 200, body: { items: [{ id: 'UC_mine' }] } }, ytVideo('UC_mine')]);
   R((await fetchOwnVideo(fakeSupabase({ ...ytRow, platform_user_id: null }), 'user-1', ytUrl)).ok, 'looks up the channel when it was not stored at connect');
+
+  console.log('\n--- Instagram and Facebook through the connected Facebook login ---');
+  const metaRow = { ...tiktokRow, platform: 'facebook', metadata: { provider: 'meta', flow: 'meta' } };
+  const igUrl = 'https://www.instagram.com/reel/C9xyz123/';
+  const igAccounts = { status: 200, body: { data: [{ instagram_business_account: { id: 'IG1' } }] } };
+
+  stubFetch([igAccounts, { status: 200, body: { data: [{ id: 'm1', shortcode: 'C9xyz123', like_count: 7, comments_count: 2 }] } }, { status: 200, body: { data: [{ name: 'views', values: [{ value: 300 }] }] } }]);
+  const ig = await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl);
+  R(ig.ok && ig.platform === 'instagram' && ig.video.views === 300 && ig.video.likes === 7, 'reel in the linked Instagram account is verified');
+
+  stubFetch([igAccounts, { status: 200, body: { data: [{ id: 'm2', shortcode: 'OTHER', like_count: 1 }] } }]);
+  R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl)).kind === 'not_yours', 'reel not in the linked account is refused');
+
+  stubFetch([{ status: 200, body: { data: [] } }]);
+  R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', igUrl)).kind === 'not_connected', 'no Instagram account linked to a Page is not connected');
+
+  const fbUrl = 'https://www.facebook.com/watch/?v=1234567890';
+  const fbPages = { status: 200, body: { data: [{ id: 'P1', access_token: 'page-tok' }] } };
+  stubFetch([fbPages, { status: 200, body: { from: { id: 'P1' }, likes: { summary: { total_count: 9 } }, comments: { summary: { total_count: 1 } } } }]);
+  const fb = await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', fbUrl);
+  R(fb.ok && fb.platform === 'facebook' && fb.video.likes === 9, 'video posted by the creator Page is verified');
+  R(calls[1] && calls[1].url.includes('page-tok'), 'reads the video with the Page token');
+
+  stubFetch([fbPages, { status: 200, body: { from: { id: 'SOMEONE_ELSE' } } }, { status: 400, body: {} }]);
+  R((await fetchOwnVideo(fakeSupabase(metaRow), 'user-1', fbUrl)).kind === 'not_yours', 'video from another Page is refused');
 
   console.log(`\n========================================`);
   console.log(`Results: ${pass} passed, ${fail} failed`);

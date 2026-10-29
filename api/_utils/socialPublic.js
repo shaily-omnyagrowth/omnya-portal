@@ -6,7 +6,9 @@
 
 const {
   resolveShortLink, detectPlatformFromUrl, normalizePlatformLabel, extractVideoId, fetchTikTokMetrics,
+  fetchInstagramViaMetaMetrics,
 } = require('./analytics');
+const { facebookGraph } = require('./meta');
 const { refreshIfNeeded } = require('./tokenRefresh');
 
 const BASE_URL = 'https://api.scrapecreators.com';
@@ -209,7 +211,9 @@ async function fetchPublicVideo({ url, platform }) {
   };
 }
 
-const LOGIN_PLATFORMS = new Set(['tiktok', 'youtube']);
+const LOGIN_PLATFORMS = new Set(['tiktok', 'youtube', 'instagram', 'facebook']);
+// Instagram and Facebook both connect through Facebook login, stored on the facebook row
+const STORAGE_PLATFORM = { tiktok: 'tiktok', youtube: 'youtube', instagram: 'facebook', facebook: 'facebook' };
 
 // TikTok: video/query only returns videos owned by the token's account.
 async function lookupTikTok(token, videoId, account, resolvedUrl) {
@@ -273,7 +277,70 @@ async function lookupYouTube(token, videoId, account, resolvedUrl) {
   };
 }
 
-// Looks the video up with the creator's own TikTok or YouTube login, which
+// Instagram: the post must be in the media of the Instagram account linked to the creator's Page.
+async function lookupInstagram(token, videoId, account, resolvedUrl) {
+  const m = await fetchInstagramViaMetaMetrics({ access_token: token }, { videoId }, {});
+  if (m.error) {
+    if (m.error === 'ig_no_business_account') return fail(m.error, 'not_connected', null);
+    if (m.content) return fail('video_not_on_account', 'not_yours', 404);
+    if (m.auth) return fail('instagram_reauth_required', 'not_connected', 401);
+    return fail(m.error, 'provider', null);
+  }
+  const r = m.raw || {};
+  return {
+    id: String(r.id || videoId),
+    url: resolvedUrl,
+    title: null,
+    thumbnailUrl: null,
+    durationSeconds: null,
+    postedAt: r.timestamp || null,
+    views: num(m.views),
+    likes: num(m.likes),
+    comments: num(m.comments),
+    shares: num(m.shares),
+  };
+}
+
+const FB_OWN_FIELDS = ['from,created_time,likes.summary(true),comments.summary(true),shares', 'from,created_time,likes.summary(true),comments.summary(true)'];
+
+// Facebook: the post must read with one of the creator's Page tokens and be posted by that Page.
+async function lookupFacebook(token, videoId, account, resolvedUrl) {
+  const resp = await fetch(`${facebookGraph('me/accounts')}?fields=id,access_token&limit=25&access_token=${encodeURIComponent(token)}`);
+  const data = await resp.json().catch(() => ({}));
+  if (resp.status === 401 || data?.error?.code === 190) return fail('facebook_reauth_required', 'not_connected', 401);
+  if (!resp.ok) return fail(`fb_accounts_http_${resp.status}`, 'provider', resp.status);
+  const pages = (data.data || []).filter((p) => p && p.id && p.access_token);
+  if (!pages.length) return fail('fb_no_pages', 'not_connected', null);
+
+  const id = String(videoId);
+  for (const page of pages) {
+    for (const objectId of id.includes('_') ? [id] : [id, `${page.id}_${id}`]) {
+      for (const fields of FB_OWN_FIELDS) {
+        const r = await fetch(`${facebookGraph(encodeURIComponent(objectId))}?fields=${fields}&access_token=${encodeURIComponent(page.access_token)}`);
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) continue;
+        if (!d.from || d.from.id !== page.id) break;
+        return {
+          id: objectId,
+          url: resolvedUrl,
+          title: null,
+          thumbnailUrl: null,
+          durationSeconds: null,
+          postedAt: d.created_time || null,
+          views: 0,
+          likes: num(d.likes?.summary?.total_count),
+          comments: num(d.comments?.summary?.total_count),
+          shares: num(d.shares?.count),
+        };
+      }
+    }
+  }
+  return fail('video_not_on_account', 'not_yours', 404);
+}
+
+const LOOKUPS = { tiktok: lookupTikTok, youtube: lookupYouTube, instagram: lookupInstagram, facebook: lookupFacebook };
+
+// Looks the video up with the creator's own login on that platform, which
 // proves ownership. Failure kinds: not_supported, validation, not_connected,
 // not_yours, provider.
 async function fetchOwnVideo(supabase, userId, url) {
@@ -292,7 +359,7 @@ async function fetchOwnVideo(supabase, userId, url) {
       'token_expires_at, refresh_token_expires_at, connection_status, metadata, created_at, updated_at'
     )
     .eq('user_id', userId)
-    .eq('platform', platform)
+    .eq('platform', STORAGE_PLATFORM[platform])
     .not('access_token_encrypted', 'is', null)
     .maybeSingle();
   if (!account) return fail(`${platform}_not_connected`, 'not_connected', null);
@@ -300,8 +367,7 @@ async function fetchOwnVideo(supabase, userId, url) {
   const refresh = await refreshIfNeeded(account, { supabase });
   if (!refresh.accessToken) return fail(`${platform}_reauth_required`, 'not_connected', null);
 
-  const lookup = platform === 'tiktok' ? lookupTikTok : lookupYouTube;
-  const v = await lookup(refresh.accessToken, videoId, account, resolvedUrl);
+  const v = await LOOKUPS[platform](refresh.accessToken, videoId, account, resolvedUrl);
   if (v.ok === false) return v;
 
   return {

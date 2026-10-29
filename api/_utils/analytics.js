@@ -865,6 +865,7 @@ module.exports = {
   // Per-platform fetchers (exported for testing; sync uses fetchPlatformMetrics)
   fetchPlatformMetrics,
   fetchTikTokMetrics,
+  fetchInstagramViaMetaMetrics,
   providerError,
   // Storage
   upsertVideoAnalytics,

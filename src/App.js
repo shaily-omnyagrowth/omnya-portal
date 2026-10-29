@@ -1658,7 +1658,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     concept_link: "",
     posted_link: "",
     platform: "TikTok",
-    handle: "",
     comment: "",
   });
   const [file, setFile] = useState(null);
@@ -1691,8 +1690,8 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
         const set = new Set();
         for (const a of data || []) {
           if (a.connection_status !== "connected") continue;
+          set.add(a.platform);
           if (a.platform === "facebook" && a.metadata?.flow === "meta") set.add("instagram");
-          else set.add(a.platform);
         }
         setConnectedPlatforms(set);
       });
@@ -1703,57 +1702,22 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     c=>(c.assigned_creators||[]).includes(creator?.id)&&c.status!=="Completed"&&c.status!=="Archived"
   );
 
-  const getProfileHandle = (platform) => {
-    if (!creator) return "";
-    const p = (platform || "").toLowerCase();
-    if (p === "tiktok") return creator.tiktok_handle || "";
-    if (p === "instagram") return creator.instagram_handle || "";
-    if (p === "youtube") return creator.youtube_handle || "";
-    return "";
-  };
-
-  // Pre-fill platform handle from creator profile when creator or platform changes
-  useEffect(() => {
-    if (creator) {
-      const defaultHandle = getProfileHandle(form.platform);
-      setForm(f => {
-        if (!f.handle && defaultHandle) {
-          return { ...f, handle: defaultHandle };
-        }
-        return f;
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [creator?.id, form.platform]);
-
   const handlePlatformChange = (newPlatform) => {
-    const oldDefault = getProfileHandle(form.platform);
-    const newDefault = getProfileHandle(newPlatform);
-    setForm(f => ({
-      ...f,
-      platform: newPlatform,
-      handle: (!f.handle || f.handle === oldDefault) ? newDefault : f.handle,
-    }));
+    setForm(f => ({ ...f, platform: newPlatform }));
     setVerifiedVideo(null);
     setVerifyErr("");
   };
 
-  const verifyLink = async (targetUrl, targetHandle, targetPlatform) => {
+  const verifyLink = async (targetUrl, targetPlatform) => {
     const url = (targetUrl || form.concept_link || "").trim();
-    const handle = (targetHandle || form.handle || "").trim();
     const platform = (targetPlatform || form.platform || "TikTok").trim();
-    const byLogin = platform === "TikTok" || platform === "YouTube";
 
     if (!url) {
       setVerifyErr("Please enter a video link first.");
       return null;
     }
-    if (byLogin && !isConnected(platform)) {
+    if (!isConnected(platform)) {
       setVerifyErr(`Connect ${platform} on the Social Channels page to verify ${platform} videos.`);
-      return null;
-    }
-    if (!handle && !byLogin) {
-      setVerifyErr("Please enter your account handle to verify ownership.");
       return null;
     }
 
@@ -1774,7 +1738,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ url, handle, platform, creatorId: creator?.id }),
+        body: JSON.stringify({ url, creatorId: creator?.id }),
       });
 
       const data = await res.json().catch(() => ({}));
@@ -1886,10 +1850,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
       setErr(`Connect ${form.platform} on the Social Channels page to submit ${form.platform} videos`);
       return;
     }
-    if (form.type === "Final" && uploadMode === "link" && form.platform === "Instagram" && !form.handle) {
-      setErr("Please enter your account handle to verify ownership");
-      return;
-    }
     
     setSubmitting(true); setErr(""); setUploadProgress(0);
 
@@ -1910,7 +1870,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     let verified = verifiedVideo;
     if (form.type === "Final" && uploadMode === "link") {
       if (!verified) {
-        verified = await verifyLink(form.concept_link, form.handle, form.platform);
+        verified = await verifyLink(form.concept_link, form.platform);
         if (!verified) {
           setSubmitting(false);
           return;
@@ -1956,7 +1916,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
             body: JSON.stringify({
               submissionId: insertedSub.id,
               url: postedUrl,
-              handle: form.handle,
               platform: form.platform
             })
           });
@@ -1981,19 +1940,6 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
       })();
     }
 
-    // Save creator handle back to profile if not yet saved
-    if (form.type === "Final" && form.handle && creator?.id) {
-      const p = (form.platform || "").toLowerCase();
-      const cleanHandle = form.handle.trim().replace(/^@+/, "");
-      const patch = {};
-      if (p === "tiktok" && !creator.tiktok_handle) patch.tiktok_handle = cleanHandle;
-      if (p === "instagram" && !creator.instagram_handle) patch.instagram_handle = cleanHandle;
-      if (p === "youtube" && !creator.youtube_handle) patch.youtube_handle = cleanHandle;
-      if (Object.keys(patch).length > 0) {
-        supabase.from("creators").update(patch).eq("id", creator.id).then(() => {});
-      }
-    }
-
     // Email: notify AM about new submission
     try {
       const campaign = db.campaigns.find(c => c.id === form.campaign_id);
@@ -2014,7 +1960,7 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
     setFile(null);
     setUploadProgress(0);
     setSubmitting(false);
-    setForm({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",handle:"",comment:""});
+    setForm({campaign_id:myJobs[0]?.id||"",type:"Concept",concept_link:"",posted_link:"",platform:"TikTok",comment:""});
     setVerifiedVideo(null);
     setVerifyErr("");
     if (onRefresh) onRefresh();
@@ -2169,56 +2115,20 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
 
             {uploadMode==="link"&&(
               <div className="form-group">
-                {form.platform === "TikTok" || form.platform === "YouTube" ? (
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <div className="form-hint" style={{ flex: 1, margin: 0 }}>
-                      We check the video is yours through your connected {form.platform}.
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      onClick={() => verifyLink()}
-                      disabled={verifying || !form.concept_link || !isConnected(form.platform)}
-                      style={{ whiteSpace: "nowrap" }}
-                    >
-                      {verifying ? "⏳ Verifying..." : "⚡ Verify Video"}
-                    </button>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div className="form-hint" style={{ flex: 1, margin: 0 }}>
+                    We check the video is yours through your connected {form.platform}.
                   </div>
-                ) : (
-                  <>
-                    <label className="form-label">
-                      Platform Account Handle <span style={{color:"var(--ink3)",fontWeight:400}}>(must match the video author)</span>
-                    </label>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <div style={{ position: "relative", flex: 1 }}>
-                        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ink3)", fontWeight: 600 }}>@</span>
-                        <input
-                          className="form-input"
-                          style={{ paddingLeft: 28 }}
-                          placeholder="e.g. alex_ugc"
-                          value={form.handle}
-                          onChange={e => {
-                            setForm({ ...form, handle: e.target.value });
-                            setVerifiedVideo(null);
-                            setVerifyErr("");
-                          }}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() => verifyLink()}
-                        disabled={verifying || !form.concept_link || !form.handle}
-                        style={{ whiteSpace: "nowrap" }}
-                      >
-                        {verifying ? "⏳ Verifying..." : "⚡ Verify Video"}
-                      </button>
-                    </div>
-                    <div className="form-hint" style={{ marginTop: 4 }}>
-                      Pre filled from your profile. We verify that the author of the video matches your handle before recording views.
-                    </div>
-                  </>
-                )}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => verifyLink()}
+                    disabled={verifying || !form.concept_link || !isConnected(form.platform)}
+                    style={{ whiteSpace: "nowrap" }}
+                  >
+                    {verifying ? "⏳ Verifying..." : "⚡ Verify Video"}
+                  </button>
+                </div>
 
                 {verifyErr && (
                   <div style={{

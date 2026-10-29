@@ -182,8 +182,8 @@ function fmtRelative(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
-// Instagram connects through Facebook login (Meta isn't offering Instagram login on new apps)
-const flowFor = (platform) => (platform === 'instagram' ? 'meta' : platform);
+// Instagram and Facebook share one Facebook login (Meta isn't offering Instagram login on new apps)
+const flowFor = (platform) => (platform === 'instagram' || platform === 'facebook' ? 'meta' : platform);
 
 // Must match public/oauth-complete.js.
 const OAUTH_CHANNEL = 'omnya-oauth';

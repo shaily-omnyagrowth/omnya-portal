@@ -143,11 +143,10 @@ module.exports = async (req, res) => {
     }
 
     const byPlatform = new Map((data || []).map((r) => [r.platform, r]));
-    // The Instagram button uses the Meta flow, which stores on the facebook row
+    // One Facebook login connects both Instagram and Facebook; it is stored on the facebook row
     const fb = byPlatform.get('facebook');
-    if (fb && fb.metadata && fb.metadata.flow === 'meta') {
-      if (!byPlatform.has('instagram')) byPlatform.set('instagram', { ...fb, platform: 'instagram' });
-      byPlatform.delete('facebook');
+    if (fb && fb.metadata && fb.metadata.flow === 'meta' && !byPlatform.has('instagram')) {
+      byPlatform.set('instagram', { ...fb, platform: 'instagram' });
     }
     // One entry per known platform, 'not_connected' for the ones with no row.
     const connections = PLATFORMS.map((p) =>
