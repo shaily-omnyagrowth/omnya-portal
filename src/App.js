@@ -2398,7 +2398,11 @@ function CreatorInsights({ user, db, onRefresh }) {
               return (
                 <div key={s.id} className="card mb-8" style={{cursor:"pointer",border:selected===s.id?"1px solid var(--ink)":"1px solid var(--border)"}} onClick={()=>setSelected(s.id)}>
                   <div className="flex-between">
-                    <div><div className="fw-600 fs-13" style={{marginBottom:2}}>{camp?.name}</div><div style={{fontSize:11,color:"var(--ink3)"}}>{s.platform} · Approved {fmtDate(s.approved_date)}</div></div>
+                    <div style={{minWidth:0}}>
+                      <div className="fw-600 fs-13" style={{marginBottom:2}}>{camp?.name}</div>
+                      <div style={{fontSize:11,color:"var(--ink3)"}}>{s.platform} · Submitted {fmtDateTime(s.created_at)} · Approved {fmtDate(s.approved_date)}</div>
+                      {(s.posted_link||s.posted_url)&&<a href={s.posted_link||s.posted_url} target="_blank" rel="noreferrer" className="link" onClick={e=>e.stopPropagation()} style={{fontSize:11,display:"block",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(s.posted_link||s.posted_url).replace(/^https?:\/\/(www\.)?/,"").split("?")[0]} ↗</a>}
+                    </div>
                     {AI_INSIGHTS_ENABLED&&(ins?<div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20,color:scoreColor(ins.score)}}>{ins.score}</div>:<span className="badge badge-gray">No score</span>)}
                   </div>
                 </div>
