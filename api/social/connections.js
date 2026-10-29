@@ -134,7 +134,7 @@ module.exports = async (req, res) => {
 
     const { data, error } = await supabase
       .from('creator_social_accounts')
-      .select(PUBLIC_COLUMNS.join(', '))
+      .select([...PUBLIC_COLUMNS, 'refresh_token_encrypted'].join(', '))
       .eq('user_id', targetUserId);
 
     if (error) {

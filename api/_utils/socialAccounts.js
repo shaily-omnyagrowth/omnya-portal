@@ -135,9 +135,12 @@ function storagePlatform(platform) {
 function needsReauth(row) {
   if (!row) return false;
   if (REAUTH_STATUSES.has(row.connection_status)) return true;
-  // A live token that has already passed its expiry is equally dead.
+  // An expired token is dead unless a live refresh token can renew it.
   if (row.connection_status === 'connected' && row.token_expires_at) {
-    return new Date(row.token_expires_at).getTime() < Date.now();
+    if (new Date(row.token_expires_at).getTime() >= Date.now()) return false;
+    const canRefresh = row.refresh_token_encrypted &&
+      (!row.refresh_token_expires_at || new Date(row.refresh_token_expires_at).getTime() > Date.now());
+    return !canRefresh;
   }
   return false;
 }

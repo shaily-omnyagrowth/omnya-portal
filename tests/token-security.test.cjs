@@ -225,6 +225,10 @@ async function refreshDecisions() {
       'and the reason is recorded for the UI', String(w2 && w2.values.last_error).slice(0, 50));
     R(social.needsReauth({ connection_status: social.STATUS_REAUTH }) === true,
       'needsReauth() reports that row as needing the creator');
+    const expired = { connection_status: 'connected', token_expires_at: new Date(Date.now() - 60000).toISOString() };
+    R(social.needsReauth(expired) === true, 'needsReauth() flags an expired token with no refresh token');
+    R(social.needsReauth({ ...expired, refresh_token_encrypted: 'x' }) === false,
+      'needsReauth() does not flag an expired token that a refresh token can renew');
 
     // 6. Instagram's 24h rule: a young token must not be reported as broken.
     calls = 0;
