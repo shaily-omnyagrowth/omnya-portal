@@ -1644,6 +1644,13 @@ function JobBoard({ user, db, onRefresh }) {
 // a submission on a creator's behalf when something has to be recorded
 // out-of-band. The owner is not a creator, so in override mode the creator is
 // picked from a dropdown instead of resolved from the session.
+const linkPlatform = (url) =>
+  /tiktok\.com/i.test(url) ? "TikTok"
+  : /instagram\.com/i.test(url) ? "Instagram"
+  : /youtube\.com|youtu\.be/i.test(url) ? "YouTube"
+  : /facebook\.com|fb\.watch/i.test(url) ? "Facebook"
+  : null;
+
 function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
   const ownCreator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
 
@@ -1713,6 +1720,11 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
 
     if (!url) {
       setVerifyErr("Please enter a video link first.");
+      return null;
+    }
+    const detected = linkPlatform(url);
+    if (detected && detected !== platform) {
+      setVerifyErr(`This is a ${detected} link. Set Platform to ${detected}.`);
       return null;
     }
     if (!isConnected(platform)) {
@@ -2084,7 +2096,8 @@ function SubmitContent({ user, db, onRefresh, setPage, isOverride = false }) {
                 placeholder={form.type==="Concept" ? "https://loom.com/share/..." : "e.g. https://vt.tiktok.com/... or https://www.instagram.com/reel/..."}
                 value={form.concept_link}
                 onChange={e => {
-                  setForm({ ...form, concept_link: e.target.value });
+                  const detected = form.type==="Final" ? linkPlatform(e.target.value) : null;
+                  setForm({ ...form, concept_link: e.target.value, ...(detected ? { platform: detected } : {}) });
                   setVerifiedVideo(null);
                   setVerifyErr("");
                 }}
