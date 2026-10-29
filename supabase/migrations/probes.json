@@ -118,5 +118,9 @@
     "label": "Submission review audit reads status",
     "kind": "function_body", "signature": "public.audit_submission_review()",
     "marker": "'submission_review'"
+  },
+  "20261029000000_submission_thumbnail.sql": {
+    "label": "Submission video thumbnail",
+    "kind": "columns", "table": "public.submissions", "columns": ["thumbnail_url"]
   }
 }

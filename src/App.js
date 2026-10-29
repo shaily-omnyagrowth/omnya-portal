@@ -2395,13 +2395,17 @@ function CreatorInsights({ user, db, onRefresh }) {
             {approvedSubs.map(s=>{
               const camp=db.campaigns.find(c=>c.id===s.campaign_id);
               const ins=s.ai_insights;
+              const link=s.posted_link||s.posted_url;
+              const ytId=link&&(link.match(/(?:[?&]v=|youtu\.be\/|youtube\.com\/(?:shorts|live|embed)\/)([A-Za-z0-9_-]{6,})/)||[])[1];
+              const thumb=s.thumbnail_url||(ytId?`https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`:null);
               return (
                 <div key={s.id} className="card mb-8" style={{cursor:"pointer",border:selected===s.id?"1px solid var(--ink)":"1px solid var(--border)"}} onClick={()=>setSelected(s.id)}>
-                  <div className="flex-between">
-                    <div style={{minWidth:0}}>
+                  <div className="flex-between" style={{gap:12}}>
+                    {thumb&&<img src={thumb} alt="" onError={e=>{e.currentTarget.style.display="none";}} style={{width:56,height:72,objectFit:"cover",borderRadius:"var(--radius-sm)",flexShrink:0,background:"var(--bg2)"}}/>}
+                    <div style={{minWidth:0,flex:1}}>
                       <div className="fw-600 fs-13" style={{marginBottom:2}}>{camp?.name}</div>
                       <div style={{fontSize:11,color:"var(--ink3)"}}>{s.platform} · Submitted {fmtDateTime(s.created_at)} · Approved {fmtDate(s.approved_date)}</div>
-                      {(s.posted_link||s.posted_url)&&<a href={s.posted_link||s.posted_url} target="_blank" rel="noreferrer" className="link" onClick={e=>e.stopPropagation()} style={{fontSize:11,display:"block",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{(s.posted_link||s.posted_url).replace(/^https?:\/\/(www\.)?/,"").split("?")[0]} ↗</a>}
+                      {link&&<a href={link} target="_blank" rel="noreferrer" className="link" onClick={e=>e.stopPropagation()} style={{fontSize:11,display:"block",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{link.replace(/^https?:\/\/(www\.)?/,"").split("?")[0]} ↗</a>}
                     </div>
                     {AI_INSIGHTS_ENABLED&&(ins?<div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20,color:scoreColor(ins.score)}}>{ins.score}</div>:<span className="badge badge-gray">No score</span>)}
                   </div>
