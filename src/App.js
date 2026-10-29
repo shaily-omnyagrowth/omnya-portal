@@ -2264,7 +2264,7 @@ function MySubmissions({ user, db }) {
                 </div>
 
                 <div className="heading-md" style={{marginBottom: 4, lineHeight: 1.2}}>{camp?.name || "Unknown Campaign"}</div>
-                <div className="fs-12 text-muted mb-16">Submitted on {fmtDate(s.created_at)}</div>
+                <div className="fs-12 text-muted mb-16">Submitted on {new Date(s.created_at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
 
                 {s.submission_type === "Final" && (s.posted_link || s.posted_url) && (
                   <div style={{ margin: "0 0 16px 0", padding: "10px 12px", background: "var(--bg2)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border2)" }}>
