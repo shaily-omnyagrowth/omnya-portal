@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import React from "react";
 import { supabase, SUPABASE_URL } from "./supabaseClient";
-import { getAvatarColor, getInitials, fmtDate, fmtMoney, fmtNum, statusBadge, scoreColor, fmtCompactNum, fmtRelativeTime, platformMeta, calcPacing, isBreakoutVideo } from "./utils";
+import { getAvatarColor, getInitials, fmtDate, fmtDateTime, fmtMoney, fmtNum, statusBadge, scoreColor, fmtCompactNum, fmtRelativeTime, platformMeta, calcPacing, isBreakoutVideo } from "./utils";
 const Legal = React.lazy(() => import('./pages/Legal'));
 const Landing = React.lazy(() => import('./pages/Landing'));
 const CreatorDashboard = React.lazy(() => import('./pages/CreatorDashboard'));
@@ -2264,7 +2264,7 @@ function MySubmissions({ user, db }) {
                 </div>
 
                 <div className="heading-md" style={{marginBottom: 4, lineHeight: 1.2}}>{camp?.name || "Unknown Campaign"}</div>
-                <div className="fs-12 text-muted mb-16">Submitted on {new Date(s.created_at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
+                <div className="fs-12 text-muted mb-16">Submitted on {fmtDateTime(s.created_at)}</div>
 
                 {s.submission_type === "Final" && (s.posted_link || s.posted_url) && (
                   <div style={{ margin: "0 0 16px 0", padding: "10px 12px", background: "var(--bg2)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border2)" }}>
@@ -2771,7 +2771,7 @@ function ReviewQueue({ db, onRefresh, user }) {
             <div style={{fontSize:11,color:isUrgent?"var(--red)":"var(--ink3)",fontWeight:isUrgent?600:400}}>
               {isUrgent?"🚨 ":""}{days}d waiting
             </div>
-            <div style={{fontSize:11,color:"var(--ink3)"}}>{fmtDate(s.created_at)}</div>
+            <div style={{fontSize:11,color:"var(--ink3)"}}>{fmtDateTime(s.created_at)}</div>
           </div>
         </div>
 

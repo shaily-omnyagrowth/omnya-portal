@@ -11,6 +11,7 @@ export const getAvatarColor = (name) => avatarColors[(name||"?").charCodeAt(0) %
 export const getInitials = (name) => (name||"?").split(" ").map(n=>n[0]).join("").toUpperCase().slice(0,2);
 
 export const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—";
+export const fmtDateTime = (d) => d ? new Date(d).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "—";
 
 export const fmtMoney = (n) => n != null ? `$${Number(n).toLocaleString()}` : "—";
 
