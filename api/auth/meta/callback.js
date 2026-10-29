@@ -27,7 +27,7 @@ const { upsertSocialAccount } = require('../../_utils/socialAccounts');
 const { graphVersion } = require('../../_utils/meta');
 
 function redirectBack(res, params) {
-  return finishOAuth(res, appBaseUrl(), { platform: 'facebook', error: params.error, connected: params.connected });
+  return finishOAuth(res, appBaseUrl(), { platform: params.connected || 'facebook', error: params.error, connected: params.connected });
 }
 
 async function fetchLongLivedToken({ appId, appSecret, shortToken }) {
@@ -162,7 +162,7 @@ module.exports = async (req, res) => {
       return redirectBack(res, { error: 'meta_storage_failed' });
     }
 
-    return redirectBack(res, { connected: 'facebook' });
+    return redirectBack(res, { connected: flowPlatform === 'meta' ? 'instagram' : 'facebook' });
   } catch (err) {
     console.error('[meta/callback] unexpected error:', err && err.message);
     return redirectBack(res, { error: 'meta_server_error' });

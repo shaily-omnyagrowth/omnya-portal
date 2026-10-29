@@ -134,7 +134,7 @@ module.exports = async (req, res) => {
 
     const { data, error } = await supabase
       .from('creator_social_accounts')
-      .select(PUBLIC_COLUMNS.join(', '))
+      .select([...PUBLIC_COLUMNS, 'metadata'].join(', '))
       .eq('user_id', targetUserId);
 
     if (error) {
@@ -143,6 +143,12 @@ module.exports = async (req, res) => {
     }
 
     const byPlatform = new Map((data || []).map((r) => [r.platform, r]));
+    // The Instagram button uses the Meta flow, which stores on the facebook row
+    const fb = byPlatform.get('facebook');
+    if (fb && fb.metadata && fb.metadata.flow === 'meta') {
+      if (!byPlatform.has('instagram')) byPlatform.set('instagram', { ...fb, platform: 'instagram' });
+      byPlatform.delete('facebook');
+    }
     // One entry per known platform, 'not_connected' for the ones with no row.
     const connections = PLATFORMS.map((p) =>
       shapeRow(byPlatform.get(p) || { platform: p, connection_status: 'not_connected' })

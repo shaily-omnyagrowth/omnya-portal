@@ -182,6 +182,9 @@ function fmtRelative(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
+// Instagram connects through Facebook login (Meta isn't offering Instagram login on new apps)
+const flowFor = (platform) => (platform === 'instagram' ? 'meta' : platform);
+
 // Must match public/oauth-complete.js.
 const OAUTH_CHANNEL = 'omnya-oauth';
 const OAUTH_STORAGE_KEY = 'omnya_oauth_result';
@@ -424,7 +427,7 @@ export default function CreatorConnections({ currentUser }) {
 
     setConnectingModal({ platform, status: 'opening' });
     try {
-      const res = await fetch(`/api/auth/${platform}/start`, {
+      const res = await fetch(`/api/auth/${flowFor(platform)}/start`, {
         method: 'POST',
         headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
       });
@@ -462,7 +465,7 @@ export default function CreatorConnections({ currentUser }) {
       const res = await fetch('/api/auth/disconnect', {
         method: 'POST',
         headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform }),
+        body: JSON.stringify({ platform: flowFor(platform) }),
       });
       const json = await res.json().catch(() => ({}));
 
