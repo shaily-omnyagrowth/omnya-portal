@@ -2713,8 +2713,9 @@ function ReviewQueue({ db, onRefresh, user }) {
         (myAM && db.creators.some(c => c.id === s.creator_id && c.am_id === myAM.id))
       );
 
-  const concepts = scopedSubmissions.filter(s=>s.status==="Submitted");
-  const finals = scopedSubmissions.filter(s=>s.status==="Under Review");
+  const isWaiting = (s) => s.status==="Submitted" || s.status==="Under Review";
+  const concepts = scopedSubmissions.filter(s=>isWaiting(s) && s.submission_type!=="Final");
+  const finals = scopedSubmissions.filter(s=>isWaiting(s) && s.submission_type==="Final");
   const revisions = scopedSubmissions.filter(s=>s.status==="Revision Requested");
 
   const getDaysWaiting = (dateStr) => {
@@ -2845,7 +2846,7 @@ function ReviewQueue({ db, onRefresh, user }) {
     const client = db.clients.find(c=>c.id===campaign?.client_id);
     const days = getDaysWaiting(s.created_at);
     const isUrgent = days >= 3;
-    const videoLink = tab==="finals" ? s.posted_link : s.concept_link;
+    const videoLink = s.submission_type==="Final" ? (s.posted_link || s.posted_url) : s.concept_link;
 
     return (
       <div key={s.id} className="review-card" style={{borderLeft: isUrgent?"3px solid var(--red)":"3px solid var(--border)"}}>
@@ -2869,7 +2870,7 @@ function ReviewQueue({ db, onRefresh, user }) {
           <div style={{margin:"10px 0",padding:"10px 12px",background:"var(--bg2)",borderRadius:"var(--radius-sm)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
             <div>
               <span style={{fontSize:12,color:"var(--ink3)"}}>
-                {tab==="concepts"?"📽️ Concept":"🎬 Final"} · {campaign?.format || s.platform || "Video"}
+                {s.submission_type==="Final"?"🎬 Final":"📽️ Concept"} · {s.platform || campaign?.format || "Video"}
               </span>
               {s.view_count_verified != null && Number(s.view_count_verified) > 0 && (
                 <div style={{ fontSize: 11, color: "var(--green)", fontWeight: 600, marginTop: 2 }}>
