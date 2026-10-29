@@ -40,6 +40,10 @@ const code = (p) => read(p)
   .replace(/^[ 	]*\{\/\*[\s\S]*?\*\/\}[ 	]*$/gm, '')
   .replace(/^[ 	]*\/\/.*$/gm, '');
 
+const srcCode = (dir = 'src') => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })
+  .map(e => e.isDirectory() ? srcCode(path.join(dir, e.name)) : /\.js$/.test(e.name) ? code(path.join(dir, e.name)) : '')
+  .join('\n');
+
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
   console.log('  ' + (ok ? 'PASS   ' : 'FAIL   ') + label + (detail ? '   ' + detail : ''));
@@ -116,7 +120,7 @@ console.log('\n=== Guards against defects that have already happened once');
 
 // ---- P0-B -------------------------------------------------------------------
 {
-  const app = code('src/App.js');
+  const app = srcCode();
   R(!/sales_commission_rate\s*:[^,\n]*\?[^,\n]*:\s*0\b/.test(app),
     'the UI never writes a sales rate of 0 (only 10/20/30% are valid; is_sales_sourced decides whether it applies)');
 
@@ -124,7 +128,7 @@ console.log('\n=== Guards against defects that have already happened once');
     'manager commission is charged once, not as "AM cost" plus "manager cost"');
 
   // The financial handlers must go through updateRows (which reports refusals).
-  const detail = app.slice(app.indexOf('function CampaignDetail('), app.indexOf('function ClientsPage(') > -1 ? app.indexOf('export function ClientsPage(') : undefined);
+  const detail = code('src/pages/campaigns/CampaignDetail.js');
   const bare = (detail.match(/await supabase\.from\("campaigns"\)\.update\([^)]*(sales_commission_rate|manager_commission_rate|show_client_cpm|is_sales_sourced)/g) || []);
   R(bare.length === 0, 'no commission / CPM write in CampaignDetail discards its result', bare.length + ' bare write(s)');
 
@@ -134,8 +138,8 @@ console.log('\n=== Guards against defects that have already happened once');
 
 // ---- P2 ---------------------------------------------------------------------
 {
-  const app = code('src/App.js');
-  const board = app.slice(app.indexOf('function JobBoard('), app.indexOf('function SubmitContent(') > -1 ? app.indexOf('function SubmitContent(') : app.indexOf('function JobBoard(') + 9000);
+  const app = srcCode();
+  const board = code('src/pages/creator/JobBoard.js');
   R(/status:\s*"Applied"/.test(board) && !/\.upsert\(/.test(board),
     'applying INSERTS an Applied row (an upsert would let a re-application overwrite a decision)');
   R(!/status:\s*"Assigned"|status === "Assigned"/.test(app),

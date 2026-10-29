@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { ClientsPage } from './App';
+import ClientsPage from './ClientsPage';
 
 // Regression test for the "Add Client" input losing keystrokes: ClientForm
 // used to be declared inside ClientsPage's render body, so every keystroke
