@@ -95,11 +95,6 @@ class ErrorBoundary extends React.Component {
 }
 
 
-console.log("Supabase initialized with URL:", SUPABASE_URL);
-if (!SUPABASE_URL || SUPABASE_URL.includes("your-project")) {
-  console.error("CRITICAL: Supabase URL is not configured correctly!");
-}
-
 // ============================================================
 // LOGO
 // ============================================================
@@ -826,61 +821,7 @@ function ErrorMsg({msg, onRetry}) {
   </div>;
 }
 
-// ============================================================
-// AI INSIGHTS
-// ============================================================
-
-async function fetchAIInsights(sub, campaign, client) {
-  const prompt = `You are an expert UGC content analyst for Omnya, a creator agency. Analyze this video submission and return ONLY valid JSON (no markdown, no backticks).
-
-Video Details:
-- Platform: ${sub.platform}
-- Campaign: ${campaign?.name}
-- Client/Brand: ${client?.name}
-- Campaign Brief: ${campaign?.description}
-- Posted Link: ${sub.posted_link}
-- Views 24h: ${sub.views_24h||"not yet tracked"}
-- Views 72h: ${sub.views_72h||"not yet tracked"}
-- Views 1 Week: ${sub.views_1w||"not yet tracked"}
-- Views 1 Month: ${sub.views_1m||"not yet tracked"}
-- Likes: ${sub.likes||"not yet tracked"}
-- Comments: ${sub.comments||"not yet tracked"}
-- Shares: ${sub.shares||"not yet tracked"}
-- Saves: ${sub.saves||"not yet tracked"}
-
-Return this exact JSON:
-{"score":<0-100>,"scoreLabel":"<label>","summary":"<2-3 sentences>","strengths":["<str1>","<str2>"],"improvements":["<imp1>"],"analyzedAt":"${new Date().toISOString().split("T")[0]}"}`;
-
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})
-  });
-  const data = await res.json();
-  const text = data.content?.map(i=>i.text||"").join("")||"";
-  return JSON.parse(text.replace(/```json|```/g,"").trim());
-}
-
-// Hidden until AI insights run server side (scope #10)
-const AI_INSIGHTS_ENABLED = false;
-
-function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const analyze = async () => {
-    setLoading(true); setError("");
-    try {
-      const insights = await fetchAIInsights(sub, campaign, client);
-      const { error } = await supabase.from("submissions").update({ai_insights: insights}).eq("id", sub.id);
-      if (!error) onUpdate({...sub, ai_insights: insights});
-      else setError("Saved locally but DB update failed");
-    } catch(e) { setError("AI analysis failed. Please try again."); }
-    setLoading(false);
-  };
-
-  const ins = sub.ai_insights;
-
+function AIInsightsPanel({ sub }) {
   return (
     <div>
       <div className="card mb-16">
@@ -897,82 +838,6 @@ function AIInsightsPanel({ sub, campaign, client, onUpdate }) {
           ))}
         </div>
       </div>
-      {AI_INSIGHTS_ENABLED && (ins ? (
-        <div className="premium-card fade-in">
-          <div className="flex-between mb-24 pb-16" style={{ borderBottom: '1px solid var(--border)' }}>
-            <div className="ai-badge" style={{ margin: 0 }}>✨ AI Performance Analysis</div>
-            <div className="fs-12 fw-500 text-muted">Analyzed {fmtDate(ins.analyzedAt)}</div>
-          </div>
-          
-          {/* AI Scoring Hero */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '32px' }}>
-            <div style={{ position: 'relative', width: '160px', height: '160px', marginBottom: '16px' }}>
-              <div className="ai-score-ring" style={{ width: '100%', height: '100%', background: `conic-gradient(${scoreColor(ins.score)} ${ins.score * 3.6}deg, var(--bg2) 0deg)`, padding: 8, boxShadow: '0 8px 32px rgba(0,0,0,0.05)' }}>
-                <div style={{ background: "var(--bg)", borderRadius: "50%", width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", boxShadow: 'inset 0 4px 12px rgba(0,0,0,0.05)' }}>
-                  <div className="heading-xl" style={{ fontSize: '48px', color: scoreColor(ins.score), lineHeight: 1 }}>{ins.score}</div>
-                  <div className="fs-12 fw-600 text-uppercase tracking-wider text-muted mt-4">Overall</div>
-                </div>
-              </div>
-            </div>
-            <div className="heading-lg mb-8">{ins.scoreLabel}</div>
-            <div className="fs-14 text-muted text-center" style={{ maxWidth: '400px', lineHeight: 1.6 }}>{ins.summary}</div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '32px', background: 'var(--bg2)', padding: '16px', borderRadius: 'var(--radius-md)' }}>
-            <div>
-              <div className="flex-between fs-12 fw-600 mb-8"><span style={{color: 'var(--ink)'}}>Pacing</span><span style={{color: scoreColor(ins.score)}}>{Math.min(100, ins.score + 4)}/100</span></div>
-              <div style={{ width: '100%', background: 'var(--border)', height: '6px', borderRadius: '6px', overflow: 'hidden' }}>
-                <div style={{ width: `${Math.min(100, ins.score + 4)}%`, background: scoreColor(ins.score), height: '100%', transition: 'width 1s ease-out' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex-between fs-12 fw-600 mb-8"><span style={{color: 'var(--ink)'}}>Lighting</span><span style={{color: scoreColor(ins.score)}}>{Math.max(10, ins.score - 5)}/100</span></div>
-              <div style={{ width: '100%', background: 'var(--border)', height: '6px', borderRadius: '6px', overflow: 'hidden' }}>
-                <div style={{ width: `${Math.max(10, ins.score - 5)}%`, background: scoreColor(ins.score), height: '100%', transition: 'width 1s ease-out' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex-between fs-12 fw-600 mb-8"><span style={{color: 'var(--ink)'}}>Engagement</span><span style={{color: scoreColor(ins.score)}}>{ins.score}/100</span></div>
-              <div style={{ width: '100%', background: 'var(--border)', height: '6px', borderRadius: '6px', overflow: 'hidden' }}>
-                <div style={{ width: `${ins.score}%`, background: scoreColor(ins.score), height: '100%', transition: 'width 1s ease-out' }}></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid-2" style={{gap:24}}>
-            <div style={{ border: '1px solid rgba(16, 185, 129, 0.2)', background: 'rgba(16, 185, 129, 0.02)', padding: '20px', borderRadius: 'var(--radius-sm)' }}>
-              <div className="fs-12 fw-700 text-green tracking-wider text-uppercase mb-12 flex-center gap-8"><span style={{fontSize: 16}}>✅</span> Strengths</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {ins.strengths.map((s,i) => <div key={i} className="fs-13" style={{color: 'var(--ink2)', lineHeight: 1.5}}>• {s}</div>)}
-              </div>
-            </div>
-            <div style={{ border: '1px solid rgba(245, 158, 11, 0.2)', background: 'rgba(245, 158, 11, 0.02)', padding: '20px', borderRadius: 'var(--radius-sm)' }}>
-              <div className="fs-12 fw-700 text-orange tracking-wider text-uppercase mb-12 flex-center gap-8"><span style={{fontSize: 16}}>💡</span> Opportunities</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {ins.improvements.map((s,i) => <div key={i} className="fs-13" style={{color: 'var(--ink2)', lineHeight: 1.5}}>• {s}</div>)}
-              </div>
-            </div>
-          </div>
-          <div style={{marginTop:24, textAlign: 'center'}}><button className="btn btn-ghost" onClick={analyze} disabled={loading}>🔄 Re-Analyze Video</button></div>
-        </div>
-      ) : (
-        <div className="premium-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
-          {loading ? (
-            <div className="ai-loading" style={{ flexDirection: 'column', gap: '16px' }}>
-              <div className="ai-spinner" style={{ width: 40, height: 40 }}/>
-              <span className="heading-md">AI Processing...</span>
-              <span className="fs-13 text-muted">Running 14-point visual and acoustic analysis on your content.</span>
-            </div>
-          ) : (
-            <div>
-              <div className="ai-badge" style={{ margin: '0 auto 24px' }}>✨ AI Performance Analysis</div>
-              <p className="fs-14 text-muted mb-24" style={{ maxWidth: 400, margin: '0 auto 24px', lineHeight: 1.6 }}>Get instant, granular feedback on pacing, lighting, and predicted engagement directly from our proprietary ML models.</p>
-              {error && <div style={{color:"var(--red)",fontSize:13,marginBottom:16}}>{error}</div>}
-              <button className="btn btn-primary" onClick={analyze}>Run AI Analysis →</button>
-            </div>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
@@ -1413,39 +1278,6 @@ function Sidebar({ user, role, caps, page, setPage, reviewPendingCount, usersPen
           </div>
         </div>
         <button className="logout-btn" onClick={onLogout}>Sign out →</button>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// SETUP SCREEN (first-time owner setup)
-// ============================================================
-
-function SetupScreen({ user, onComplete }) {
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-
-  const setup = async () => {
-    setLoading(true);
-    // Make this user the owner
-    const { error } = await supabase.from("user_profiles").upsert({
-      id: user.id, email: user.email, full_name: user.email.split("@")[0], role: "owner"
-    });
-    if (error) { setErr(error.message); setLoading(false); return; }
-    onComplete();
-  };
-
-  return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto",marginBottom:24}} />
-        <div className="login-title">First Time Setup</div>
-        <div className="login-sub" style={{marginBottom:24}}>You're setting up the Omnya portal for the first time. Click below to initialize your owner account.</div>
-        {err && <div style={{color:"var(--red)",fontSize:13,marginBottom:12}}>{err}</div>}
-        <button className="btn btn-primary btn-full" onClick={setup} disabled={loading}>
-          {loading ? "Setting up..." : "Initialize as Owner →"}
-        </button>
       </div>
     </div>
   );
@@ -2315,84 +2147,10 @@ function MySubmissions({ user, db }) {
   );
 }
 
-function CreatorEarnings({ user, db }) {
-  const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
-  const myPayments = creator?db.payments.filter(p=>p.creator_id===creator.id):[];
-  const totalEarned = myPayments.filter(p=>p.status==="Paid").reduce((a,b)=>a+Number(b.amount_owed),0);
-  const totalPending = myPayments.filter(p=>p.status==="Pending").reduce((a,b)=>a+Number(b.amount_owed),0);
-  
-  const target = totalEarned + totalPending > 0 ? totalEarned + totalPending : 1;
-  const earnedPct = Math.round((totalEarned / target) * 100);
-  
-  return (
-    <div className="content">
-      <div className="premium-card mb-24" style={{ background: 'linear-gradient(135deg, var(--bg) 0%, var(--bg2) 100%)' }}>
-        <h2 className="heading-md mb-24">Earnings Projection</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px', marginBottom: '24px' }}>
-          <div>
-            <div className="fs-12 fw-600 text-muted mb-4 text-uppercase tracking-wider">Total Earned</div>
-            <div className="heading-xl text-green">{fmtMoney(totalEarned)}</div>
-          </div>
-          <div>
-            <div className="fs-12 fw-600 text-muted mb-4 text-uppercase tracking-wider">Pending Approval</div>
-            <div className="heading-xl" style={{color: 'var(--ink)'}}>{fmtMoney(totalPending)}</div>
-          </div>
-          <div>
-            <div className="fs-12 fw-600 text-muted mb-4 text-uppercase tracking-wider">Base Rate</div>
-            <div className="heading-xl" style={{color: 'var(--ink)'}}>{creator ? fmtMoney(creator.weekly_rate/Math.max(1, creator.videos_per_week)) : "—"}<span className="fs-14 text-muted">/vid</span></div>
-          </div>
-        </div>
-        
-        <div style={{ width: '100%', height: '8px', background: 'var(--border2)', borderRadius: '8px', overflow: 'hidden', display: 'flex' }}>
-          <div style={{ width: `${earnedPct}%`, background: '#10b981', transition: 'width 1s ease-out' }}></div>
-          <div style={{ width: `${100-earnedPct}%`, background: '#f59e0b', transition: 'width 1s ease-out' }}></div>
-        </div>
-        <div className="flex-between mt-12 fs-12 text-muted fw-500">
-          <div className="flex-center gap-8"><div className="dot dot-green"></div> Collected</div>
-          <div className="flex-center gap-8"><div className="dot dot-orange"></div> Processing</div>
-        </div>
-      </div>
-
-      <div className="premium-card">
-        <div className="flex-between mb-24 pb-16" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div className="heading-md">Payment Stream</div>
-        </div>
-        {myPayments.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💰</div><h3>No payments yet</h3></div>}
-        {myPayments.length>0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {myPayments.sort((a,b) => new Date(b.week_ending) - new Date(a.week_ending)).map(p=>(
-              <div key={p.id} className="fade-in flex-between" style={{ padding: '16px', background: 'var(--bg2)', border: '1px solid var(--border2)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                  <div style={{ textAlign: 'center', minWidth: '48px' }}>
-                    <div className="fs-11 fw-700 text-muted text-uppercase tracking-wider mb-2">{new Date(p.week_ending).toLocaleDateString('en-US', { month: 'short' })}</div>
-                    <div className="heading-lg" style={{ lineHeight: 1 }}>{new Date(p.week_ending).getDate()}</div>
-                  </div>
-                  <div style={{ borderLeft: '1px solid var(--border2)', paddingLeft: '20px' }}>
-                    <div className="fw-600 fs-14 mb-4">{p.videos_approved} Approved Deliverable{p.videos_approved !== 1 ? 's' : ''}</div>
-                    <div className="fs-12 text-muted">Payout ID: #{p.id.substring(0,8)}</div>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                  <div className={`heading-lg ${p.status === 'Paid' ? 'text-green' : ''}`}>{fmtMoney(p.amount_owed)}</div>
-                  {statusBadge(p.status)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CreatorInsights({ user, db, onRefresh }) {
+function CreatorInsights({ user, db }) {
   const creator = db.creators.find(c=>c.user_id===user.id||c.email===user.email);
   const approvedSubs = creator?db.submissions.filter(s=>s.creator_id===creator.id&&s.status==="Approved"):[];
   const [selected, setSelected] = useState(approvedSubs[0]?.id||null);
-
-  const updateSub = async (updatedSub) => {
-    await onRefresh();
-  };
 
   const sub = db.submissions.find(s=>s.id===selected);
   const campaign = sub?db.campaigns.find(c=>c.id===sub.campaign_id):null;
@@ -2406,7 +2164,6 @@ function CreatorInsights({ user, db, onRefresh }) {
             <div className="card-title" style={{marginBottom:12}}>Your Approved Videos</div>
             {approvedSubs.map(s=>{
               const camp=db.campaigns.find(c=>c.id===s.campaign_id);
-              const ins=s.ai_insights;
               const link=s.posted_link||s.posted_url;
               const ytId=link&&(link.match(/(?:[?&]v=|youtu\.be\/|youtube\.com\/(?:shorts|live|embed)\/)([A-Za-z0-9_-]{6,})/)||[])[1];
               const thumb=s.thumbnail_url||(ytId?`https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`:null);
@@ -2419,13 +2176,12 @@ function CreatorInsights({ user, db, onRefresh }) {
                       <div style={{fontSize:11,color:"var(--ink3)"}}>{s.platform} · Submitted {fmtDateTime(s.created_at)} · Approved {fmtDate(s.approved_date)}</div>
                       {link&&<a href={link} target="_blank" rel="noreferrer" className="link" onClick={e=>e.stopPropagation()} style={{fontSize:11,display:"block",marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{link.replace(/^https?:\/\/(www\.)?/,"").split("?")[0]} ↗</a>}
                     </div>
-                    {AI_INSIGHTS_ENABLED&&(ins?<div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:20,color:scoreColor(ins.score)}}>{ins.score}</div>:<span className="badge badge-gray">No score</span>)}
                   </div>
                 </div>
               );
             })}
           </div>
-          <div>{sub&&<AIInsightsPanel sub={sub} campaign={campaign} client={client} onUpdate={updateSub}/>}</div>
+          <div>{sub&&<AIInsightsPanel sub={sub}/>}</div>
         </div>
       )}
     </div>
@@ -5229,7 +4985,7 @@ function Analytics({ db }) {
 // OWNER PAGES
 // ============================================================
 
-function OwnerDashboard({ db, onRefresh, setUser, setPage }) {
+function OwnerDashboard({ db, onRefresh, setPage }) {
   const [pendingUsers, setPendingUsers] = useState([]);
   const [approvingSaving, setApprovingSaving] = useState(false);
 
@@ -5490,385 +5246,6 @@ function OwnerDashboard({ db, onRefresh, setUser, setPage }) {
           {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)",marginBottom:24}}>Have Account Managers sign up using this URL, and assign their role in the 'Team/Roles' tab.</p></div>}
         </div>
       </div>
-    </div>
-  );
-}
-
-function PaymentManagement({ db, onRefresh, user, isOwner }) {
-  const am = !isOwner ? db.accountManagers.find(a=>a.user_id===user?.id||a.email===user?.email) : null;
-  const myCreatorIds = am ? db.creators.filter(c=>c.am_id===am.id).map(c=>c.id) : null;
-  const allPayments = isOwner ? db.payments : db.payments.filter(p=>myCreatorIds?.includes(p.creator_id));
-  const [tab, setTab] = useState("pending");
-  const [saving, setSaving] = useState(false);
-  const [selected, setSelected] = useState([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({creator_id:"",campaign_id:"",videos_approved:1,amount_owed:"",payment_method:"Venmo",notes:""});
-  const [creatorFilter, setCreatorFilter] = useState("");
-  const [voidTarget, setVoidTarget] = useState(null);
-  const [voidReason, setVoidReason] = useState("");
-  const [voidError, setVoidError] = useState("");
-
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  const pending = allPayments.filter(p=>p.status==="Pending");
-  const paid = allPayments.filter(p=>p.status==="Paid");
-  const paidThisMonth = paid.filter(p=>p.paid_date&&new Date(p.paid_date)>=startOfMonth);
-  const totalOwed = pending.reduce((a,p)=>a+Number(p.amount_owed||0),0);
-  const totalPaidMonth = paidThisMonth.reduce((a,p)=>a+Number(p.amount_owed||0),0);
-  const totalPaidAll = paid.reduce((a,p)=>a+Number(p.amount_owed||0),0);
-
-  const tabItems = tab==="pending"?pending:tab==="paid"?paid:allPayments;
-  const filtered = creatorFilter ? tabItems.filter(p=>p.creator_id===creatorFilter) : tabItems;
-
-  const markPaid = async (paymentId) => {
-    setSaving(true);
-    const p = allPayments.find(x => x.id === paymentId);
-    await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",paymentId);
-    // Email: notify creator of payment
-    if (p) {
-      const creator = db.creators.find(c => c.id === p.creator_id);
-      const campaign = db.campaigns.find(c => c.id === p.campaign_id);
-      if (creator?.email) {
-        sendEmail("payment_sent", {
-          creatorEmail: creator.email,
-          creatorName: creator.name,
-          amount: p.amount_owed,
-          method: p.payment_method || "Venmo",
-          campaignName: campaign?.name || "your campaign",
-          videosApproved: p.videos_approved,
-        });
-      }
-    }
-    await onRefresh(); setSaving(false);
-  };
-
-  const markSelectedPaid = async () => {
-    setSaving(true);
-    for (const id of selected) {
-      const p = allPayments.find(x => x.id === id);
-      await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",id);
-      if (p) {
-        const creator = db.creators.find(c => c.id === p.creator_id);
-        const campaign = db.campaigns.find(c => c.id === p.campaign_id);
-        if (creator?.email) {
-          sendEmail("payment_sent", {
-            creatorEmail: creator.email,
-            creatorName: creator.name,
-            amount: p.amount_owed,
-            method: p.payment_method || "Venmo",
-            campaignName: campaign?.name || "your campaign",
-            videosApproved: p.videos_approved,
-          });
-        }
-      }
-    }
-    await onRefresh(); setSelected([]); setSaving(false);
-  };
-
-  const markAllPaid = async () => {
-    setSaving(true);
-    for (const p of pending) {
-      await supabase.from("payments").update({status:"Paid",paid_date:new Date().toISOString().split("T")[0]}).eq("id",p.id);
-      const creator = db.creators.find(c => c.id === p.creator_id);
-      const campaign = db.campaigns.find(c => c.id === p.campaign_id);
-      if (creator?.email) {
-        sendEmail("payment_sent", {
-          creatorEmail: creator.email,
-          creatorName: creator.name,
-          amount: p.amount_owed,
-          method: p.payment_method || "Venmo",
-          campaignName: campaign?.name || "your campaign",
-          videosApproved: p.videos_approved,
-        });
-      }
-    }
-    await onRefresh(); setSaving(false);
-  };
-
-  // Scope §9.5: "No hard deletion of financial records."
-  //
-  // This used to be supabase.from("payments").delete() fired straight from the
-  // ✕ button — no confirmation, no audit entry, no check on the result. The
-  // record simply vanished and nothing recorded that it ever existed.
-  //
-  // The database now refuses a DELETE on payments outright, so voiding is the
-  // only path. It goes through /api/payments/void because the server has to
-  // refuse a row that is already paid or has a Stripe transfer against it,
-  // which the browser cannot be trusted to check.
-  const voidPayment = async () => {
-    if (!voidTarget) return;
-    if (!voidReason.trim()) {
-      setVoidError("Give a reason — it is the only explanation the audit trail carries.");
-      return;
-    }
-    setSaving(true);
-    setVoidError("");
-    try {
-      await callApi("/api/payments/void", {
-        body: { paymentId: voidTarget.id, reason: voidReason.trim() },
-      });
-      setVoidTarget(null);
-      setVoidReason("");
-      await onRefresh();
-    } catch (err) {
-      setVoidError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const createPayment = async () => {
-    setSaving(true);
-    await supabase.from("payments").insert({
-      ...createForm,
-      videos_approved: Number(createForm.videos_approved),
-      amount_owed: Number(createForm.amount_owed),
-      week_ending: new Date().toISOString().split("T")[0],
-      status: "Pending"
-    });
-    await onRefresh();
-    setShowCreate(false);
-    setCreateForm({creator_id:"",campaign_id:"",videos_approved:1,amount_owed:"",payment_method:"Venmo",notes:""});
-    setSaving(false);
-  };
-
-  const exportCSV = () => {
-    const rows = [["Creator","Campaign","Videos","Amount","Method","Status","Week Ending","Paid Date","Notes"]];
-    allPayments.forEach(p=>{
-      const creator = db.creators.find(c=>c.id===p.creator_id);
-      const campaign = db.campaigns.find(c=>c.id===p.campaign_id);
-      rows.push([creator?.name||"—", campaign?.name||"—", p.videos_approved, p.amount_owed, p.payment_method||"—", p.status, p.week_ending||"—", p.paid_date||"—", p.notes||""]);
-    });
-    const csv = rows.map(r=>r.map(v=>`"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], {type:"text/csv"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href=url; a.download="omnya-payments.csv"; a.click();
-  };
-
-  // Per-creator summary
-  const creatorSummaries = db.creators
-    .filter(c => isOwner ? true : myCreatorIds?.includes(c.id))
-    .map(c=>{
-      const cPayments = allPayments.filter(p=>p.creator_id===c.id);
-      const cPending = cPayments.filter(p=>p.status==="Pending");
-      const cPaid = cPayments.filter(p=>p.status==="Paid");
-      return {
-        creator: c,
-        pendingCount: cPending.length,
-        pendingAmount: cPending.reduce((a,p)=>a+Number(p.amount_owed||0),0),
-        paidTotal: cPaid.reduce((a,p)=>a+Number(p.amount_owed||0),0),
-        totalVideos: cPayments.reduce((a,p)=>a+Number(p.videos_approved||0),0),
-      };
-    }).filter(s=>s.pendingAmount>0||s.paidTotal>0);
-
-  const toggleSelect = (id) => setSelected(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
-
-  return (
-    <div className="content">
-      {/* Stats */}
-      <div className="stats-grid" style={{gridTemplateColumns:"repeat(4,1fr)",marginBottom:20}}>
-        <div className="stat-card stat-highlight">
-          <div className="stat-label">Pending Payout</div>
-          <div className="stat-value">{fmtMoney(totalOwed)}</div>
-          <div style={{fontSize:11,color:"var(--ink3)"}}>{pending.length} payments</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Paid This Month</div>
-          <div className="stat-value" style={{color:"var(--green)"}}>{fmtMoney(totalPaidMonth)}</div>
-          <div style={{fontSize:11,color:"var(--ink3)"}}>{paidThisMonth.length} payments</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">All Time Paid</div>
-          <div className="stat-value">{fmtMoney(totalPaidAll)}</div>
-          <div style={{fontSize:11,color:"var(--ink3)"}}>{paid.length} payments</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Total Creators</div>
-          <div className="stat-value">{creatorSummaries.length}</div>
-          <div style={{fontSize:11,color:"var(--ink3)"}}>with payment history</div>
-        </div>
-      </div>
-
-      {/* Creator summaries */}
-      {creatorSummaries.length>0&&(
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:20}}>
-          {creatorSummaries.map(({creator,pendingAmount,paidTotal,pendingCount})=>(
-            <div key={creator.id} onClick={()=>setCreatorFilter(creatorFilter===creator.id?"":creator.id)}
-              style={{background:creatorFilter===creator.id?"var(--ink)":"var(--bg2)",color:creatorFilter===creator.id?"#fff":"var(--ink)",border:`1px solid ${creatorFilter===creator.id?"var(--ink)":"var(--border)"}`,borderRadius:"var(--radius-sm)",padding:"8px 14px",cursor:"pointer",minWidth:140}}>
-              <div style={{fontWeight:600,fontSize:13,marginBottom:2}}>{creator.name}</div>
-              {pendingAmount>0&&<div style={{fontSize:11,color:creatorFilter===creator.id?"rgba(255,255,255,0.8)":"var(--red)"}}>Owes: {fmtMoney(pendingAmount)}</div>}
-              <div style={{fontSize:11,color:creatorFilter===creator.id?"rgba(255,255,255,0.6)":"var(--ink3)"}}>Paid total: {fmtMoney(paidTotal)}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Actions bar */}
-      <div className="flex-between mb-16">
-        <div className="tabs" style={{marginBottom:0}}>
-          {[["pending","⏳ Pending",pending.length],["paid","✅ Paid",paid.length],["all","All",allPayments.length]].map(([id,label,count])=>(
-            <div key={id} className={`tab ${tab===id?"active":""}`} onClick={()=>{setTab(id);setSelected([]);}}>
-              {label} <span className="nav-badge" style={{display:"inline",marginLeft:6,fontSize:10,position:"static"}}>{count}</span>
-            </div>
-          ))}
-        </div>
-        <div style={{display:"flex",gap:8}}>
-          {selected.length>0&&<button className="btn btn-green btn-sm" onClick={markSelectedPaid} disabled={saving}>✓ Pay {selected.length} Selected</button>}
-          {tab==="pending"&&pending.length>0&&isOwner&&<button className="btn btn-green btn-sm" onClick={markAllPaid} disabled={saving}>✓ Mark All Paid</button>}
-          <button className="btn btn-sm btn-ghost" onClick={exportCSV}>⬇ Export CSV</button>
-          {isOwner&&<button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ Add Payment</button>}
-        </div>
-      </div>
-
-      {/* Payments table */}
-      <div className="premium-card">
-        <div className="table-wrap">
-          <table className="premium-table">
-            <thead>
-              <tr>
-                {isOwner&&tab==="pending"&&<th style={{width:32}}></th>}
-                <th>Creator</th>
-                <th>Campaign</th>
-                <th>Videos</th>
-                <th>Amount</th>
-                <th>Method</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(p=>{
-                const creator = db.creators.find(c=>c.id===p.creator_id);
-                const campaign = db.campaigns.find(c=>c.id===p.campaign_id);
-                const isSelected = selected.includes(p.id);
-                return (
-                  <tr key={p.id} style={{background:isSelected?"rgba(37,99,235,0.05)":""}}>
-                    {isOwner&&tab==="pending"&&(
-                      <td>
-                        <input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(p.id)} style={{cursor:"pointer"}}/>
-                      </td>
-                    )}
-                    <td>
-                      <div className="fw-600">{creator?.name||"—"}</div>
-                      {p.notes&&<div style={{fontSize:11,color:"var(--ink3)",fontStyle:"italic"}}>{p.notes}</div>}
-                    </td>
-                    <td style={{fontSize:12,color:"var(--ink3)"}}>{campaign?.name||"—"}</td>
-                    <td style={{fontSize:13}}>{p.videos_approved}</td>
-                    <td className="text-green fw-600">{fmtMoney(p.amount_owed)}</td>
-                    <td><span className="badge badge-gray">{p.payment_method||"—"}</span></td>
-                    <td>{statusBadge(p.status)}</td>
-                    <td style={{fontSize:12,color:"var(--ink3)"}}>{p.status==="Paid"?fmtDate(p.paid_date):fmtDate(p.week_ending)}</td>
-                    <td>
-                      <div style={{display:"flex",gap:6}}>
-                        {p.status==="Pending"&&isOwner&&<button className="btn btn-green btn-sm" onClick={()=>markPaid(p.id)} disabled={saving}>Pay</button>}
-                        {/* Void, not delete. A paid payment is refused server-side. */}
-                        {isOwner&&!p.voided_at&&p.status!=="Paid"&&(
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            style={{color:"var(--orange)",fontSize:11}}
-                            title="Void this payment"
-                            onClick={()=>{setVoidTarget(p);setVoidReason("");setVoidError("");}}
-                          >Void</button>
-                        )}
-                        {p.voided_at&&<span className="badge badge-gray" title={p.void_reason||""}>Voided</span>}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {filtered.length===0&&<div className="empty" style={{padding:32}}><div className="empty-icon">💸</div><h3>{tab==="pending"?"No pending payments":"No payments found"}</h3></div>}
-      </div>
-
-      {/* Create payment modal */}
-      {showCreate&&(
-        <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Add Payment</div>
-            <div className="modal-sub">Manually add a payment record</div>
-            <div className="form-group">
-              <label className="form-label">Creator</label>
-              <select className="select" value={createForm.creator_id} onChange={e=>setCreateForm({...createForm, creator_id:e.target.value})}>
-                <option value="">Select creator...</option>
-                {db.creators.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Campaign <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
-              <select className="select" value={createForm.campaign_id} onChange={e=>setCreateForm({...createForm,campaign_id:e.target.value})}>
-                <option value="">Select campaign...</option>
-                {db.campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="grid-2">
-              <div className="form-group">
-                <label className="form-label">Videos Approved</label>
-                <input className="form-input" type="number" min="1" value={createForm.videos_approved} onChange={e=>setCreateForm({...createForm,videos_approved:e.target.value})}/>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Amount ($)</label>
-                <input className="form-input" type="number" placeholder="0.00" value={createForm.amount_owed} onChange={e=>setCreateForm({...createForm,amount_owed:e.target.value})}/>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Payment Method</label>
-                <select className="select" value={createForm.payment_method} onChange={e=>setCreateForm({...createForm,payment_method:e.target.value})}>
-                  {["Venmo","PayPal","Zelle","Bank Transfer","Check","Other"].map(m=><option key={m}>{m}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Notes <span style={{color:"var(--ink3)",fontWeight:400}}>(optional)</span></label>
-              <input className="form-input" placeholder="e.g. Bonus for extra video" value={createForm.notes} onChange={e=>setCreateForm({...createForm,notes:e.target.value})}/>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setShowCreate(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={createPayment} disabled={saving||!createForm.creator_id||!createForm.amount_owed}>{saving?"Saving...":"Add Payment"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Void payment modal — replaces the old one-click hard delete (§9.5) */}
-      {voidTarget&&(
-        <div className="modal-overlay" onClick={()=>setVoidTarget(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Void this payment?</div>
-            <div className="modal-sub">
-              The record is kept. Voiding marks it cancelled and writes the reason
-              to the audit trail — financial records are never deleted.
-            </div>
-            {voidError&&<ErrorMsg msg={voidError} />}
-            <div style={{background:"var(--bg2)",borderRadius:"var(--radius-sm)",padding:12,marginBottom:16,fontSize:13}}>
-              <div><strong>{db.creators.find(c=>c.id===voidTarget.creator_id)?.name||"Unknown creator"}</strong></div>
-              <div style={{color:"var(--ink3)",marginTop:4}}>
-                {fmtMoney(voidTarget.amount??voidTarget.amount_owed)} · {voidTarget.status} · {fmtDate(voidTarget.week_ending)}
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
-              <textarea
-                className="textarea" rows={3}
-                placeholder="e.g. Duplicate of the 12 Aug payment"
-                value={voidReason}
-                onChange={e=>setVoidReason(e.target.value)}
-              />
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setVoidTarget(null)}>Cancel</button>
-              <button
-                className="btn"
-                style={{background:"var(--orange)",color:"#fff"}}
-                onClick={voidPayment}
-                disabled={saving||!voidReason.trim()}
-              >{saving?"Voiding…":"Void Payment"}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -7755,16 +7132,12 @@ async function selectAllWithRetry(tableName, { retries = 1, delayMs = 600 } = {}
 export default function App() {
   const path = window.location.pathname.toLowerCase().replace(/\/+$/, "") || "/";
   const [user, setUser] = useState(null);
-  const [isPublicLegal, setIsPublicLegal] = useState(path === '/termsofservice' || path === '/privacypolicy');
-  const [publicLegalTab, setPublicLegalTab] = useState(path === '/privacypolicy' ? 'pp' : 'tos');
   const [loading, setLoading] = useState(true); // Start as true for initial session check
   const [overrideRole, setOverrideRole] = useState(null);
   let rawRole = (user?.role || "pending").toLowerCase();
   let baseRole = rawRole === "account_manager" ? "am" : (rawRole === "admin" ? "owner" : rawRole);
   let role = (baseRole === "owner" && overrideRole) ? overrideRole : baseRole;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [loadingStatus, setLoadingStatus] = useState("Initializing...");
-  const [showBypass, setShowBypass] = useState(false);
   const [page, setPage] = useState(() => localStorage.getItem("last_page") || "dashboard");
   const [showSQL, setShowSQL] = useState(false);
   const [db, setDb] = useState({
@@ -7773,7 +7146,6 @@ export default function App() {
   });
   const [dbLoading, setDbLoading] = useState(false);
   const [dbError, setDbError] = useState("");
-  const [needsSetup, setNeedsSetup] = useState(false);
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
   const [caps, setCaps] = useState({});
 
@@ -7822,7 +7194,6 @@ export default function App() {
         if (mounted) {
           console.warn("App: Auth init safety timeout triggered.");
           setLoading(false);
-          setLoadingStatus("");
         }
       }, 5000);
 
@@ -7920,7 +7291,6 @@ export default function App() {
       if (event === "SIGNED_OUT" || event === "USER_DELETED") {
         if (mounted) {
           setUser(null);
-          setNeedsSetup(false);
           setIsRecoveryMode(false);
           setDbLoading(false); // Stop db loop
           localStorage.removeItem("last_page");
@@ -8089,7 +7459,7 @@ export default function App() {
     setDbLoading(false);
   },[user]);
 
-  useEffect(()=>{ if(user&&!needsSetup) loadDB(); },[user,needsSetup,loadDB]);
+  useEffect(()=>{ if(user) loadDB(); },[user,loadDB]);
 
   // Global Realtime Sync (role-scoped delta updates)
   //
@@ -8099,7 +7469,7 @@ export default function App() {
   // subscriptions here as defence-in-depth and to avoid leaking metadata
   // about sensitive tables (payments, user_profiles) to creators/clients.
   useEffect(() => {
-    if (!user || needsSetup) return;
+    if (!user) return;
 
     const tableKeyMap = {
       creators:         'creators',
@@ -8152,13 +7522,12 @@ export default function App() {
     return () => {
       channels.forEach(ch => supabase.removeChannel(ch));
     };
-  }, [user, needsSetup, role]);
+  }, [user, role]);
 
   const handleLogin = async(u) => {
     console.log("handleLogin: instant login for", u.id);
     // Setting user unmounts <Login> immediately, which is great.
     setUser(u); 
-    setNeedsSetup(false);
     
     // Fire-and-forget sync wrapper
     const syncProfile = async () => {
@@ -8205,21 +7574,19 @@ export default function App() {
 
   // Signed out users land on the sign-in form, not the marketing page at "/".
   const handleLogout = async()=>{ await supabase.auth.signOut(); window.history.replaceState({}, '', '/login'); setUser(null); setPage("dashboard"); };
-  const handleSetupComplete = ()=>{ setNeedsSetup(false); loadDB(); };
 
 
   const reviewPendingCount = db.submissions.filter(s=>s.status==="Submitted"||s.status==="Under Review").length;
 
   const pageTitles = {
     dashboard:"Dashboard",jobs:"Available Jobs","active-jobs":"My Active Jobs",
-    submit:"Submit Content",submissions:"My Submissions",insights:"Video Insights",earnings:"Earnings",
+    submit:"Submit Content",submissions:"My Submissions",insights:"Video Insights",
     "review-queue":"Review Queue","my-creators":"My Creators",campaigns:"Campaigns",
     clients:"My Clients","content-library":"Content Library",analytics:"Analytics",
     "clients-full":"Client Management",revenue:"Revenue Analytics",
-    payments:"Payment Management",team:"Team Performance","pending-users":"Approve Users","creators-manage":"Manage Creators",
+    team:"Team Performance","pending-users":"Approve Users","creators-manage":"Manage Creators",
     legal: "Legal Center",
     "social-connections": "Social Connections",
-    "campaign-analytics": "Campaign Analytics",
     "payout-manager": "Payout Manager",
     "content-gallery": "Delivered Content",
     "creator-performance": "Creator Performance",
@@ -8248,10 +7615,8 @@ export default function App() {
       if(page==="submit") return <ErrorBoundary label="Submit Content"><SubmitContent user={user} db={db} onRefresh={loadDB} setPage={setPage}/></ErrorBoundary>;
       if(page==="submissions") return <ErrorBoundary label="My Submissions"><MySubmissions user={user} db={db}/></ErrorBoundary>;
       if(page==="social-connections") return <ErrorBoundary label="Social Connections"><CreatorConnections currentUser={user} /></ErrorBoundary>;
-      if(page==="campaign-analytics") return <ErrorBoundary label="Campaign Analytics"><AnalyticsDashboard /></ErrorBoundary>;
       if(page==="payout-manager") return <ErrorBoundary label="Payout Manager"><CreatorEarningsPage user={user} db={db}/></ErrorBoundary>;
-      if(page==="insights") return <ErrorBoundary label="Video Insights"><CreatorInsights user={user} db={db} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="earnings") return <ErrorBoundary label="Earnings"><CreatorEarningsPage user={user} db={db}/></ErrorBoundary>;
+      if(page==="insights") return <ErrorBoundary label="Video Insights"><CreatorInsights user={user} db={db}/></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="am"||role==="account_manager"){
@@ -8264,15 +7629,15 @@ export default function App() {
       if(page==="analytics") return <ErrorBoundary label="Analytics"><Analytics db={db}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={false} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={false} user={user} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
+      if(page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="legal") return <ErrorBoundary label="Legal Center"><Legal /></ErrorBoundary>;
     }
     if(role==="owner"){
-      if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setUser={setUser} setPage={setPage}/></ErrorBoundary>;
+      if(page==="dashboard") return <ErrorBoundary label="Owner Dashboard"><OwnerDashboard db={db} onRefresh={loadDB} setPage={setPage}/></ErrorBoundary>;
       if(page==="clients-full") return <ErrorBoundary label="Client Management"><ClientsPage isOwner={true} db={db} onRefresh={loadDB} user={user}/></ErrorBoundary>;
       if(page==="revenue") return <ErrorBoundary label="Revenue"><RevenueAnalytics db={db} user={user} isOwner={role==="owner"} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="creator-performance") return <ErrorBoundary label="Creator Performance"><CreatorPerformance db={db} isOwner={true} user={user} onRefresh={loadDB}/></ErrorBoundary>;
-      if(page==="payments" || page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
+      if(page==="payout-manager") return <ErrorBoundary label="Payouts"><PayoutManager /></ErrorBoundary>;
       if(page==="team") return <ErrorBoundary label="Team Performance"><TeamPerformance db={db} onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="pending-users") return <ErrorBoundary label="Pending Users"><PendingUsers onRefresh={loadDB}/></ErrorBoundary>;
       if(page==="user-management") return <ErrorBoundary label="User Management"><UserManagement currentUser={user} onRefresh={loadDB}/></ErrorBoundary>;
@@ -8330,7 +7695,6 @@ export default function App() {
 
   const checkStatus = async () => {
     if (loading) return;
-    setLoadingStatus("Checking account status...");
     setLoading(true);
     try {
       const { data: profile, error } = await supabase.from("user_profiles").select("*").eq("id", user.id).maybeSingle();
@@ -8345,7 +7709,6 @@ export default function App() {
       alert("Failed to check status: " + e.message);
     } finally {
       setLoading(false);
-      setLoadingStatus("");
     }
   };
 
@@ -8353,7 +7716,7 @@ export default function App() {
   const wrapContent = (content, showFooter = false) => (
     <>
       <style>{styles}</style>
-      <ErrorBoundary label="Global" onAuthError={handleLogout}>
+      <ErrorBoundary label="Global">
         <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
           {content}
           {showFooter && (
@@ -8374,7 +7737,6 @@ export default function App() {
   const isPublicShare = path === '/share/campaign' || path.startsWith('/share/') || searchParams.has('share_token');
   if(isPublicShare) return <React.Suspense fallback={<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>}><SharedCampaignReport /></React.Suspense>;
 
-  if(isPublicLegal) return <React.Suspense fallback={<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><div className="ai-spinner" style={{width:32,height:32,borderWidth:3}}/></div>}><Legal onBack={() => { if(path === '/termsofservice' || path === '/privacypolicy') window.location.href = '/'; else setIsPublicLegal(false); }} initialTab={publicLegalTab} /></React.Suspense>;
 
   // "/" is the public landing page for signed-out visitors; the sign-in form lives at "/login".
   // A "?page=" deep link or an auth redirect (tokens in the hash, ?code=) is portal traffic, not a visit.
@@ -8392,7 +7754,6 @@ export default function App() {
 
   if(isRecoveryMode) return wrapContent(<ResetPassword onComplete={() => setIsRecoveryMode(false)}/>, true);
   if(!user) return wrapContent(<Login onLogin={handleLogin}/>, false);
-  if(needsSetup) return wrapContent(<SetupScreen user={user} onComplete={handleSetupComplete}/>, true);
   if(rawRole==="pending") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16,padding:24}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24,letterSpacing:"2px"}}>Account Pending Approval</div><div style={{fontSize:14,color:"var(--ink3)",textAlign:"center",maxWidth:340}}>Your account has been created! An admin will assign your role shortly. Please check back soon.</div><div style={{display:"flex",gap:8}}><button className="btn btn-primary btn-sm" onClick={checkStatus} disabled={loading}>{loading ? "Checking..." : "Check Status"}</button><button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button></div></div>, true);
   if(rawRole==="denied") return wrapContent(<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)",flexDirection:"column",gap:16}}><img src={LOGO_URI} alt="Omnya" style={{height:48,width:"auto"}}/><div style={{fontFamily:"Bebas Neue, sans-serif",fontSize:24}}>Access Denied</div><div style={{fontSize:14,color:"var(--ink3)"}}>Please contact your admin for access.</div><button className="btn btn-primary btn-sm" onClick={handleLogout}>Sign out</button></div>, true);
   const usersPendingCount = db.userProfiles?.filter(u => u.role === "pending").length || 0;
