@@ -22,7 +22,7 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const API = path.join(ROOT, 'api');
-const MIGRATION = '20260908000000_campaign_shares_and_progress.sql';
+const MIGRATION = 'npm run db:migrate';
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {

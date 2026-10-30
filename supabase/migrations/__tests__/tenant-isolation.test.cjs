@@ -1,38 +1,9 @@
-// supabase/migrations/__tests__/tenant-isolation.test.cjs
-//
-// The acceptance criterion for N-10, against a real PostgreSQL engine.
-//
-// tests/role-boundaries.test.cjs asks the same question of the live database
-// over HTTP. This asks it of the migration itself, offline, in about a second,
-// so the boundary can be checked on every edit rather than only against a
-// deployed environment.
-//
-// TWO tenants, not one. With a single client in the system, "an AM sees all
-// clients" and "an AM sees their own client" produce identical results, and
-// that ambiguity is exactly how N-10 survived review.
-//
-// It runs the whole thing twice:
-//   · BEFORE  -- the repo's pre-fix policies, which must LEAK. A test that
-//               cannot demonstrate the bug it guards is not evidence of
-//               anything, so this half fails loudly if the leak is absent.
-//   · AFTER   -- the reset migration, which must hold every boundary.
+// N-10 tenant isolation, offline: two tenants, and every role is asked whether it can reach the other one.
+// tests/role-boundaries.test.cjs asks the same of the live database over HTTP.
 //
 //   node supabase/migrations/__tests__/tenant-isolation.test.cjs
 
-const fs = require('fs');
-const path = require('path');
-
-let PGlite;
-try {
-  ({ PGlite } = require('@electric-sql/pglite'));
-} catch {
-  console.error('SKIP: @electric-sql/pglite is not installed.  npm i -D @electric-sql/pglite');
-  process.exit(0);
-}
-
-const S = __dirname;
-const MIG = path.join(__dirname, '..');
-const read = p => fs.readFileSync(p, 'utf8');
+const { freshDb } = require('./db.cjs');
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
@@ -53,39 +24,12 @@ const U = {
 // ---------------------------------------------------------------------------
 
 async function buildTenants() {
-  const db = await PGlite.create();
-  await db.exec(read(S + '/fixture_schema.sql'));
-
-  // PGlite connects as `postgres`, a SUPERUSER, and a superuser bypasses RLS
-  // unconditionally -- ENABLE does not stop it and neither does FORCE, which
-  // only subjects a non-superuser owner.
-  //
-  // An earlier version of this file relied on FORCE and measured nothing at
-  // all: every role read every row, the BEFORE half reported "the leak is
-  // reproducible" because am1 saw both tenants, and that pass was worthless.
-  // It would have reported the leak as reproduced no matter what the policies
-  // said, including after they were fixed.
-  //
-  // So every measurement below runs as `authenticated`, which is both a real
-  // non-superuser and the exact role PostgREST uses in production. Verified by
-  // probe: as postgres a two-row table returns 2 rows through a policy that
-  // permits one; as authenticated it returns 1.
-  for (const t of ['creators', 'clients', 'campaigns', 'submissions']) {
-    await db.exec(`ALTER TABLE public.${t} ENABLE ROW LEVEL SECURITY;`);
-    await db.exec(`GRANT SELECT ON public.${t} TO authenticated;`);
-  }
+  // Measurements run as `authenticated`, since PGlite's superuser bypasses RLS.
+  const db = await freshDb();
   await db.exec(`
-    GRANT USAGE   ON SCHEMA public, auth            TO authenticated;
-    GRANT SELECT  ON public.account_managers        TO authenticated;
-    GRANT SELECT  ON public.user_profiles           TO authenticated;
-    GRANT EXECUTE ON FUNCTION public.current_user_role() TO authenticated;
-    GRANT EXECUTE ON FUNCTION auth.uid()                 TO authenticated;
-  `);
-
-  await db.exec(`
-    insert into auth.users(id) values
-      ('${U.owner}'),('${U.am1}'),('${U.am2}'),
-      ('${U.client1}'),('${U.client2}'),('${U.cre1}'),('${U.cre2}');
+    insert into auth.users(id, email) values
+      ('${U.owner}','owner@x.com'),('${U.am1}','am1@x.com'),('${U.am2}','am2@x.com'),
+      ('${U.client1}','client1@x.com'),('${U.client2}','client2@x.com'),('${U.cre1}','cre1@x.com'),('${U.cre2}','cre2@x.com');
 
     insert into public.user_profiles(id, email, role) values
       ('${U.owner}',   'owner@x.com',   'owner'),
@@ -94,37 +38,40 @@ async function buildTenants() {
       ('${U.client1}', 'client1@x.com', 'client'),
       ('${U.client2}', 'client2@x.com', 'client'),
       ('${U.cre1}',    'cre1@x.com',    'creator'),
-      ('${U.cre2}',    'cre2@x.com',    'creator');
+      ('${U.cre2}',    'cre2@x.com',    'creator')
+      on conflict (id) do update set role = excluded.role;
 
-    insert into public.account_managers(id, user_id, name) values
-      ('a0000000-0000-0000-0000-000000000001','${U.am1}','AM One'),
-      ('a0000000-0000-0000-0000-000000000002','${U.am2}','AM Two');
+    insert into public.account_managers(id, user_id, name, email) values
+      ('a0000000-0000-0000-0000-000000000001','${U.am1}','AM One','am1@x.com'),
+      ('a0000000-0000-0000-0000-000000000002','${U.am2}','AM Two','am2@x.com')
+      on conflict (email) do update set id = excluded.id, user_id = excluded.user_id;
 
     insert into public.clients(id, user_id, name, am_id) values
       ('c0000000-0000-0000-0000-000000000001','${U.client1}','Tenant One',
        'a0000000-0000-0000-0000-000000000001'),
       ('c0000000-0000-0000-0000-000000000002','${U.client2}','Tenant Two',
-       'a0000000-0000-0000-0000-000000000002');
+       'a0000000-0000-0000-0000-000000000002')
+      on conflict (user_id) do update set id = excluded.id, name = excluded.name, am_id = excluded.am_id;
 
-    insert into public.creators(id, user_id, name, am_id) values
-      ('e0000000-0000-0000-0000-000000000001','${U.cre1}','Creator One',
+    insert into public.creators(id, user_id, name, email, am_id) values
+      ('e0000000-0000-0000-0000-000000000001','${U.cre1}','Creator One','cre1@x.com',
        'a0000000-0000-0000-0000-000000000001'),
-      ('e0000000-0000-0000-0000-000000000002','${U.cre2}','Creator Two',
+      ('e0000000-0000-0000-0000-000000000002','${U.cre2}','Creator Two','cre2@x.com',
        'a0000000-0000-0000-0000-000000000002');
 
-    insert into public.campaigns(id, name, client_id, assigned_creators) values
-      ('ca000000-0000-0000-0000-000000000001','Campaign One',
+    insert into public.campaigns(id, name, status, client_id, assigned_creators) values
+      ('ca000000-0000-0000-0000-000000000001','Campaign One','Active',
        'c0000000-0000-0000-0000-000000000001',
        array['e0000000-0000-0000-0000-000000000001']::uuid[]),
-      ('ca000000-0000-0000-0000-000000000002','Campaign Two',
+      ('ca000000-0000-0000-0000-000000000002','Campaign Two','Active',
        'c0000000-0000-0000-0000-000000000002',
        array['e0000000-0000-0000-0000-000000000002']::uuid[]);
 
-    insert into public.submissions(id, creator_id, campaign_id, final_status) values
+    insert into public.submissions(id, creator_id, campaign_id, submission_type, status) values
       ('50000000-0000-0000-0000-000000000001','e0000000-0000-0000-0000-000000000001',
-       'ca000000-0000-0000-0000-000000000001','Approved'),
+       'ca000000-0000-0000-0000-000000000001','Final','Approved'),
       ('50000000-0000-0000-0000-000000000002','e0000000-0000-0000-0000-000000000002',
-       'ca000000-0000-0000-0000-000000000002','Approved');
+       'ca000000-0000-0000-0000-000000000002','Final','Approved');
   `);
 
   return db;
@@ -179,64 +126,8 @@ async function measure(db) {
   };
 }
 
-async function before() {
-  console.log('\nBEFORE the fix -- the repo policies as they stand');
-  const db = await buildTenants();
-
-  // The pre-fix policy set, exactly as the repository defines it today.
-  await db.exec(read(path.join(MIG, '20260521000000_omnya_hardening.sql'))
-    .split('-- ===== creators =====')[1]
-    .split('-- ===== payments =====')[0]
-    .replace(/^/, '-- extracted policy block\n'));
-  await db.exec(read(path.join(MIG, '20260527130000_client_rls_security.sql'))
-    .replace(/ALTER TABLE public\.video_analytics[^;]*;/g, '')
-    .replace(/DROP POLICY IF EXISTS client_select_own_analytics[^;]*;/g, '')
-    .replace(/CREATE POLICY client_select_own_analytics[\s\S]*?\);\s*/g, ''));
-
-  await assertRlsIsEnforced(db);
-
-  const m = await measure(db);
-  console.log('    am1 sees: clients=' + m.am1Clients + ' campaigns=' + m.am1Campaigns +
-              ' submissions=' + m.am1Submissions +
-              '   (client1 sees ' + m.cli1Clients + ' client row, so RLS is live)');
-
-  // This half of the test exists to prove the bug is real and reachable.
-  R(m.am1Clients === 2, 'the leak is reproducible: am1 reads BOTH tenants\' clients',
-    'saw ' + m.am1Clients + ' of 2');
-  R(m.am1Campaigns === 2, 'am1 reads both tenants\' campaigns', 'saw ' + m.am1Campaigns + ' of 2');
-  R(m.am1Submissions === 2, 'am1 reads both tenants\' submissions', 'saw ' + m.am1Submissions + ' of 2');
-
-  await db.close();
-  return m;
-}
-
 async function after() {
-  console.log('\nAFTER 20260822000005_tenant_policy_reset.sql');
   const db = await buildTenants();
-
-  await db.exec(read(path.join(MIG, '20260521000000_omnya_hardening.sql'))
-    .split('-- ===== creators =====')[1]
-    .split('-- ===== payments =====')[0]);
-  await db.exec(read(path.join(MIG, '20260527130000_client_rls_security.sql'))
-    .replace(/ALTER TABLE public\.video_analytics[^;]*;/g, '')
-    .replace(/DROP POLICY IF EXISTS client_select_own_analytics[^;]*;/g, '')
-    .replace(/CREATE POLICY client_select_own_analytics[\s\S]*?\);\s*/g, ''));
-
-  try {
-    await db.exec(read(path.join(MIG, '20260822000005_tenant_policy_reset.sql')));
-    R(true, 'the reset migration applies');
-  } catch (e) {
-    R(false, 'the reset migration applies', e.message.slice(0, 300));
-    await db.close();
-    return;
-  }
-
-  try {
-    await db.exec(read(path.join(MIG, '20260822000005_tenant_policy_reset.sql')));
-    R(true, 'and is idempotent');
-  } catch (e) {
-    R(false, 'and is idempotent', e.message.slice(0, 300));
-  }
 
   await assertRlsIsEnforced(db);
   const m = await measure(db);
@@ -266,7 +157,6 @@ async function after() {
 
 (async () => {
   console.log('N-10 tenant isolation, against real PostgreSQL (PGlite)');
-  await before();
   await after();
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

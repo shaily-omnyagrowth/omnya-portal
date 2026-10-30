@@ -1,33 +1,9 @@
-// supabase/migrations/__tests__/owner-lifecycle.test.cjs
-//
-// Acceptance for 20260823000000_owner_lifecycle_controls.sql, against a real
-// PostgreSQL engine (PGlite). Same conventions as new-migrations.test.cjs.
-//
-// The three questions every migration test here answers:
-//   1. does it apply at all, on a database that only has the core tables?
-//   2. is it idempotent -- does a second apply succeed unchanged?
-//   3. does the behaviour it promises actually happen?
-//
-// Question 3 is the whole point. This migration's promise is that a record
-// cannot be destroyed and that every sensitive change leaves a trace, so the
-// tests try to destroy things and insist they fail.
+// Owner lifecycle controls: hard deletes refused, role changes, deactivation and archives audited,
+// the audit trail append-only.
 //
 //   node supabase/migrations/__tests__/owner-lifecycle.test.cjs
 
-const fs = require('fs');
-const path = require('path');
-
-let PGlite;
-try {
-  ({ PGlite } = require('@electric-sql/pglite'));
-} catch {
-  console.error('SKIP: @electric-sql/pglite is not installed.  npm i -D @electric-sql/pglite');
-  process.exit(0);
-}
-
-const S = __dirname;
-const MIG = path.join(__dirname, '..');
-const read = (p) => fs.readFileSync(p, 'utf8');
+const { freshDb } = require('./db.cjs');
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
@@ -35,34 +11,8 @@ const R = (ok, label, detail) => {
   if (ok) pass++; else fail++;
 };
 
-const LIFECYCLE = '20260823000000_owner_lifecycle_controls.sql';
-const ROLLBACK  = '20260823000000_owner_lifecycle_controls.rollback.sql';
-
 const OWNER   = '11111111-1111-1111-1111-111111111111';
 const CREATOR = '22222222-2222-2222-2222-222222222222';
-
-async function fresh() {
-  const db = await PGlite.create();
-  await db.exec(read(S + '/fixture_schema.sql'));
-
-  // fixture_schema.sql is a minimal stand-in and predates this migration. Two
-  // columns the audit triggers read exist in production but not in it:
-  //
-  //   payments.amount_owed   from the original SETUP schema; the
-  //                          fixture only carries the newer `amount`, and the
-  //                          void trigger coalesces across both because live
-  //                          rows populate one or the other.
-  //   submissions.feedback   the review note the decision audit records.
-  //
-  // Added here rather than to the shared fixture so the other suites keep
-  // testing against exactly the schema they were written for.
-  await db.exec(`
-    ALTER TABLE public.payments    ADD COLUMN IF NOT EXISTS amount_owed NUMERIC;
-    ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS feedback    TEXT;
-  `);
-
-  return db;
-}
 
 const one = async (db, sql) => (await db.query(sql)).rows[0];
 const rows = async (db, sql) => (await db.query(sql)).rows;
@@ -75,13 +25,13 @@ const actAs = (db, uid) =>
 
 async function seed(db) {
   await db.exec(`
-    INSERT INTO auth.users (id) VALUES ('${OWNER}'), ('${CREATOR}')
+    INSERT INTO auth.users (id, email) VALUES ('${OWNER}', 'owner@test.com'), ('${CREATOR}', 'creator@test.com')
       ON CONFLICT DO NOTHING;
 
     INSERT INTO public.user_profiles (id, email, full_name, role)
     VALUES ('${OWNER}',   'owner@test.com',   'Test Owner',   'owner'),
            ('${CREATOR}', 'creator@test.com', 'Test Creator', 'creator')
-      ON CONFLICT (id) DO NOTHING;
+      ON CONFLICT (id) DO UPDATE SET role = excluded.role, full_name = excluded.full_name;
 
     INSERT INTO public.creators (id, user_id, name, email)
     VALUES ('33333333-3333-3333-3333-333333333333', '${CREATOR}', 'Test Creator', 'creator@test.com')
@@ -98,34 +48,16 @@ async function seed(db) {
 
     INSERT INTO public.payments (id, creator_id, amount_owed, status)
     VALUES ('66666666-6666-6666-6666-666666666666',
-            '33333333-3333-3333-3333-333333333333', 250.00, 'Pending')
+            '33333333-3333-3333-3333-333333333333', 250.00, 'pending')
       ON CONFLICT DO NOTHING;
   `);
 }
 
 async function main() {
-  console.log('\nOwner lifecycle controls — 20260823000000\n');
+  console.log('\nOwner lifecycle controls\n');
+  const db = await freshDb();
 
-  // ── 1. it applies ──────────────────────────────────────────────────────────
-  let db = await fresh();
-  try {
-    await db.exec(read(path.join(MIG, LIFECYCLE)));
-    R(true, 'the migration applies on the core schema');
-  } catch (e) {
-    R(false, 'the migration applies on the core schema', e.message);
-    console.log(`\n${pass} passed, ${fail} failed\n`);
-    process.exit(1);
-  }
-
-  // ── 2. it is idempotent ────────────────────────────────────────────────────
-  try {
-    await db.exec(read(path.join(MIG, LIFECYCLE)));
-    R(true, 'a second apply succeeds (idempotent)');
-  } catch (e) {
-    R(false, 'a second apply succeeds (idempotent)', e.message);
-  }
-
-  // ── 3. structure ───────────────────────────────────────────────────────────
+  // ── structure ───────────────────────────────────────────────────────────
   const t = await one(db, `SELECT to_regclass('public.admin_audit_logs') IS NOT NULL AS ok`);
   R(t.ok, 'admin_audit_logs exists');
 
@@ -146,7 +78,7 @@ async function main() {
     R(c.n === 1, `${tbl}.${col} exists`);
   }
 
-  // ── 4. hard deletes are refused ────────────────────────────────────────────
+  // ── hard deletes are refused ────────────────────────────────────────────
   await seed(db);
 
   for (const [tbl, id] of [
@@ -168,7 +100,7 @@ async function main() {
   const still = await one(db, `SELECT count(*)::int AS n FROM public.payments WHERE id='66666666-6666-6666-6666-666666666666'`);
   R(still.n === 1, 'the refused row is still present');
 
-  // ── 5. audit on role change ────────────────────────────────────────────────
+  // ── audit on role change ────────────────────────────────────────────────
   await actAs(db, OWNER);
   await db.exec(`UPDATE public.user_profiles SET role='am' WHERE id='${CREATOR}'`);
 
@@ -181,7 +113,7 @@ async function main() {
   R(ev && ev.actor_user_id === OWNER, 'the actor is auth.uid()');
   R(ev && ev.entity_label === 'creator@test.com', 'the target is denormalised onto the entry');
 
-  // ── 6. the service-role path still gets an actor ───────────────────────────
+  // ── the service-role path still gets an actor ───────────────────────────
   // auth.uid() is NULL for a service-role connection, which is how every
   // api/admin/* route reaches the database. The actor has to survive that.
   await actAs(db, null);
@@ -201,14 +133,14 @@ async function main() {
     ev ? String(ev.actor_user_id) : '');
   R(ev && ev.reason === 'left the agency', 'the reason is recorded');
 
-  // ── 7. a deactivated user loses their role everywhere ──────────────────────
+  // ── a deactivated user loses their role everywhere ──────────────────────
   await actAs(db, CREATOR);
   const role = await one(db, `SELECT public.current_user_role() AS r`);
   R(role.r === 'deactivated',
     'current_user_role() returns deactivated, so every RLS policy refuses them',
     `got ${role.r}`);
 
-  // ── 8. restore returns the previous role ───────────────────────────────────
+  // ── restore returns the previous role ───────────────────────────────────
   await actAs(db, OWNER);
   await db.exec(`
     UPDATE public.user_profiles
@@ -221,7 +153,7 @@ async function main() {
   const back = await one(db, `SELECT public.current_user_role() AS r`);
   R(back.r === 'am', 'restore brings back the exact previous role', `got ${back.r}`);
 
-  // ── 9. archive is audited ──────────────────────────────────────────────────
+  // ── archive is audited ──────────────────────────────────────────────────
   await actAs(db, OWNER);
   await db.exec(`
     UPDATE public.campaigns SET status='Archived', archived_at=now(),
@@ -239,23 +171,23 @@ async function main() {
   const kept = await one(db, `SELECT status FROM public.campaigns WHERE id='55555555-5555-5555-5555-555555555555'`);
   R(kept && kept.status === 'Archived', 'the archived campaign is still there');
 
-  // ── 10. content review decisions are audited (§5.1) ────────────────────────
+  // ── content review decisions are audited (§5.1) ────────────────────────
   await db.exec(`
-    INSERT INTO public.submissions (id, creator_id, campaign_id, concept_status)
+    INSERT INTO public.submissions (id, creator_id, campaign_id, submission_type, status)
     VALUES ('77777777-7777-7777-7777-777777777777',
             '33333333-3333-3333-3333-333333333333',
-            '55555555-5555-5555-5555-555555555555', 'Pending')`);
+            '55555555-5555-5555-5555-555555555555', 'Final', 'Under Review')`);
   await db.exec(`
-    UPDATE public.submissions SET final_status='Approved', reviewed_by='${OWNER}'
+    UPDATE public.submissions SET status='Approved', reviewed_by='${OWNER}'
     WHERE id='77777777-7777-7777-7777-777777777777'`);
 
   ev = await one(db, `
     SELECT action, to_value FROM public.admin_audit_logs
     WHERE entity_type='submission' ORDER BY occurred_at DESC LIMIT 1`);
-  R(ev && ev.action === 'final_review', 'a review decision is audited');
+  R(ev && ev.action === 'submission_review', 'a review decision is audited');
   R(ev && ev.to_value === 'Approved', 'the decision itself is recorded');
 
-  // ── 11. the audit trail is append-only ─────────────────────────────────────
+  // ── the audit trail is append-only ─────────────────────────────────────
   try {
     await db.exec(`UPDATE public.admin_audit_logs SET action='tampered'`);
     R(false, 'UPDATE on admin_audit_logs is refused', 'the update succeeded');
@@ -270,31 +202,13 @@ async function main() {
     R(/append-only/i.test(e.message), 'DELETE on admin_audit_logs is refused');
   }
 
-  // ── 12. an unrelated update produces no noise ──────────────────────────────
+  // ── an unrelated update produces no noise ──────────────────────────────
   const before = await one(db, `SELECT count(*)::int AS n FROM public.admin_audit_logs`);
   await db.exec(`UPDATE public.user_profiles SET full_name='Renamed' WHERE id='${CREATOR}'`);
   const after = await one(db, `SELECT count(*)::int AS n FROM public.admin_audit_logs`);
   R(before.n === after.n,
     'renaming a user writes nothing — only sensitive changes are journalled',
     `${before.n} -> ${after.n}`);
-
-  // ── 13. rollback ───────────────────────────────────────────────────────────
-  try {
-    await db.exec(read(path.join(MIG, '..', 'rollbacks', ROLLBACK)));
-    R(true, 'the rollback applies');
-  } catch (e) {
-    R(false, 'the rollback applies', e.message);
-  }
-
-  try {
-    await db.exec(`DELETE FROM public.payments WHERE id='66666666-6666-6666-6666-666666666666'`);
-    R(true, 'after rollback, DELETE on payments works again (as the header warns)');
-  } catch (e) {
-    R(false, 'after rollback, DELETE on payments works again', e.message);
-  }
-
-  const survived = await one(db, `SELECT count(*)::int AS n FROM public.admin_audit_logs`);
-  R(survived.n > 0, 'the rollback keeps the audit trail', `${survived.n} entries`);
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail > 0 ? 1 : 0);

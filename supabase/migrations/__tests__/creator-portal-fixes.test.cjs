@@ -1,42 +1,10 @@
-// supabase/migrations/__tests__/creator-portal-fixes.test.cjs
-//
-// Behaviour test for 20260918000000_creator_portal_fixes.sql.
-//
-// The first test written for this migration bootstrapped a private toy schema,
-// stubbed current_user_role() to a constant, connected as the PGlite superuser
-// (which bypasses RLS unconditionally) and then asserted that columns existed.
-// It passed while the migration let a creator approve themselves onto any
-// campaign, and while "applying" silently assigned the creator on the spot.
-//
-// This one runs the real chain and asks the questions the punch list asks:
-//
-//   P0-B  does a commission edit persist, and who is allowed to make it?
-//   P1    can a manager see and approve work on their own tenant — and ONLY
-//         their own tenant?
-//   P2    is an application an application, or an assignment in disguise?
-//   P3    can the client portal see the CPM switch, and nothing about cost?
-//
-// Every measurement runs as `authenticated` with a JWT subject, i.e. exactly
-// what PostgREST does in production. assertRlsIsEnforced() aborts the suite if
-// the instrument is not live — see tests/README.md for why that matters here.
+// Creator portal rules, as signed in users: commission edits and who may make them (P0-B), managers
+// confined to their own tenant (P1), an application is not an assignment (P2), and the client view
+// carries the CPM switch but nothing about cost (P3).
 //
 //   node supabase/migrations/__tests__/creator-portal-fixes.test.cjs
 
-const fs = require('fs');
-const path = require('path');
-
-let PGlite;
-try {
-  ({ PGlite } = require('@electric-sql/pglite'));
-} catch {
-  console.error('SKIP: @electric-sql/pglite is not installed.  npm i -D @electric-sql/pglite');
-  process.exit(0);
-}
-
-const S = __dirname;
-const MIG = path.join(__dirname, '..');
-const read = p => fs.readFileSync(p, 'utf8');
-const MIGRATION = '20260918000000_creator_portal_fixes.sql';
+const { freshDb } = require('./db.cjs');
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
@@ -83,38 +51,11 @@ async function as(db, uid, sql, params) {
 }
 
 async function build() {
-  const db = await PGlite.create();
-  await db.exec(read(S + '/fixture_schema.sql'));
-
-  // Columns the live tables have and the shared fixture does not. Added here
-  // rather than in fixture_schema.sql so the other suites are untouched.
+  const db = await freshDb();
   await db.exec(`
-    ALTER TABLE public.campaigns
-      ADD COLUMN IF NOT EXISTS application_type TEXT,
-      ADD COLUMN IF NOT EXISTS is_sales_sourced BOOLEAN DEFAULT false,
-      ADD COLUMN IF NOT EXISTS format TEXT,
-      ADD COLUMN IF NOT EXISTS deadline DATE,
-      ADD COLUMN IF NOT EXISTS start_date DATE,
-      ADD COLUMN IF NOT EXISTS brief_url TEXT,
-      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
-    ALTER TABLE public.creators
-      ADD COLUMN IF NOT EXISTS tiktok_handle TEXT,
-      ADD COLUMN IF NOT EXISTS instagram_handle TEXT,
-      ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
-    ALTER TABLE public.payments
-      ADD COLUMN IF NOT EXISTS campaign_id UUID,
-      ADD COLUMN IF NOT EXISTS submission_id UUID,
-      ADD COLUMN IF NOT EXISTS amount_owed NUMERIC,
-      ADD COLUMN IF NOT EXISTS videos_approved INT;
-    ALTER TABLE public.submissions
-      ADD COLUMN IF NOT EXISTS status TEXT;
-  `);
-
-  await db.exec(`
-    insert into auth.users(id) values
-      ('${U.owner}'),('${U.am1}'),('${U.am2}'),('${U.client1}'),('${U.client2}'),
-      ('${U.cre1}'),('${U.cre2}'),('${U.cre3}');
+    insert into auth.users(id, email) values
+      ('${U.owner}','owner@x.com'),('${U.am1}','am1@x.com'),('${U.am2}','am2@x.com'),('${U.client1}','client1@x.com'),
+      ('${U.client2}','client2@x.com'),('${U.cre1}','cre1@x.com'),('${U.cre2}','cre2@x.com'),('${U.cre3}','cre3@x.com');
 
     insert into public.user_profiles(id, email, role) values
       ('${U.owner}',   'owner@x.com',   'owner'),
@@ -124,48 +65,27 @@ async function build() {
       ('${U.client2}', 'client2@x.com', 'client'),
       ('${U.cre1}',    'cre1@x.com',    'creator'),
       ('${U.cre2}',    'cre2@x.com',    'creator'),
-      ('${U.cre3}',    'cre3@x.com',    'creator');
+      ('${U.cre3}',    'cre3@x.com',    'creator')
+      on conflict (id) do update set role = excluded.role;
 
-    insert into public.account_managers(id, user_id, name) values
-      ('${AM1}','${U.am1}','AM One'), ('${AM2}','${U.am2}','AM Two');
+    insert into public.account_managers(id, user_id, name, email) values
+      ('${AM1}','${U.am1}','AM One','am1@x.com'), ('${AM2}','${U.am2}','AM Two','am2@x.com')
+      on conflict (email) do update set id = excluded.id, user_id = excluded.user_id;
 
     insert into public.clients(id, user_id, name, am_id, budget) values
       ('${CL1}','${U.client1}','Tenant One','${AM1}', 5000),
-      ('${CL2}','${U.client2}','Tenant Two','${AM2}', 9000);
+      ('${CL2}','${U.client2}','Tenant Two','${AM2}', 9000)
+      on conflict (user_id) do update set id = excluded.id, name = excluded.name, am_id = excluded.am_id, budget = excluded.budget;
 
-    insert into public.creators(id, user_id, name, am_id, bank_account_last4) values
-      ('${CR1}','${U.cre1}','Creator One','${AM1}','1111'),
-      ('${CR2}','${U.cre2}','Creator Two','${AM2}','2222'),
-      ('${CR3}','${U.cre3}','Creator Three', NULL,'3333');
+    insert into public.creators(id, user_id, name, email, am_id, bank_account_last4) values
+      ('${CR1}','${U.cre1}','Creator One','cre1@x.com','${AM1}','1111'),
+      ('${CR2}','${U.cre2}','Creator Two','cre2@x.com','${AM2}','2222'),
+      ('${CR3}','${U.cre3}','Creator Three','cre3@x.com', NULL,'3333');
 
     insert into public.campaigns(id, name, client_id, status, application_type, pay_per_video, assigned_creators) values
       ('${CA1}','Campaign One','${CL1}','Open','Open Application', 50, array['${CR1}']::uuid[]),
       ('${CA2}','Campaign Two','${CL2}','Open','Open Application', 80, array['${CR2}']::uuid[]),
       ('${CA3}','Invite Only', '${CL1}','Open','Invite Only',      50, '{}'::uuid[]);
-  `);
-
-  // The real chain, in the order it is applied in production.
-  await db.exec(read(path.join(MIG, '20260521000000_omnya_hardening.sql'))
-    .split('-- ===== creators =====')[1]
-    .split('-- ===== payments =====')[0]);
-  await db.exec(read(path.join(MIG, '20260527130000_client_rls_security.sql'))
-    .replace(/ALTER TABLE public\.video_analytics[^;]*;/g, '')
-    .replace(/DROP POLICY IF EXISTS client_select_own_analytics[^;]*;/g, '')
-    .replace(/CREATE POLICY client_select_own_analytics[\s\S]*?\);\s*/g, ''));
-  await db.exec(read(path.join(MIG, '20260822000003_campaign_creators.sql')));
-  await db.exec(read(path.join(MIG, '20260822000005_tenant_policy_reset.sql')));
-
-  await db.exec(`
-    ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
-    GRANT USAGE ON SCHEMA public, auth TO authenticated;
-    GRANT SELECT, INSERT, UPDATE, DELETE ON
-      public.creators, public.clients, public.campaigns, public.submissions,
-      public.payments, public.campaign_creators TO authenticated;
-    GRANT SELECT ON public.account_managers, public.user_profiles TO authenticated;
-    GRANT EXECUTE ON FUNCTION public.current_user_role() TO authenticated;
-    GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;
-    GRANT EXECUTE ON FUNCTION public.get_my_payout_role() TO authenticated;
-    GRANT EXECUTE ON FUNCTION public.is_payment_manager(TEXT) TO authenticated;
   `);
 
   return db;
@@ -185,34 +105,12 @@ async function assertRlsIsEnforced(db) {
 }
 
 async function run() {
-  console.log(`\n${MIGRATION}`);
+  console.log('\ncreator portal rules');
   const db = await build();
-
-  // ---- applies, and applies twice -------------------------------------------
-  try {
-    await db.exec(read(path.join(MIG, MIGRATION)));
-    R(true, 'the migration applies on top of the real chain');
-  } catch (e) {
-    R(false, 'the migration applies on top of the real chain', e.message.slice(0, 400));
-    return db.close();
-  }
-  try {
-    await db.exec(read(path.join(MIG, MIGRATION)));
-    R(true, 'and is idempotent');
-  } catch (e) {
-    R(false, 'and is idempotent', e.message.slice(0, 400));
-  }
 
   await assertRlsIsEnforced(db);
 
-  // ---- existing data is not disturbed ---------------------------------------
-  let r = await db.query(`select status from public.campaign_creators where campaign_id='${CA1}' and creator_id='${CR1}'`);
-  R(r.rows[0] && r.rows[0].status === 'Approved',
-    'assignments that already existed are Approved, not orphaned', r.rows[0] && r.rows[0].status);
-  r = await db.query(`select sales_commission_rate s, manager_commission_rate m, show_client_cpm c from public.campaigns where id='${CA1}'`);
-  R(Number(r.rows[0].s) === 0.3 && r.rows[0].m === null && r.rows[0].c === false,
-    'existing campaigns keep 30% sales, inherit the manager rate, and hide CPM from the client',
-    JSON.stringify(r.rows[0]));
+  let r;
 
   // ===========================================================================
   console.log('\nP2 -- an application is not an assignment');
@@ -306,9 +204,9 @@ async function run() {
   // ---- review queue ---------------------------------------------------------
   // cre2 is on am2's roster but has submitted to am1's client's campaign.
   await db.exec(`
-    insert into public.submissions(id, creator_id, campaign_id, status, final_status) values
-      ('50000000-0000-0000-0000-0000000000a1','${CR2}','${CA1}','Under Review','Pending'),
-      ('50000000-0000-0000-0000-0000000000a2','${CR2}','${CA2}','Under Review','Pending');
+    insert into public.submissions(id, creator_id, campaign_id, submission_type, status) values
+      ('50000000-0000-0000-0000-0000000000a1','${CR2}','${CA1}','Final','Under Review'),
+      ('50000000-0000-0000-0000-0000000000a2','${CR2}','${CA2}','Final','Under Review');
   `);
   r = await as(db, U.am1, `select id from public.submissions where id='50000000-0000-0000-0000-0000000000a1'`);
   R(r.rows.length === 1,
@@ -327,13 +225,13 @@ async function run() {
   // ---- the payment an approval creates --------------------------------------
   r = await as(db, U.am1,
     `insert into public.payments(creator_id, campaign_id, amount_owed, videos_approved, status)
-     values ('${CR2}','${CA1}', 50, 1, 'Pending')`);
+     values ('${CR2}','${CA1}', 50, 1, 'pending')`);
   // No RETURNING: managers have no SELECT on payments, and the app's insert
   // does not ask for the row back either.
   R(!r.error && r.affected === 1, 'approving manager can create the Pending payment at the campaign rate', r.error);
   r = await as(db, U.am1,
     `insert into public.payments(creator_id, campaign_id, amount_owed, videos_approved, status)
-     values ('${CR2}','${CA1}', 5000, 1, 'Pending')`);
+     values ('${CR2}','${CA1}', 5000, 1, 'pending')`);
   R(!!r.error, 'but not for more than the campaign\'s rate', r.error ? 'refused' : 'ACCEPTED');
   r = await as(db, U.am1,
     `insert into public.payments(creator_id, campaign_id, amount_owed, videos_approved, status)
@@ -341,12 +239,12 @@ async function run() {
   R(!!r.error, 'nor already marked Paid', r.error ? 'refused' : 'ACCEPTED');
   r = await as(db, U.am1,
     `insert into public.payments(creator_id, campaign_id, amount_owed, videos_approved, status)
-     values ('${CR2}','${CA2}', 80, 1, 'Pending')`);
+     values ('${CR2}','${CA2}', 80, 1, 'pending')`);
   R(!!r.error, 'nor on another tenant\'s campaign', r.error ? 'refused' : 'ACCEPTED');
 
   // ---- picking creators -----------------------------------------------------
-  await db.exec(`insert into public.creators(id, name, am_id, bank_account_last4)
-                 values ('e0000000-0000-0000-0000-000000000004','Creator Four', NULL, '4444')`);
+  await db.exec(`insert into public.creators(id, name, email, am_id, bank_account_last4)
+                 values ('e0000000-0000-0000-0000-000000000004','Creator Four','cre4@x.com', NULL, '4444')`);
   r = await as(db, U.am1, `select * from public.list_unassigned_creators()`);
   R(r.rows.some(x => x.name === 'Creator Four'), 'a manager can list the unassigned pool', r.error);
   R(r.rows.length > 0 && !('bank_account_last4' in r.rows[0]) && !('payout_email' in r.rows[0]),
@@ -425,7 +323,6 @@ async function run() {
   console.log('\nP3 -- what the client portal can see');
   // ===========================================================================
 
-  await db.exec(`GRANT SELECT ON public.client_safe_campaigns TO authenticated;`);
   r = await as(db, U.client1, `select * from public.client_safe_campaigns order by campaign_name`);
   const mine = r.rows.find(x => x.campaign_id === CA1);
   R(!!mine && mine.show_client_cpm === true, 'the client view carries the CPM switch the manager just flipped',

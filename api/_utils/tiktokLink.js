@@ -13,7 +13,7 @@ const { sendError } = require('./errors');
 const { resolveShortLink } = require('./analytics');
 const { needsReauth } = require('./socialAccounts');
 
-const MIGRATION = '20261023000000_tiktok_profile_links.sql';
+const MIGRATION = 'supabase/SETUP.sql';
 
 const LINK_CODE_TTL_DAYS = 7;
 const CODE_PREFIX = 'OMNYA-';
@@ -133,7 +133,7 @@ function isLinkSchemaMissing(err) {
 
 function sendMigrationMissing(res) {
   return sendError(res, 503, 'migration_missing',
-    `TikTok link tracking is not switched on yet. Apply supabase/migrations/${MIGRATION}, then retry.`,
+    `TikTok link tracking is not switched on yet. Run npm run db:migrate (${MIGRATION} on a fresh project), then retry.`,
     { migration: MIGRATION });
 }
 

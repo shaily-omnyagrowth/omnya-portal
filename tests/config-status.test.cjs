@@ -207,24 +207,34 @@ const varOf = (cfg, name) => cfg.groups.flatMap((g) => g.vars).find((v) => v.nam
   console.log('\nMigrations panel (AC-7)');
   const files = Object.keys(probes.manifest).sort();
   const sent = probes.probePayload();
-  const [fApplied, fBroken, fPending, fDrift] = sent.map((p) => p.file);
-  rpcAnswer = {
-    data: {
-      history: files.filter((f) => f !== fPending && f !== fDrift).map((f) => ({ version: probes.versionOf(f) })),
-      probes: sent.map((p) => ({ file: p.file, present: p.file !== fBroken && p.file !== fPending })),
-    },
-    error: null,
+  const [fA, fB] = sent.map((p) => p.file);
+  // Each round gives the two files a state: recorded in history, and probe present.
+  const AS = { applied: [true, true], broken: [true, false], pending: [false, false], drift: [false, true] };
+  const panel = async (stA, stB) => {
+    const want = { [fA]: AS[stA], [fB]: AS[stB] };
+    rpcAnswer = {
+      data: {
+        history: files.filter((f) => !want[f] || want[f][0]).map((f) => ({ version: probes.versionOf(f) })),
+        probes: sent.map((p) => ({ file: p.file, present: want[p.file] ? want[p.file][1] : true })),
+      },
+      error: null,
+    };
+    const res = await call(configStatus, { token: 'tok-owner' });
+    const data = res.body && res.body.data;
+    return { res, data, stateOf: (f) => data.migrations.rows.find((r) => r.file === f).state };
   };
-  const owner = await call(configStatus, { token: 'tok-owner' });
-  const d = owner.body && owner.body.data;
-  const stateOf = (f) => d.migrations.rows.find((r) => r.file === f).state;
+  const one = await panel('applied', 'broken');
+  const owner = one.res;
+  const d = one.data;
   R(owner.code === 200 && d.migrations.available, 'owner gets 200 with migration rows');
   R(d.migrations.rows.length === files.length, 'one row per manifest file', `${d.migrations.rows.length}/${files.length}`);
-  R(stateOf(fApplied) === 'applied' && stateOf(fBroken) === 'broken' && stateOf(fPending) === 'pending' && stateOf(fDrift) === 'drift',
+  const two = await panel('pending', 'drift');
+  R(one.stateOf(fA) === 'applied' && one.stateOf(fB) === 'broken' && two.stateOf(fA) === 'pending' && two.stateOf(fB) === 'drift',
     'applied, broken, pending and drift rows come out as such');
   R(Array.isArray(fakeClient.lastArgs.probes) && fakeClient.lastArgs.probes.length === sent.length,
     'the RPC receives the manifest payload (manual and retired entries left out)');
-  R(d.ready === false && [fBroken, fPending, fDrift].every((f) => d.notReadyReasons.some((r) => r.includes(f))),
+  R(d.ready === false && d.notReadyReasons.some((r) => r.includes(fB)) && two.data.ready === false &&
+    [fA, fB].every((f) => two.data.notReadyReasons.some((r) => r.includes(f))),
     'each non applied row appears in notReadyReasons');
 
   const body = JSON.stringify(owner.body);
@@ -248,9 +258,9 @@ const varOf = (cfg, name) => cfg.groups.flatMap((g) => g.vars).find((v) => v.nam
   // PGRST202: the status function is not there yet.
   rpcAnswer = { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.admin_migration_status(probes) in the schema cache' } };
   const noFn = (await call(configStatus, { token: 'tok-owner' })).body.data;
-  R(noFn.migrations.available === false && /20261001000000_admin_migration_status\.sql/.test(noFn.migrations.hint),
-    'PGRST202: the panel names migration 20261001000000');
-  R(noFn.ready === false && noFn.notReadyReasons.some((r) => /20261001000000/.test(r)), 'and readiness says so');
+  R(noFn.migrations.available === false && /supabase\/SETUP\.sql/.test(noFn.migrations.hint),
+    'PGRST202: the panel points at supabase/SETUP.sql');
+  R(noFn.ready === false && noFn.notReadyReasons.some((r) => /SETUP\.sql/.test(r)), 'and readiness says so');
 
   // ------------------------------------------------------------ AC-10 provider tests
   console.log('\nTest connections (AC-10)');

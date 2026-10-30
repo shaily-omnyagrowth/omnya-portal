@@ -58,9 +58,9 @@ const Errors = {
     sendError(res, 500, 'internal', msg, details),
   // `migration` is the file name under supabase/migrations; `what` is a short
   // phrase for the missing objects, e.g. "the campaign share columns".
-  schemaMissing: (res, migration, what = 'a column this action needs') =>
+  schemaMissing: (res, what = 'a column this action needs') =>
     sendError(res, 500, 'schema_missing',
-      `The database is missing ${what}. Apply supabase/migrations/${migration}, then retry.`),
+      `The database is missing ${what}. Run npm run db:migrate (supabase/SETUP.sql on a fresh project), then retry.`),
 };
 
 module.exports = { sendJson, sendOk, sendError, Errors, isSchemaMissing };

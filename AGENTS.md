@@ -32,10 +32,6 @@ node tests/run-all.cjs --offline-only   # fast lane, no servers
 node tests/run-all.cjs                  # everything; exit 3 means blocked on a migration
 ```
 
-## Specs
-
-Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
-
 ## Rules
 
 - Roles come from `user_profiles.role` in the database, never from email or client input. Values: `owner`, `am` (stored as `account_manager`), `creator`, `client`, `pending`, `denied`. Normalize `account_manager` to `am` everywhere.
@@ -51,8 +47,8 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
 - `vercel.json` uses `cleanUrls`, so rewrite destinations must not end in `.html` or deep links 404. `tests/vercel-rewrites.test.cjs` guards this.
 - Preview deployments sit behind Vercel SSO, so automated checks against them get a login page.
 - The CSP in `vercel.json` only allows `connect-src` to Supabase. Any new browser side third party call must go through `api/`.
-- `supabase/migrations/` is the schema source of truth. `supabase/SETUP.sql` bundles the old pre-migration SQL for bootstrapping a fresh project.
-- `docs/reports/` holds dated snapshots (audits, summaries), not current truth. Operational guides live in `docs/guides/`.
+- `supabase/SETUP.sql` is the schema as of 2026-10-30; `supabase/migrations/` holds every change since. A fresh project runs `SETUP.sql`, then `npm run db:migrate`.
+- `docs/guides/` holds the design context and the social OAuth setup guide.
 
 ## Agent skills
 

@@ -53,7 +53,7 @@ module.exports = async (req, res) => {
     const { data, error } = await supabase.rpc('payout_reconciliation_report');
 
     if (error) {
-      // The wrapper only exists once 20260823000000 is applied. Fall back to
+      // Without the report wrapper, fall back to
       // the raw reconcile so the page still works on a partly-migrated
       // database, and say which one answered.
       console.warn('[payouts/reconcile] wrapper unavailable, falling back:', error.message);
@@ -63,8 +63,8 @@ module.exports = async (req, res) => {
         if (/does not exist|could not find/i.test(fallback.error.message)) {
           return Errors.badRequest(
             res,
-            'The payout ledger is not installed on this database. Apply ' +
-            '20260822000004_payout_ledger.sql to enable reconciliation.'
+            'The payout ledger is not installed on this database. Run ' +
+            'npm run db:migrate (supabase/SETUP.sql on a fresh project) to enable reconciliation.'
           );
         }
         throw fallback.error;

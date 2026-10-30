@@ -1,1307 +1,1305 @@
--- =============================================================================
--- Omnya Portal — One-shot setup script for a fresh Supabase project
--- =============================================================================
---
--- Bundle of everything needed to bring the new project to the hardening-branch
--- state:
---
---   Section 1: Base schema       (database_setup.sql)
---   Section 2: Payouts + tokens  (database_update.sql)
---   Section 3: Analytics         (analytics_setup.sql)
---   Section 4: Meta tokens (compat layer; mostly no-op against the above)
---                                (meta_setup.sql)
---   Section 5: Role constraint   (fix_role_constraint.sql)
---   Section 6: Hardening migration (RLS + indexes + missing columns)
---                                (20260521000000_omnya_hardening.sql)
---   Section 7: Social media schema (oauth_states, creator_tokens columns, view)
---                                (20260522000000_social_media_feature.sql)
---   Section 8: Verification block (SELECTs you can eyeball)
---
--- HOW TO USE
---   1. Supabase Dashboard → your project → SQL Editor → New query.
---   2. Paste this entire file.
---   3. Click "Run".
---   4. Scroll to the bottom output — Section 8 prints summaries you can compare
---      against the "Expected" notes in the comments.
---
--- The script is idempotent: re-running is safe. Sections 1-5 use
--- `CREATE TABLE IF NOT EXISTS` and friends; Sections 6 + 7 are wrapped in
--- transactions and use `ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`,
--- and conditional DO blocks.
---
--- After this runs, the database is on the role-scoped RLS model — anonymous
--- queries see nothing; the anon key is gated by RLS for every table. The app
--- still needs:
---   - REACT_APP_SUPABASE_URL + REACT_APP_SUPABASE_ANON_KEY set locally + in
---     Vercel.
---   - SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY set in Vercel for server-side
---     functions.
--- =============================================================================
-
-
--- =============================================================================
--- SECTION 1: BASE SCHEMA  (from database_setup.sql)
--- =============================================================================
-
--- Run this in Supabase SQL Editor to set up your database
-
--- 1. User profiles (links auth users to roles)
-create table if not exists user_profiles (
-  id uuid references auth.users primary key,
-  email text unique not null,
-  full_name text,
-  role text default 'pending' check (role in ('creator','am','account_manager','owner','pending','denied')),
-  created_at timestamptz default now()
-);
-
--- 2. Account Managers
-create table if not exists account_managers (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users,
-  name text not null,
-  email text unique not null,
-  created_at timestamptz default now()
-);
-
--- 3. Creators
-create table if not exists creators (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users,
-  name text not null,
-  email text unique not null,
-  tiktok_handle text,
-  instagram_handle text,
-  status text default 'Active',
-  weekly_rate numeric default 150,
-  videos_per_week integer default 15,
-  payment_status text default 'Current',
-  am_id uuid references account_managers,
-  created_at timestamptz default now()
-);
-
--- 4. Clients
-create table if not exists clients (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  deal_type text default 'Monthly Retainer',
-  videos_per_month integer default 20,
-  budget numeric default 0,
-  status text default 'Active',
-  contact_name text,
-  contact_email text,
-  contact_phone text,
-  contract_terms text,
-  drive_link text,
-  am_id uuid references account_managers,
-  created_at timestamptz default now()
-);
-
--- 5. Campaigns
-create table if not exists campaigns (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  client_id uuid references clients,
-  description text,
-  format text default 'TikTok',
-  videos_needed integer default 10,
-  pay_per_video numeric default 10,
-  deadline date,
-  status text default 'Open',
-  application_type text default 'Open Application',
-  assigned_creators uuid[] default '{}',
-  created_at timestamptz default now()
-);
-
--- 6. Submissions
-create table if not exists submissions (
-  id uuid primary key default gen_random_uuid(),
-  creator_id uuid references creators,
-  campaign_id uuid references campaigns,
-  submission_type text default 'Concept',
-  concept_link text,
-  concept_status text default 'Pending',
-  posted_link text,
-  final_status text,
-  platform text default 'TikTok',
-  feedback text,
-  approved_date date,
-  views_24h bigint, views_72h bigint, views_1w bigint, views_2w bigint, views_1m bigint,
-  likes bigint, comments bigint, shares bigint, saves bigint,
-  payment_status text default 'Unpaid',
-  ai_insights jsonb,
-  created_at timestamptz default now()
-);
-
--- 7. Payments
-create table if not exists payments (
-  id uuid primary key default gen_random_uuid(),
-  creator_id uuid references creators,
-  campaign_id uuid references campaigns,
-  submission_id uuid references submissions,
-  week_ending date,
-  videos_approved integer default 0,
-  amount_owed numeric default 0,
-  status text default 'Pending',
-  payment_method text,
-  paid_date date,
-  created_at timestamptz default now()
-);
-
--- 8. Messages (Forum)
-create table if not exists messages (
-  id uuid primary key default gen_random_uuid(),
-  campaign_id uuid references campaigns,
-  user_id uuid,
-  sender_name text,
-  content text,
-  reactions jsonb default '{}',
-  is_pinned boolean default false,
-  created_at timestamptz default now()
-);
-
--- Enable Row Level Security (allow all for development)
-alter table user_profiles enable row level security;
-alter table creators enable row level security;
-alter table clients enable row level security;
-alter table campaigns enable row level security;
-alter table submissions enable row level security;
-alter table payments enable row level security;
-alter table account_managers enable row level security;
-alter table messages enable row level security;
-
--- Policies
-do $$
-begin
-  drop policy if exists "Allow all" on user_profiles;
-  drop policy if exists "Allow all" on creators;
-  drop policy if exists "Allow all" on clients;
-  drop policy if exists "Allow all" on campaigns;
-  drop policy if exists "Allow all" on submissions;
-  drop policy if exists "Allow all" on payments;
-  drop policy if exists "Allow all" on account_managers;
-  drop policy if exists "Allow all" on messages;
-end $$;
-
-create policy "Allow all" on user_profiles for all using (true) with check (true);
-create policy "Allow all" on creators for all using (true) with check (true);
-create policy "Allow all" on clients for all using (true) with check (true);
-create policy "Allow all" on campaigns for all using (true) with check (true);
-create policy "Allow all" on submissions for all using (true) with check (true);
-create policy "Allow all" on payments for all using (true) with check (true);
-create policy "Allow all" on account_managers for all using (true) with check (true);
-create policy "Allow all" on messages for all using (true) with check (true);
-
-
--- =============================================================================
--- SECTION 2: PAYOUTS + LEGACY CREATOR TOKENS  (from database_update.sql)
--- =============================================================================
-
--- OAuth Tokens Storage
-CREATE TABLE IF NOT EXISTS creator_tokens (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  platform TEXT NOT NULL, -- 'meta', 'youtube', 'tiktok'
-  access_token TEXT NOT NULL,
-  refresh_token TEXT,
-  platform_account_id TEXT,
-  platform_account_name TEXT,
-  scopes TEXT[],
-  expires_at TIMESTAMP WITH TIME ZONE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id, platform)
-);
-
--- Payouts System
-CREATE TABLE IF NOT EXISTS payout_batches (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  status TEXT DEFAULT 'draft', -- 'draft', 'paid'
-  period_start DATE,
-  period_end DATE,
-  total_amount NUMERIC(10,2) DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  paid_at TIMESTAMP WITH TIME ZONE
-);
-
-CREATE TABLE IF NOT EXISTS payout_line_items (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  batch_id UUID REFERENCES payout_batches(id) ON DELETE CASCADE,
-  user_id UUID REFERENCES auth.users(id),
-  role TEXT, -- 'creator' or 'am'
-  amount NUMERIC(10,2) NOT NULL,
-  payment_method TEXT,
-  payment_details JSONB,
-  status TEXT DEFAULT 'pending'
-);
-
--- Add payout reference to submissions if it doesn't exist
-DO $$ 
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='submissions' AND column_name='payout_batch_id') THEN
-        ALTER TABLE submissions ADD COLUMN payout_batch_id UUID REFERENCES payout_batches(id);
-    END IF;
-END $$;
-
-
--- =============================================================================
--- SECTION 3: VIDEO ANALYTICS  (from analytics_setup.sql)
--- =============================================================================
-
--- Table to store unified post-level analytics for all platforms
-create table if not exists video_analytics (
-  id uuid primary key default gen_random_uuid(),
-  platform text not null, -- 'tiktok', 'meta', 'youtube'
-  creator_id uuid references creators(id),
-  campaign_id uuid references campaigns(id),
-  submission_id uuid references submissions(id),
-  video_id text not null, -- Platform specific ID (e.g. IG Media ID, TikTok Video ID)
-  views bigint default 0,
-  likes bigint default 0,
-  comments bigint default 0,
-  shares bigint default 0,
-  reach bigint default 0,
-  saves bigint default 0,
-  watch_time numeric, -- in seconds
-  pulled_at timestamptz default now(),
-  unique(submission_id)
-);
-
--- Enable RLS
-alter table video_analytics enable row level security;
-
--- Policy to allow creators to see their own analytics.
--- Drop-then-create so the bundle is safe to re-run; Section 6 will drop and
--- replace this anyway, but we need the script to reach Section 6 first.
-drop policy if exists "Allow owners to see their own analytics" on video_analytics;
-create policy "Allow owners to see their own analytics"
-on video_analytics for select
-using (
-  exists (
-    select 1 from creators
-    where creators.id = video_analytics.creator_id
-    and creators.user_id = auth.uid()
-  )
-);
-
-
--- =============================================================================
--- SECTION 4: META TOKENS COMPAT  (from meta_setup.sql)
--- Note: the CREATE TABLE IF NOT EXISTS is a no-op because Section 2 already
--- created creator_tokens with the canonical user_id key. The RLS policy here
--- is dropped by Section 6 anyway. Kept for compatibility with the original
--- file order.
--- =============================================================================
-
--- THIS FILE DID NOT RUN BEFORE THIS BLOCK WAS ADDED.
---
--- The header note above is right that the CREATE TABLE below is a no-op —
--- Section 2 already created creator_tokens keyed on user_id, and
--- `IF NOT EXISTS` skips this second definition silently. What the note misses
--- is that the second definition declares three columns Section 2 does not
--- (creator_id, account_id, account_name), and the RLS policy immediately
--- below references creator_tokens.creator_id.
---
--- So the script aborted here every time, with:
---
---     ERROR: column creator_tokens.creator_id does not exist
---
--- Which means there was no way to build this database from the repository at
--- all: not from supabase/migrations/ (twelve core tables are created only
--- here, never by a migration), and not from this file (it stopped at this
--- line). Production exists as a hand-assembled artifact that nothing in the
--- repo could reproduce — no staging, no Supabase branch, no disaster recovery.
---
--- The ALTERs below add exactly the columns the skipped definition would have
--- contributed. They are additive and idempotent, and they match the shape
--- production actually has (verified against the live table, which carries both
--- user_id and creator_id).
-
-alter table creator_tokens add column if not exists creator_id   uuid references creators(id) on delete cascade;
-alter table creator_tokens add column if not exists account_id   text;  -- platform id, e.g. IG Business Account ID
-alter table creator_tokens add column if not exists account_name text;  -- username or display name
-
--- Section 2 declares scopes as text[]; the meta_setup original declared it as
--- text. Production carries text[]. Left as Section 2 created it rather than
--- converted, because a type change on a live column is not something a
--- setup script should do silently.
-
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint
-    where conname = 'creator_tokens_creator_id_platform_key'
-  ) and exists (
-    select 1 from information_schema.columns
-    where table_name = 'creator_tokens' and column_name = 'creator_id'
-  ) then
-    begin
-      alter table creator_tokens
-        add constraint creator_tokens_creator_id_platform_key unique (creator_id, platform);
-    exception when others then
-      raise notice 'creator_tokens: could not add unique(creator_id, platform) -- %', sqlerrm;
-    end;
-  end if;
-end $$;
-
--- Enable RLS
-alter table creator_tokens enable row level security;
-
--- Policy to allow creators to see their own tokens (read-only for frontend).
--- Drop-then-create for re-run safety; Section 6 drops and replaces this with
--- a role-scoped policy keyed on user_id.
-drop policy if exists "Allow owners to see their own tokens" on creator_tokens;
-create policy "Allow owners to see their own tokens"
-on creator_tokens for select
-using (
-  exists (
-    select 1 from creators
-    where creators.id = creator_tokens.creator_id
-    and creators.user_id = auth.uid()
-  )
-);
-
-
--- =============================================================================
--- SECTION 5: ROLE CONSTRAINT  (from fix_role_constraint.sql)
--- =============================================================================
-
--- Fix user_profiles role check constraint
--- Allowed roles: creator, am, account_manager, owner, pending, denied
-
-ALTER TABLE user_profiles 
-DROP CONSTRAINT IF EXISTS user_profiles_role_check;
-
-ALTER TABLE user_profiles 
-ADD CONSTRAINT user_profiles_role_check 
-CHECK (role IN ('creator', 'am', 'account_manager', 'owner', 'pending', 'denied'));
-
-
--- =============================================================================
--- SECTION 6: PRODUCTION HARDENING MIGRATION
---   (from supabase/migrations/20260521000000_omnya_hardening.sql)
--- =============================================================================
-
--- =============================================================================
--- Omnya Portal — Production Hardening Migration
--- =============================================================================
---
--- Purpose:
---   1. Align schema with what the API + frontend code already reads/writes:
---      - payments.batch_id (FK to payout_batches.id)
---      - payout_batches.period_type
---      - creators.payout_email, creators.payout_preference
---      - creator_tokens: canonical key is user_id (matches OAuth callbacks,
---        sync.js, disconnect.js, CreatorConnections.js)
---   2. Add foreign-key + hot-path indexes.
---   3. Replace `USING (true)` RLS policies with role-scoped policies.
---   4. Add a helper function current_user_role() for clean policy expressions.
---
--- Safety:
---   - Idempotent: every statement uses IF NOT EXISTS, CREATE OR REPLACE, or a
---     conditional DO block. Safe to run multiple times.
---   - Non-destructive: NO `DROP COLUMN` calls. Dead columns are kept for now
---     (flagged in the README for a later cleanup migration after API code is
---     updated to stop referencing them).
---   - Status CHECK constraints are intentionally NOT added in this migration:
---     the API currently writes `'Pending'`/`'Paid'` (capitalized) while the
---     schema default is `'draft'` (lowercase). Adding a CHECK now would
---     break the running app. Normalize casing in Phase 5 (API hardening),
---     then add CHECKs in a follow-up migration.
---
--- Order:
---   1. Helper function (current_user_role)
---   2. Schema additions (columns)
---   3. creator_tokens backfill (creator_id -> user_id where needed)
---   4. Unique constraint on creator_tokens(user_id, platform)
---   5. Indexes
---   6. Drop old "Allow all" RLS policies
---   7. Create role-scoped RLS policies
---
--- Read supabase/migrations/README.md before applying. Apply on STAGING first.
--- =============================================================================
+-- Omnya production schema as of 2026-10-30. Run once on a fresh Supabase project, then npm run db:migrate.
 
 BEGIN;
 
--- -----------------------------------------------------------------------------
--- 1. Helper function: current_user_role()
--- -----------------------------------------------------------------------------
--- SECURITY DEFINER so it can read user_profiles without recursing into the
--- table's own RLS. Normalizes 'account_manager' -> 'am' to match the convention
--- AuthContext.js uses on the frontend.
---
--- search_path is pinned to prevent search-path-injection attacks against
--- SECURITY DEFINER functions.
+SET LOCAL statement_timeout = 0;
+SET LOCAL lock_timeout = 0;
+SET LOCAL idle_in_transaction_session_timeout = 0;
+SET LOCAL client_encoding = 'UTF8';
+SET LOCAL standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', true);
+SET LOCAL check_function_bodies = false;
+SET LOCAL xmloption = content;
+SET LOCAL client_min_messages = warning;
+SET LOCAL row_security = off;
 
-CREATE OR REPLACE FUNCTION public.current_user_role()
-RETURNS TEXT
-LANGUAGE SQL
-SECURITY DEFINER
-SET search_path = public
-STABLE
-AS $$
-  SELECT CASE WHEN role = 'account_manager' THEN 'am' ELSE role END
+CREATE FUNCTION public.admin_audit_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'admin_audit_logs is append-only: % is not permitted on entry %.',
+        TG_OP, coalesce(OLD.id::text, '(unknown)');
+END;
+$$;
+
+CREATE FUNCTION public.admin_migration_status(probes jsonb) RETURNS jsonb
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+  hist   jsonb := '[]'::jsonb;
+  result jsonb := '[]'::jsonb;
+BEGIN
+  IF to_regclass('supabase_migrations.schema_migrations') IS NOT NULL THEN
+    -- to_jsonb(m)->>'name' rather than m.name: very old CLI versions created
+    -- the table without a name column, and a missing column must not turn
+    -- the whole panel red.
+    SELECT COALESCE(
+             jsonb_agg(jsonb_build_object('version', m.version,
+                                          'name', to_jsonb(m)->>'name')
+                       ORDER BY m.version),
+             '[]'::jsonb)
+      INTO hist
+      FROM supabase_migrations.schema_migrations m;
+  END IF;
+
+  IF probes IS NOT NULL AND jsonb_typeof(probes) = 'array' THEN
+    SELECT COALESCE(jsonb_agg(jsonb_build_object(
+             'file', r.file, 'present', r.present, 'detail', r.detail)), '[]'::jsonb)
+      INTO result
+      FROM (
+        -- PROBE_SELECT (read by api/_lib/migrationProbes.js; keep the markers)
+        SELECT p->>'file' AS file,
+               COALESCE(CASE p->>'kind'
+                 WHEN 'table'    THEN to_regclass(p->>'table') IS NOT NULL
+                 WHEN 'index'    THEN to_regclass(p->>'index') IS NOT NULL
+                 WHEN 'function' THEN to_regprocedure(p->>'signature') IS NOT NULL
+                 WHEN 'function_body' THEN
+                   position(p->>'marker' IN pg_get_functiondef(to_regprocedure(p->>'signature'))) > 0
+                 WHEN 'columns' THEN (
+                   SELECT count(DISTINCT c.column_name) = jsonb_array_length(p->'columns')
+                     FROM information_schema.columns c
+                    WHERE c.table_schema = split_part(p->>'table', '.', 1)
+                      AND c.table_name   = split_part(p->>'table', '.', 2)
+                      AND c.column_name IN (SELECT jsonb_array_elements_text(p->'columns')))
+                 WHEN 'policy' THEN EXISTS (
+                   SELECT 1 FROM pg_policies pp
+                    WHERE pp.schemaname = split_part(p->>'table', '.', 1)
+                      AND pp.tablename  = split_part(p->>'table', '.', 2)
+                      AND pp.policyname = p->>'policy')
+                 WHEN 'trigger' THEN EXISTS (
+                   SELECT 1 FROM pg_trigger t
+                    WHERE t.tgrelid = to_regclass(p->>'table')
+                      AND t.tgname  = p->>'trigger')
+                 WHEN 'constraint' THEN EXISTS (
+                   SELECT 1 FROM pg_constraint k
+                    WHERE k.conrelid = to_regclass(p->>'table')
+                      AND k.conname  = p->>'constraint')
+               END, false) AS present,
+               p->>'kind' AS detail
+          FROM jsonb_array_elements(probes) AS p
+        -- end PROBE_SELECT
+      ) r;
+  END IF;
+
+  RETURN jsonb_build_object('history', hist, 'probes', result);
+END;
+$$;
+
+CREATE FUNCTION public.am_may_see_creator(p_creator_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+    SELECT EXISTS (
+      SELECT 1
+      FROM   public.campaign_creators cc
+      JOIN   public.campaigns        ca ON ca.id = cc.campaign_id
+      JOIN   public.clients          cl ON cl.id = ca.client_id
+      JOIN   public.account_managers am ON am.id = cl.am_id
+      WHERE  cc.creator_id = p_creator_id
+        AND  am.user_id    = auth.uid()
+    );
+$$;
+
+CREATE FUNCTION public.am_owns_campaign(p_campaign_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+    SELECT EXISTS (
+      SELECT 1
+      FROM   public.campaigns        ca
+      JOIN   public.clients          cl ON cl.id = ca.client_id
+      JOIN   public.account_managers am ON am.id = cl.am_id
+      WHERE  ca.id      = p_campaign_id
+        AND  am.user_id = auth.uid()
+    );
+$$;
+
+CREATE FUNCTION public.apply_verified_views(p_submission_id uuid, p_views bigint, p_source text, p_user_id uuid, p_handle text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+    v_id UUID;
+BEGIN
+    IF p_source IS NULL OR p_source NOT IN ('oauth','link') THEN
+        RAISE EXCEPTION 'apply_verified_views: source must be oauth or link, got %', p_source
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_views IS NULL OR p_views < 0 THEN
+        RAISE EXCEPTION 'apply_verified_views: views must be a non negative number'
+            USING ERRCODE = '22023';
+    END IF;
+
+    UPDATE public.submissions s
+       SET view_count_verified    = GREATEST(COALESCE(s.view_count_verified, 0),
+                                             LEAST(p_views, 2147483647))::INTEGER,
+           view_count_verified_at = now(),
+           verified_views_source  = p_source
+     WHERE s.id = p_submission_id
+       AND EXISTS (SELECT 1 FROM public.creators c
+                   WHERE c.id = s.creator_id AND c.user_id = p_user_id)
+       AND (
+            p_source = 'oauth'
+            OR EXISTS (
+                SELECT 1 FROM public.creator_social_accounts a
+                WHERE a.user_id     = p_user_id
+                  AND a.platform    = 'tiktok'
+                  AND a.link_status = 'verified'
+                  AND a.link_handle = p_handle
+            )
+       )
+    RETURNING s.id INTO v_id;
+
+    RETURN v_id IS NOT NULL;
+END;
+$$;
+
+CREATE FUNCTION public.approve_withdrawal_request(p_request_id uuid, p_approved_by uuid DEFAULT NULL::uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+  PERFORM public.assert_payout_permission('approve_withdrawals');
+  -- p_approved_by is deliberately ignored (F-8): the recorded actor is
+  -- whoever is actually signed in, not whatever UUID the caller passed.
+  RETURN public.approve_withdrawal_request_internal(p_request_id, auth.uid());
+END;
+$$;
+
+CREATE FUNCTION public.approve_withdrawal_request_internal(p_request_id uuid, p_approved_by uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+DECLARE
+  v_request   RECORD;
+  v_payment_id UUID;
+BEGIN
+  -- Lock the row to prevent concurrent approval/rejection
+  SELECT *
+  INTO   v_request
+  FROM   withdrawal_requests
+  WHERE  id = p_request_id
+  FOR    UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Withdrawal request % not found', p_request_id;
+  END IF;
+
+  IF v_request.status <> 'pending_admin_approval' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'invalid_status',
+      'message', 'Request is not in pending_admin_approval status',
+      'status',  v_request.status
+    );
+  END IF;
+
+  -- Approve the request
+  UPDATE withdrawal_requests
+  SET    status      = 'approved',
+         approved_at = now(),
+         approved_by = p_approved_by
+  WHERE  id = p_request_id;
+
+  -- Create payment record
+  INSERT INTO payments (
+    creator_id,
+    withdrawal_request_id,
+    amount,
+    currency,
+    payment_method,
+    payment_destination_summary,
+    status,
+    created_at
+  )
+  VALUES (
+    v_request.creator_id,
+    p_request_id,
+    v_request.amount,
+    v_request.currency,
+    v_request.payment_method,
+    v_request.payment_destination_summary,
+    'approved',
+    now()
+  )
+  RETURNING id INTO v_payment_id;
+
+  -- Audit log
+  INSERT INTO payment_audit_logs (
+    entity_type,
+    entity_id,
+    action,
+    actor_user_id,
+    metadata,
+    created_at
+  )
+  VALUES (
+    'withdrawal_request',
+    p_request_id,
+    'withdrawal_approved',
+    p_approved_by,
+    jsonb_build_object(
+      'request_id',  p_request_id,
+      'payment_id',  v_payment_id,
+      'creator_id',  v_request.creator_id,
+      'amount',      v_request.amount,
+      'approved_by', p_approved_by
+    ),
+    now()
+  );
+
+  RETURN jsonb_build_object(
+    'success',    true,
+    'payment_id', v_payment_id,
+    'request_id', p_request_id,
+    'amount',     v_request.amount
+  );
+END;
+$$;
+
+CREATE FUNCTION public.assert_payout_permission(p_permission text) RETURNS void
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+  IF NOT public.has_payout_permission(p_permission) THEN
+    RAISE EXCEPTION 'Not authorized: % required', p_permission
+      USING ERRCODE = '42501';
+  END IF;
+END;
+$$;
+
+CREATE FUNCTION public.audit_account_manager_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+        PERFORM public.log_admin_action(
+            CASE WHEN NEW.status = 'Archived' THEN 'account_manager_archived'
+                 ELSE 'account_manager_restored' END,
+            'account_manager', NEW.id, NEW.name,
+            OLD.status, NEW.status, NEW.archive_reason,
+            jsonb_build_object('email', NEW.email),
+            NEW.archived_by
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.audit_campaign_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    IF NEW.status IS DISTINCT FROM OLD.status
+       AND (NEW.status = 'Archived' OR OLD.status = 'Archived') THEN
+        PERFORM public.log_admin_action(
+            CASE WHEN NEW.status = 'Archived' THEN 'campaign_archived'
+                 ELSE 'campaign_restored' END,
+            'campaign', NEW.id, NEW.name,
+            OLD.status, NEW.status, NEW.archive_reason,
+            jsonb_build_object('client_id', NEW.client_id),
+            NEW.archived_by
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.audit_client_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    IF NEW.status IS DISTINCT FROM OLD.status
+       AND (NEW.status = 'Archived' OR OLD.status = 'Archived') THEN
+        PERFORM public.log_admin_action(
+            CASE WHEN NEW.status = 'Archived' THEN 'client_archived'
+                 ELSE 'client_restored' END,
+            'client', NEW.id, NEW.name,
+            OLD.status, NEW.status, NEW.archive_reason, '{}'::jsonb,
+            NEW.archived_by
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.audit_client_delete() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    -- BEFORE DELETE: the row still exists here, so its label and value can be
+    -- denormalised into the audit entry that outlives it.
+    PERFORM public.log_admin_action(
+        'client_deleted',
+        'client',
+        OLD.id,
+        OLD.name,
+        OLD.status,
+        NULL,
+        OLD.archive_reason,
+        jsonb_build_object(
+            'budget',        OLD.budget,
+            'deal_type',     OLD.deal_type,
+            'contact_email', OLD.contact_email,
+            'am_id',         OLD.am_id,
+            'was_archived',  (OLD.archived_at IS NOT NULL)
+        ),
+        NULL
+    );
+    RETURN OLD;
+END;
+$$;
+
+CREATE FUNCTION public.audit_payment_void() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    IF NEW.voided_at IS NOT NULL AND OLD.voided_at IS NULL THEN
+        PERFORM public.log_admin_action(
+            'payment_voided', 'payment', NEW.id, NULL,
+            OLD.status, NEW.status, NEW.void_reason,
+            jsonb_build_object('creator_id', NEW.creator_id,
+                               'amount', coalesce(NEW.amount, NEW.amount_owed)),
+            NEW.voided_by
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.audit_submission_review() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+        PERFORM public.log_admin_action(
+            'submission_review', 'submission', NEW.id, NULL,
+            OLD.status, NEW.status, NEW.feedback,
+            jsonb_build_object('creator_id', NEW.creator_id,
+                               'campaign_id', NEW.campaign_id,
+                               'submission_type', NEW.submission_type),
+            NEW.reviewed_by
+        );
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.audit_user_profile_change() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    IF NEW.role IS DISTINCT FROM OLD.role THEN
+        PERFORM public.log_admin_action(
+            'role_changed', 'user', NEW.id, NEW.email,
+            OLD.role, NEW.role, NULL,
+            jsonb_build_object('email', NEW.email),
+            NEW.role_changed_by
+        );
+    END IF;
+
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+        PERFORM public.log_admin_action(
+            CASE WHEN NEW.status = 'deactivated' THEN 'user_deactivated'
+                 ELSE 'user_restored' END,
+            'user', NEW.id, NEW.email,
+            OLD.status, NEW.status, NEW.deactivation_reason,
+            jsonb_build_object('email', NEW.email, 'role', NEW.role),
+            NEW.deactivated_by
+        );
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.campaign_creators_sync_array() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+    v_campaign UUID := COALESCE(NEW.campaign_id, OLD.campaign_id);
+BEGIN
+    IF public.cc_sync_in_progress() THEN
+        RETURN NULL;
+    END IF;
+    PERFORM set_config('omnya.cc_sync', 'on', true);
+
+    UPDATE public.campaigns c
+    SET    assigned_creators = COALESCE((
+               SELECT array_agg(cc.creator_id ORDER BY cc.creator_id)
+               FROM   public.campaign_creators cc
+               WHERE  cc.campaign_id = c.id
+                 AND  cc.status = 'Approved'
+           ), '{}'::uuid[])
+    WHERE  c.id = v_campaign;
+
+    IF TG_OP = 'UPDATE' AND OLD.campaign_id IS DISTINCT FROM NEW.campaign_id THEN
+        UPDATE public.campaigns c
+        SET    assigned_creators = COALESCE((
+                   SELECT array_agg(cc.creator_id ORDER BY cc.creator_id)
+                   FROM   public.campaign_creators cc
+                   WHERE  cc.campaign_id = c.id
+                     AND  cc.status = 'Approved'
+               ), '{}'::uuid[])
+        WHERE  c.id = OLD.campaign_id;
+    END IF;
+
+    PERFORM set_config('omnya.cc_sync', 'off', true);
+    RETURN NULL;
+END;
+$$;
+
+CREATE FUNCTION public.campaigns_guard_commission_rates() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_user_role() = 'owner' THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    -- A manager creating a campaign gets the defaults, whatever was sent.
+    NEW.sales_commission_rate   := 0.30;
+    NEW.manager_commission_rate := NULL;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.sales_commission_rate   IS DISTINCT FROM OLD.sales_commission_rate
+  OR NEW.manager_commission_rate IS DISTINCT FROM OLD.manager_commission_rate THEN
+    RAISE EXCEPTION 'Only the owner can change commission rates'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.campaigns_sync_campaign_creators() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+    v_valid   UUID[];
+    v_dropped BIGINT;
+BEGIN
+    IF public.cc_sync_in_progress() THEN
+        RETURN NULL;
+    END IF;
+    PERFORM set_config('omnya.cc_sync', 'on', true);
+
+    SELECT COALESCE(array_agg(DISTINCT x.id ORDER BY x.id), '{}'::uuid[])
+    INTO   v_valid
+    FROM   unnest(COALESCE(NEW.assigned_creators, '{}'::uuid[])) AS x(id)
+    WHERE  EXISTS (SELECT 1 FROM public.creators cr WHERE cr.id = x.id);
+
+    SELECT count(DISTINCT x.id)
+    INTO   v_dropped
+    FROM   unnest(COALESCE(NEW.assigned_creators, '{}'::uuid[])) AS x(id)
+    WHERE  NOT EXISTS (SELECT 1 FROM public.creators cr WHERE cr.id = x.id);
+
+    DELETE FROM public.campaign_creators cc
+    WHERE  cc.campaign_id = NEW.id
+      AND  cc.status = 'Approved'
+      AND  NOT (cc.creator_id = ANY (v_valid));
+
+    INSERT INTO public.campaign_creators (campaign_id, creator_id, assigned_by, status, reviewed_by, reviewed_at)
+    SELECT NEW.id, x.id, auth.uid(), 'Approved', auth.uid(), now()
+    FROM   unnest(v_valid) AS x(id)
+    ON CONFLICT (campaign_id, creator_id) DO UPDATE
+       SET status      = 'Approved',
+           reviewed_by = EXCLUDED.reviewed_by,
+           reviewed_at = EXCLUDED.reviewed_at
+     WHERE public.campaign_creators.status <> 'Approved';
+
+    UPDATE public.campaigns
+    SET    assigned_creators = v_valid
+    WHERE  id = NEW.id
+      AND  assigned_creators IS DISTINCT FROM v_valid;
+
+    IF v_dropped > 0 THEN
+        RAISE WARNING
+            'campaigns.assigned_creators on campaign % contained % id(s) with no creators row; they were dropped. Write public.campaign_creators instead.',
+            NEW.id, v_dropped;
+    END IF;
+
+    PERFORM set_config('omnya.cc_sync', 'off', true);
+    RETURN NULL;
+END;
+$$;
+
+CREATE FUNCTION public.cc_sync_in_progress() RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+    SELECT COALESCE(current_setting('omnya.cc_sync', true), 'off') = 'on';
+$$;
+
+COMMENT ON FUNCTION public.cc_sync_in_progress() IS 'True while a campaign_creators <-> campaigns.assigned_creators sync is already running in this transaction. Both mirror triggers bail out on it.';
+
+CREATE FUNCTION public.claim_creator(p_creator_id uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_am_id UUID;
+  v_done  UUID;
+BEGIN
+  IF public.current_user_role() <> 'am' THEN
+    RAISE EXCEPTION 'Only an account manager can claim a creator' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT am.id INTO v_am_id
+  FROM   public.account_managers am
+  WHERE  am.user_id = auth.uid()
+  LIMIT  1;
+
+  IF v_am_id IS NULL THEN
+    RAISE EXCEPTION 'Your account manager profile is not linked yet' USING ERRCODE = '42501';
+  END IF;
+
+  -- am_id IS NULL in the WHERE is the whole point: two managers clicking at
+  -- once cannot both win, and nobody can take a creator off a colleague.
+  UPDATE public.creators
+  SET    am_id = v_am_id
+  WHERE  id = p_creator_id
+    AND  am_id IS NULL
+    AND  archived_at IS NULL
+  RETURNING id INTO v_done;
+
+  IF v_done IS NULL THEN
+    RAISE EXCEPTION 'That creator is no longer available' USING ERRCODE = 'P0002';
+  END IF;
+
+  RETURN v_done;
+END;
+$$;
+
+CREATE FUNCTION public.client_may_see_creator(p_creator_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+    SELECT EXISTS (
+      SELECT 1
+      FROM   public.submissions s
+      JOIN   public.campaigns   ca ON ca.id = s.campaign_id
+      JOIN   public.clients     cl ON cl.id = ca.client_id
+      WHERE  s.creator_id = p_creator_id
+        AND  cl.user_id   = auth.uid()
+        AND  s.status     = 'Approved'
+    );
+$$;
+
+COMMENT ON FUNCTION public.client_may_see_creator(p_creator_id uuid) IS 'True when the calling client has an approved submission from this creator on one of its own campaigns. SECURITY DEFINER to break the creators <-> campaigns RLS policy cycle -- see 20260822000005 SECTION 2a.';
+
+CREATE FUNCTION public.create_payout_batch(p_withdrawal_request_ids uuid[], p_generated_by uuid DEFAULT NULL::uuid, p_notes text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+  PERFORM public.assert_payout_permission('export_batches');
+  RETURN public.create_payout_batch_internal(p_withdrawal_request_ids, auth.uid(), p_notes);
+END;
+$$;
+
+CREATE FUNCTION public.create_payout_batch_internal(p_withdrawal_request_ids uuid[], p_generated_by uuid, p_notes text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+DECLARE
+  v_invalid_count   INTEGER;
+  v_batch_seq       BIGINT;
+  v_batch_number    TEXT;
+  v_batch_id        UUID;
+  v_total_amount    NUMERIC(10,2);
+  v_total_creators  INTEGER;
+  v_total_payments  INTEGER;
+  v_creator_ids     UUID[];
+BEGIN
+  -- Guard: empty array
+  IF p_withdrawal_request_ids IS NULL OR array_length(p_withdrawal_request_ids, 1) IS NULL THEN
+    RAISE EXCEPTION 'p_withdrawal_request_ids must not be empty';
+  END IF;
+
+  -- Validate all IDs exist and are in approved status
+  SELECT COUNT(*)
+  INTO   v_invalid_count
+  FROM   unnest(p_withdrawal_request_ids) AS t(id)
+  WHERE  NOT EXISTS (
+    SELECT 1
+    FROM   withdrawal_requests wr
+    WHERE  wr.id = t.id
+      AND  wr.status = 'approved'
+  );
+
+  IF v_invalid_count > 0 THEN
+    RETURN jsonb_build_object(
+      'success',        false,
+      'error',          'invalid_requests',
+      'message',        'One or more withdrawal request IDs are invalid or not in approved status',
+      'invalid_count',  v_invalid_count
+    );
+  END IF;
+
+  -- Generate batch number: BATCH-YYYYMMDD-NNN
+  v_batch_seq    := nextval('batch_number_seq');
+  v_batch_number := 'BATCH-' || to_char(now(), 'YYYYMMDD') || '-' || lpad(v_batch_seq::TEXT, 3, '0');
+
+  -- Aggregate totals from the approved requests
+  SELECT
+    COALESCE(SUM(wr.amount), 0),
+    COUNT(DISTINCT wr.creator_id),
+    ARRAY_AGG(DISTINCT wr.creator_id)
+  INTO
+    v_total_amount,
+    v_total_creators,
+    v_creator_ids
+  FROM withdrawal_requests wr
+  WHERE wr.id = ANY(p_withdrawal_request_ids);
+
+  -- Insert payout_batches row
+  INSERT INTO payout_batches (
+    batch_number,
+    status,
+    total_amount,
+    total_creators,
+    generated_by,
+    notes,
+    created_at
+  )
+  VALUES (
+    v_batch_number,
+    'draft',
+    v_total_amount,
+    v_total_creators,
+    p_generated_by,
+    p_notes,
+    now()
+  )
+  RETURNING id INTO v_batch_id;
+
+  -- Stamp withdrawal requests
+  UPDATE withdrawal_requests
+  SET    status   = 'batched',
+         batch_id = v_batch_id
+  WHERE  id = ANY(p_withdrawal_request_ids);
+
+  -- Stamp linked payments
+  UPDATE payments
+  SET    status   = 'batched',
+         batch_id = v_batch_id
+  WHERE  withdrawal_request_id = ANY(p_withdrawal_request_ids);
+
+  GET DIAGNOSTICS v_total_payments = ROW_COUNT;
+
+  -- Stamp creator_earnings
+  UPDATE creator_earnings
+  SET    status = 'batched'
+  WHERE  creator_id = ANY(v_creator_ids)
+    AND  status = 'withdrawal_requested';
+
+  -- Audit log
+  INSERT INTO payment_audit_logs (
+    entity_type,
+    entity_id,
+    action,
+    actor_user_id,
+    metadata,
+    created_at
+  )
+  VALUES (
+    'payout_batch',
+    v_batch_id,
+    'batch_created',
+    p_generated_by,
+    jsonb_build_object(
+      'batch_id',                  v_batch_id,
+      'batch_number',              v_batch_number,
+      'total_amount',              v_total_amount,
+      'total_creators',            v_total_creators,
+      'withdrawal_request_ids',    p_withdrawal_request_ids,
+      'notes',                     p_notes
+    ),
+    now()
+  );
+
+  RETURN jsonb_build_object(
+    'success',         true,
+    'batch_id',        v_batch_id,
+    'batch_number',    v_batch_number,
+    'total_amount',    v_total_amount,
+    'total_creators',  v_total_creators,
+    'total_payments',  v_total_payments
+  );
+END;
+$$;
+
+CREATE FUNCTION public.creators_guard_overrides() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_user_role() IN ('owner', 'am') THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.score_override := NULL;
+    NEW.tier_override  := NULL;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.score_override IS DISTINCT FROM OLD.score_override
+  OR NEW.tier_override  IS DISTINCT FROM OLD.tier_override THEN
+    RAISE EXCEPTION 'Only the owner or an account manager can set a performance override'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.current_user_role() RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT CASE
+           WHEN status = 'deactivated' THEN 'deactivated'
+           WHEN role   = 'account_manager' THEN 'am'
+           ELSE role
+         END
   FROM public.user_profiles
   WHERE id = auth.uid();
 $$;
 
-REVOKE ALL ON FUNCTION public.current_user_role() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.current_user_role() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.current_user_role() TO service_role;
+COMMENT ON FUNCTION public.current_user_role() IS 'Role of the calling user from user_profiles, normalized so account_manager -> am. Returns ''deactivated'' for a suspended account regardless of role, so a single check disables them across every policy that calls this.';
 
-COMMENT ON FUNCTION public.current_user_role() IS
-  'Returns the role of the calling user from user_profiles, normalized so '
-  'account_manager -> am. SECURITY DEFINER so RLS policies can call it without '
-  'recursing on user_profiles.';
+CREATE FUNCTION public.get_my_payout_role() RETURNS text
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+    SELECT
+        CASE
+            WHEN role = 'account_manager' THEN 'am'
+            ELSE role
+        END
+    FROM public.user_profiles
+    WHERE id = auth.uid();
+$$;
 
--- -----------------------------------------------------------------------------
--- 2. Schema additions
--- -----------------------------------------------------------------------------
+COMMENT ON FUNCTION public.get_my_payout_role() IS 'Returns the normalized role (account_manager -> am) for the calling user from user_profiles. Used by payout-system RLS policies.';
 
--- 2a. payments.batch_id — written by api/payouts/generate.js, read by
---     mark-paid.js and export.js. Currently missing from the schema.
-ALTER TABLE public.payments
-  ADD COLUMN IF NOT EXISTS batch_id UUID REFERENCES public.payout_batches(id) ON DELETE SET NULL;
-
--- 2b. payout_batches.period_type — read and written by generate.js, used as
---     part of the idempotency key.
-ALTER TABLE public.payout_batches
-  ADD COLUMN IF NOT EXISTS period_type TEXT;
-
--- 2c. creators.payout_email and creators.payout_preference — referenced by
---     export.js (CSV columns). Without them, every CSV row had empty email
---     and defaulted preference to 'paypal'.
-ALTER TABLE public.creators
-  ADD COLUMN IF NOT EXISTS payout_email    TEXT,
-  ADD COLUMN IF NOT EXISTS payout_preference TEXT DEFAULT 'paypal';
-
--- 2d. creator_tokens — canonical key is user_id (FK -> auth.users).
---     The repo has two competing definitions in database_update.sql (user_id)
---     and meta_setup.sql (creator_id); we make user_id authoritative and
---     ensure all the columns that any code path reads or writes exist.
---     creator_id is kept (nullable) for backward compat with files that still
---     read it (api/analytics/refresh.js, fetch.js, pages/CreatorDashboard.js)
---     — those are tagged dead in AUDIT.md and slated for Phase 10 removal.
-ALTER TABLE public.creator_tokens
-  ADD COLUMN IF NOT EXISTS user_id    UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  ADD COLUMN IF NOT EXISTS creator_id UUID REFERENCES public.creators(id) ON DELETE CASCADE,
-  ADD COLUMN IF NOT EXISTS platform   TEXT,
-  ADD COLUMN IF NOT EXISTS access_token   TEXT,
-  ADD COLUMN IF NOT EXISTS refresh_token  TEXT,
-  ADD COLUMN IF NOT EXISTS expires_at     TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS account_id     TEXT,
-  ADD COLUMN IF NOT EXISTS account_name   TEXT,
-  ADD COLUMN IF NOT EXISTS scopes         TEXT[],
-  ADD COLUMN IF NOT EXISTS created_at     TIMESTAMPTZ DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ DEFAULT now();
-
--- -----------------------------------------------------------------------------
--- 3. Backfill creator_tokens.user_id where only creator_id is populated
--- -----------------------------------------------------------------------------
--- If the legacy meta_setup.sql definition ran first, rows might have creator_id
--- but no user_id. Populate user_id from creators.user_id so RLS by user_id works.
-UPDATE public.creator_tokens ct
-SET user_id = c.user_id
-FROM public.creators c
-WHERE ct.user_id IS NULL
-  AND ct.creator_id IS NOT NULL
-  AND ct.creator_id = c.id;
-
--- -----------------------------------------------------------------------------
--- 4. Constraints on creator_tokens
--- -----------------------------------------------------------------------------
--- UNIQUE(user_id, platform) — matches `onConflict: 'user_id, platform'` used
--- by the OAuth callbacks.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'creator_tokens_user_id_platform_key'
-  ) THEN
-    -- Only add the unique constraint if no orphan rows would violate it.
-    -- Orphan rows (user_id NULL) keep coexisting; the unique index will simply
-    -- ignore them per Postgres NULL-uniqueness semantics (multiple NULLs allowed).
-    ALTER TABLE public.creator_tokens
-      ADD CONSTRAINT creator_tokens_user_id_platform_key UNIQUE (user_id, platform);
-  END IF;
-END $$;
-
--- -----------------------------------------------------------------------------
--- 5. Indexes
--- -----------------------------------------------------------------------------
--- All foreign keys + hot query columns. CREATE INDEX IF NOT EXISTS is
--- idempotent. Names follow `idx_<table>_<column>` for predictability.
-
-CREATE INDEX IF NOT EXISTS idx_submissions_creator_id      ON public.submissions(creator_id);
-CREATE INDEX IF NOT EXISTS idx_submissions_campaign_id     ON public.submissions(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_submissions_payout_batch_id ON public.submissions(payout_batch_id);
-
-CREATE INDEX IF NOT EXISTS idx_payments_creator_id ON public.payments(creator_id);
-CREATE INDEX IF NOT EXISTS idx_payments_batch_id   ON public.payments(batch_id);
-CREATE INDEX IF NOT EXISTS idx_payments_status     ON public.payments(status);
-
-CREATE INDEX IF NOT EXISTS idx_video_analytics_creator_id    ON public.video_analytics(creator_id);
-CREATE INDEX IF NOT EXISTS idx_video_analytics_submission_id ON public.video_analytics(submission_id);
-CREATE INDEX IF NOT EXISTS idx_video_analytics_campaign_id   ON public.video_analytics(campaign_id);
-
-CREATE INDEX IF NOT EXISTS idx_creator_tokens_user_id    ON public.creator_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_creator_tokens_creator_id ON public.creator_tokens(creator_id);
-
-CREATE INDEX IF NOT EXISTS idx_creators_am_id  ON public.creators(am_id);
-CREATE INDEX IF NOT EXISTS idx_clients_am_id   ON public.clients(am_id);
-CREATE INDEX IF NOT EXISTS idx_campaigns_client_id ON public.campaigns(client_id);
-
-CREATE INDEX IF NOT EXISTS idx_messages_campaign_id ON public.messages(campaign_id);
-
-CREATE INDEX IF NOT EXISTS idx_payout_batches_period
-  ON public.payout_batches(period_start, period_end, period_type);
-
--- -----------------------------------------------------------------------------
--- 6. Drop legacy "Allow all" policies
--- -----------------------------------------------------------------------------
--- Every table currently has a `Allow all` policy with USING (true). They are
--- replaced below with role-scoped policies. Some tables have additional legacy
--- policies (e.g. video_analytics, creator_tokens from meta_setup.sql); they are
--- dropped too so the new policy set is the only one active.
-
-DO $$
+CREATE FUNCTION public.guard_link_verification_columns() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
 DECLARE
-  pol RECORD;
+    v_claims TEXT := nullif(current_setting('request.jwt.claims', true), '');
+    v_role   TEXT := coalesce(nullif(current_setting('request.jwt.claim.role', true), ''),
+                              CASE WHEN v_claims IS NULL THEN NULL
+                                   ELSE v_claims::jsonb ->> 'role' END);
+    v_bad    TEXT;
 BEGIN
-  FOR pol IN
-    SELECT schemaname, tablename, policyname
-    FROM pg_policies
-    WHERE schemaname = 'public'
-      AND tablename IN (
-        'user_profiles','creators','account_managers','clients','campaigns',
-        'submissions','payments','messages','creator_tokens','video_analytics',
-        'payout_batches','payout_line_items'
-      )
-  LOOP
-    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol.policyname, pol.tablename);
-  END LOOP;
-END $$;
-
--- -----------------------------------------------------------------------------
--- 7. Enable RLS on every sensitive table (idempotent — ENABLE on enabled table
---    is a no-op).
--- -----------------------------------------------------------------------------
-ALTER TABLE public.user_profiles     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.creators          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.account_managers  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.clients           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.campaigns         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.submissions       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payments          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.messages          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.creator_tokens    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.video_analytics   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payout_batches    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.payout_line_items ENABLE ROW LEVEL SECURITY;
-
--- -----------------------------------------------------------------------------
--- 8. New role-scoped RLS policies
--- -----------------------------------------------------------------------------
--- Convention:
---   <table>_select_owner_all      : owner sees everything
---   <table>_select_self / scoped  : non-owners see only their slice
---   <table>_modify_*              : write policies
---
--- The service-role key (used by api/**/*.js) bypasses RLS entirely, so these
--- policies only affect direct Supabase calls from the browser. That is exactly
--- where the protection is needed: the SPA holds the anon key.
-
--- ===== user_profiles =====
--- Read: self + owner sees all + AM sees profiles of their assigned creators.
-CREATE POLICY user_profiles_select_self_or_scoped ON public.user_profiles
-  FOR SELECT TO authenticated
-  USING (
-    id = auth.uid()
-    OR public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        JOIN public.account_managers am ON c.am_id = am.id
-        WHERE c.user_id = user_profiles.id
-          AND am.user_id = auth.uid()
-      )
-    )
-  );
-
--- Insert: a user can create their own profile row at signup. Owner can also
--- insert (e.g. seeding).
---
--- Trade-off: we allow role='owner' on self-insert too, because the current
--- signup flow in App.js auto-promotes a hardcoded owner email (shaily@...)
--- and there is otherwise no way to provision the first owner without a
--- service-role seed. Once Phase 4 replaces the special-email path with a
--- proper bootstrap (DB trigger or manual seed via service-role), tighten
--- this WITH CHECK back to ('pending','creator','am','account_manager').
-CREATE POLICY user_profiles_insert_self_or_owner ON public.user_profiles
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    id = auth.uid()
-    OR public.current_user_role() = 'owner'
-  );
-
--- Update: owners can update anyone. Anyone else can update only their own row
--- and CANNOT escalate their role (the WITH CHECK enforces the role column
--- can only be set to one of the non-privileged values from a self-update).
-CREATE POLICY user_profiles_update_self_or_owner ON public.user_profiles
-  FOR UPDATE TO authenticated
-  USING (
-    id = auth.uid()
-    OR public.current_user_role() = 'owner'
-  )
-  WITH CHECK (
-    public.current_user_role() = 'owner'
-    OR (
-      id = auth.uid()
-      AND role IN ('pending','creator','am','account_manager','denied')
-    )
-  );
-
--- Delete: owners only.
-CREATE POLICY user_profiles_delete_owner ON public.user_profiles
-  FOR DELETE TO authenticated
-  USING (public.current_user_role() = 'owner');
-
-
--- ===== account_managers =====
-CREATE POLICY account_managers_select ON public.account_managers
-  FOR SELECT TO authenticated
-  USING (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-    -- AMs need to be able to see other AMs in some views (e.g. assigning).
-    -- If that is undesirable, tighten by removing this OR clause.
-    OR public.current_user_role() = 'am'
-  );
-
-CREATE POLICY account_managers_modify_owner ON public.account_managers
-  FOR ALL TO authenticated
-  USING (public.current_user_role() = 'owner')
-  WITH CHECK (public.current_user_role() = 'owner');
-
-
--- ===== creators =====
-CREATE POLICY creators_select_scoped ON public.creators
-  FOR SELECT TO authenticated
-  USING (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.account_managers am
-        WHERE am.id = creators.am_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
--- Insert: owner or AM can create creator rows (e.g. onboarding). A creator
--- self-provisioning is also allowed (the App.js handleLogin flow inserts a
--- row keyed by user_id).
-CREATE POLICY creators_insert_self_or_staff ON public.creators
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    user_id = auth.uid()
-    OR public.current_user_role() IN ('owner','am')
-  );
-
--- Update: owner or the AM the creator is assigned to. Creators can update
--- their own row (handles, payment preferences, etc.) but cannot reassign
--- themselves to a different AM — the WITH CHECK enforces am_id stays the same
--- unless owner/AM is doing it.
-CREATE POLICY creators_update_scoped ON public.creators
-  FOR UPDATE TO authenticated
-  USING (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.account_managers am
-        WHERE am.id = creators.am_id AND am.user_id = auth.uid()
-      )
-    )
-  )
-  WITH CHECK (
-    public.current_user_role() IN ('owner','am')
-    OR user_id = auth.uid()
-  );
-
-CREATE POLICY creators_delete_owner ON public.creators
-  FOR DELETE TO authenticated
-  USING (public.current_user_role() = 'owner');
-
-
--- ===== clients =====
-CREATE POLICY clients_select_scoped ON public.clients
-  FOR SELECT TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.account_managers am
-        WHERE am.id = clients.am_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
-CREATE POLICY clients_modify_owner_or_assigned_am ON public.clients
-  FOR ALL TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.account_managers am
-        WHERE am.id = clients.am_id AND am.user_id = auth.uid()
-      )
-    )
-  )
-  WITH CHECK (
-    public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.account_managers am
-        WHERE am.id = clients.am_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
-
--- ===== campaigns =====
--- A creator can see a campaign if their creator_id appears in assigned_creators.
--- Note: assigned_creators stores creator UUIDs (creators.id), not user UUIDs.
-CREATE POLICY campaigns_select_scoped ON public.campaigns
-  FOR SELECT TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.clients cl
-        JOIN public.account_managers am ON cl.am_id = am.id
-        WHERE cl.id = campaigns.client_id AND am.user_id = auth.uid()
-      )
-    )
-    OR (
-      public.current_user_role() = 'creator'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        WHERE c.user_id = auth.uid()
-          AND c.id = ANY (campaigns.assigned_creators)
-      )
-    )
-  );
-
-CREATE POLICY campaigns_modify_owner_or_am ON public.campaigns
-  FOR ALL TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.clients cl
-        JOIN public.account_managers am ON cl.am_id = am.id
-        WHERE cl.id = campaigns.client_id AND am.user_id = auth.uid()
-      )
-    )
-  )
-  WITH CHECK (
-    public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.clients cl
-        JOIN public.account_managers am ON cl.am_id = am.id
-        WHERE cl.id = campaigns.client_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
-
--- ===== submissions =====
-CREATE POLICY submissions_select_scoped ON public.submissions
-  FOR SELECT TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR EXISTS (
-      SELECT 1 FROM public.creators c
-      WHERE c.id = submissions.creator_id AND c.user_id = auth.uid()
-    )
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        JOIN public.account_managers am ON c.am_id = am.id
-        WHERE c.id = submissions.creator_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
--- Insert: creators submit on their own behalf. Owner/AM can also create
--- submissions (e.g. for backfill or admin overrides).
-CREATE POLICY submissions_insert_scoped ON public.submissions
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    public.current_user_role() = 'owner'
-    OR EXISTS (
-      SELECT 1 FROM public.creators c
-      WHERE c.id = submissions.creator_id AND c.user_id = auth.uid()
-    )
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        JOIN public.account_managers am ON c.am_id = am.id
-        WHERE c.id = submissions.creator_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
--- Update: same scoping. Creators can edit their own pre-approval; review
--- decisions (concept_status, final_status, payment_status) are normally only
--- changed by AM/owner UI flows.
-CREATE POLICY submissions_update_scoped ON public.submissions
-  FOR UPDATE TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR EXISTS (
-      SELECT 1 FROM public.creators c
-      WHERE c.id = submissions.creator_id AND c.user_id = auth.uid()
-    )
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        JOIN public.account_managers am ON c.am_id = am.id
-        WHERE c.id = submissions.creator_id AND am.user_id = auth.uid()
-      )
-    )
-  )
-  WITH CHECK (
-    public.current_user_role() = 'owner'
-    OR EXISTS (
-      SELECT 1 FROM public.creators c
-      WHERE c.id = submissions.creator_id AND c.user_id = auth.uid()
-    )
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        JOIN public.account_managers am ON c.am_id = am.id
-        WHERE c.id = submissions.creator_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
-CREATE POLICY submissions_delete_owner ON public.submissions
-  FOR DELETE TO authenticated
-  USING (public.current_user_role() = 'owner');
-
-
--- ===== payments =====
--- Creators read their own. AMs read payments for their creators. Owner reads all.
-CREATE POLICY payments_select_scoped ON public.payments
-  FOR SELECT TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR EXISTS (
-      SELECT 1 FROM public.creators c
-      WHERE c.id = payments.creator_id AND c.user_id = auth.uid()
-    )
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        JOIN public.account_managers am ON c.am_id = am.id
-        WHERE c.id = payments.creator_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
--- Only owners/AMs can create or modify payments. Creators are read-only.
--- (Service-role endpoints — mark-paid.js, generate.js — bypass RLS anyway.)
-CREATE POLICY payments_modify_owner_or_am ON public.payments
-  FOR ALL TO authenticated
-  USING (public.current_user_role() IN ('owner','am'))
-  WITH CHECK (public.current_user_role() IN ('owner','am'));
-
-
--- ===== payout_batches =====
--- Creators must NOT see batch metadata (other creators' totals, period info).
--- AMs may see batches; owners manage them.
-CREATE POLICY payout_batches_select_owner_or_am ON public.payout_batches
-  FOR SELECT TO authenticated
-  USING (public.current_user_role() IN ('owner','am'));
-
-CREATE POLICY payout_batches_modify_owner ON public.payout_batches
-  FOR ALL TO authenticated
-  USING (public.current_user_role() = 'owner')
-  WITH CHECK (public.current_user_role() = 'owner');
-
-
--- ===== payout_line_items (dead table — locked down anyway) =====
-CREATE POLICY payout_line_items_owner_only ON public.payout_line_items
-  FOR ALL TO authenticated
-  USING (public.current_user_role() = 'owner')
-  WITH CHECK (public.current_user_role() = 'owner');
-
-
--- ===== creator_tokens =====
--- Creators read their own connection state. Writes happen server-side via the
--- service-role key (OAuth callbacks, refresh). Creators may delete their own
--- tokens directly if needed; today the disconnect API does this via service-role.
-CREATE POLICY creator_tokens_select_self ON public.creator_tokens
-  FOR SELECT TO authenticated
-  USING (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-  );
-
-CREATE POLICY creator_tokens_delete_self ON public.creator_tokens
-  FOR DELETE TO authenticated
-  USING (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-  );
-
--- No INSERT/UPDATE policy for authenticated role: the only way tokens are
--- written is through service-role endpoints, which bypass RLS.
-
-
--- ===== video_analytics =====
--- Creators see analytics for their own submissions. AMs see analytics for
--- their assigned creators. Owners see everything.
--- Writes only happen via service-role (sync.js cron, fetch.js).
-CREATE POLICY video_analytics_select_scoped ON public.video_analytics
-  FOR SELECT TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR EXISTS (
-      SELECT 1 FROM public.creators c
-      WHERE c.id = video_analytics.creator_id AND c.user_id = auth.uid()
-    )
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1 FROM public.creators c
-        JOIN public.account_managers am ON c.am_id = am.id
-        WHERE c.id = video_analytics.creator_id AND am.user_id = auth.uid()
-      )
-    )
-  );
-
-
--- ===== messages =====
--- A message is visible if the user has access to the campaign. We treat
--- campaign visibility as transitive: anyone who can SELECT the campaign per
--- the campaigns RLS policy can SELECT its messages and post messages to it.
-CREATE POLICY messages_select_by_campaign ON public.messages
-  FOR SELECT TO authenticated
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.campaigns ca
-      WHERE ca.id = messages.campaign_id
-        -- piggyback on campaigns RLS by re-checking the visibility predicate
-        AND (
-          public.current_user_role() = 'owner'
-          OR (
-            public.current_user_role() = 'am'
-            AND EXISTS (
-              SELECT 1 FROM public.clients cl
-              JOIN public.account_managers am ON cl.am_id = am.id
-              WHERE cl.id = ca.client_id AND am.user_id = auth.uid()
-            )
-          )
-          OR (
-            public.current_user_role() = 'creator'
-            AND EXISTS (
-              SELECT 1 FROM public.creators c
-              WHERE c.user_id = auth.uid()
-                AND c.id = ANY (ca.assigned_creators)
-            )
-          )
-        )
-    )
-  );
-
-CREATE POLICY messages_insert_self ON public.messages
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    user_id = auth.uid()
-    AND EXISTS (
-      SELECT 1 FROM public.campaigns ca
-      WHERE ca.id = messages.campaign_id
-        AND (
-          public.current_user_role() = 'owner'
-          OR (
-            public.current_user_role() = 'am'
-            AND EXISTS (
-              SELECT 1 FROM public.clients cl
-              JOIN public.account_managers am ON cl.am_id = am.id
-              WHERE cl.id = ca.client_id AND am.user_id = auth.uid()
-            )
-          )
-          OR (
-            public.current_user_role() = 'creator'
-            AND EXISTS (
-              SELECT 1 FROM public.creators c
-              WHERE c.user_id = auth.uid()
-                AND c.id = ANY (ca.assigned_creators)
-            )
-          )
-        )
-    )
-  );
-
--- Senders may edit their own messages; owners may moderate.
-CREATE POLICY messages_update_self_or_owner ON public.messages
-  FOR UPDATE TO authenticated
-  USING (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-  )
-  WITH CHECK (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-  );
-
-CREATE POLICY messages_delete_self_or_owner ON public.messages
-  FOR DELETE TO authenticated
-  USING (
-    user_id = auth.uid()
-    OR public.current_user_role() = 'owner'
-  );
-
-
--- -----------------------------------------------------------------------------
--- 9. Verification helpers (commented — run manually after applying)
--- -----------------------------------------------------------------------------
---
--- After applying, log into the SQL editor as an authenticated user (set the
--- session's role to `authenticated` and JWT claim `sub` to a test user id) and
--- run the smoke checks. Or use the Supabase JS client with an anon key + a real
--- session.
---
---   -- As a creator (uid = <CREATOR_UUID>), should return only their own rows:
---   SELECT count(*) FROM public.payments;
---
---   -- As an AM (uid = <AM_UUID>), should return only their assigned creators':
---   SELECT count(*) FROM public.creators;
---
---   -- As owner, should return everything:
---   SELECT count(*) FROM public.user_profiles;
---
--- The accompanying README also includes a Supabase JS snippet for testing
--- from your local machine using a real session token.
-
-COMMIT;
-
-
--- =============================================================================
--- SECTION 7: SOCIAL MEDIA FEATURE MIGRATION
---   (from supabase/migrations/20260522000000_social_media_feature.sql)
--- =============================================================================
-
--- =============================================================================
--- Omnya Portal — Social Media Feature Schema
--- =============================================================================
---
--- Companion to 20260521000000_omnya_hardening.sql. Apply that one first.
---
--- Adds:
---   1. oauth_states table — server-side OAuth nonce store with PKCE verifier
---   2. New columns on creator_tokens (status, last_synced_at, last_error,
---      platform_user_id, platform_username, token_type, scope,
---      refresh_expires_at, metadata)
---   3. New columns on video_analytics (user_id, video_url, watch_time_seconds,
---      engagement_rate, raw_metrics, created_at, updated_at)
---   4. UNIQUE(platform, video_id) on video_analytics
---   5. creator_connection_status view (safe, no raw tokens) for frontend reads
---   6. RLS policies on oauth_states and the new columns
---
--- Idempotent. Non-destructive. Apply on staging first, then prod.
--- =============================================================================
-
-BEGIN;
-
--- -----------------------------------------------------------------------------
--- 1. oauth_states — short-lived server-side OAuth state
--- -----------------------------------------------------------------------------
--- The OAuth callback receives `state` and `code` from the provider. To prevent
--- forgery, the start endpoint generates a random nonce, stores its sha256 hash
--- here keyed by (user_id, platform), and the callback verifies the hash before
--- exchanging the code.
---
--- For TikTok we also store the PKCE code_verifier here (server-only — never
--- sent to the browser).
-CREATE TABLE IF NOT EXISTS public.oauth_states (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  platform        TEXT NOT NULL,
-  state_hash      TEXT NOT NULL,
-  code_verifier   TEXT,
-  redirect_after  TEXT,
-  expires_at      TIMESTAMPTZ NOT NULL,
-  used_at         TIMESTAMPTZ,
-  created_at      TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_oauth_states_user_platform ON public.oauth_states(user_id, platform);
-CREATE INDEX IF NOT EXISTS idx_oauth_states_expires_at    ON public.oauth_states(expires_at);
-CREATE INDEX IF NOT EXISTS idx_oauth_states_state_hash    ON public.oauth_states(state_hash);
-
-ALTER TABLE public.oauth_states ENABLE ROW LEVEL SECURITY;
-
--- No policies for authenticated role: oauth_states is read/written exclusively
--- by serverless functions via the service-role key. Authenticated users have
--- zero direct access. (RLS enabled with no policies = deny-all.)
-
-COMMENT ON TABLE public.oauth_states IS
-  'Short-lived OAuth state + PKCE verifier store. Server-only; deny-all RLS.';
-
--- -----------------------------------------------------------------------------
--- 2. creator_tokens — new columns required by the canonical schema
--- -----------------------------------------------------------------------------
--- The hardening migration already added user_id, account_id, account_name,
--- scopes, created_at, updated_at. Here we add the remaining columns the
--- social-media feature needs.
-ALTER TABLE public.creator_tokens
-  ADD COLUMN IF NOT EXISTS status              TEXT DEFAULT 'connected',
-  ADD COLUMN IF NOT EXISTS last_synced_at      TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS last_error          TEXT,
-  ADD COLUMN IF NOT EXISTS platform_user_id    TEXT,
-  ADD COLUMN IF NOT EXISTS platform_username   TEXT,
-  ADD COLUMN IF NOT EXISTS token_type          TEXT,
-  ADD COLUMN IF NOT EXISTS scope               TEXT,
-  ADD COLUMN IF NOT EXISTS refresh_expires_at  TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS metadata            JSONB DEFAULT '{}'::jsonb;
-
--- Backfill platform_user_id/platform_username from the legacy account_id/
--- account_name where the new columns are empty.
-UPDATE public.creator_tokens
-SET platform_user_id  = account_id
-WHERE platform_user_id IS NULL AND account_id IS NOT NULL;
-
-UPDATE public.creator_tokens
-SET platform_username = account_name
-WHERE platform_username IS NULL AND account_name IS NOT NULL;
-
--- Initialize status for any pre-existing rows.
-UPDATE public.creator_tokens
-SET status = 'connected'
-WHERE status IS NULL AND access_token IS NOT NULL;
-
-UPDATE public.creator_tokens
-SET status = 'disconnected'
-WHERE status IS NULL AND access_token IS NULL;
-
--- Status CHECK is intentionally deferred (see hardening migration's note on
--- casing) until all writers are confirmed lowercase. Add in a follow-up
--- migration once Phase 5 normalization lands.
-
--- -----------------------------------------------------------------------------
--- 3. video_analytics — additive columns + extra UNIQUE
--- -----------------------------------------------------------------------------
--- Add the columns the canonical analytics schema needs. user_id is NULLABLE
--- here on first add to avoid violating any pre-existing row; the sync code
--- populates it going forward.
-ALTER TABLE public.video_analytics
-  ADD COLUMN IF NOT EXISTS user_id              UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  ADD COLUMN IF NOT EXISTS video_url            TEXT,
-  ADD COLUMN IF NOT EXISTS watch_time_seconds   BIGINT DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS engagement_rate      NUMERIC DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS raw_metrics          JSONB DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS created_at           TIMESTAMPTZ DEFAULT now(),
-  ADD COLUMN IF NOT EXISTS updated_at           TIMESTAMPTZ DEFAULT now();
-
--- Backfill user_id from the creator → user join, then we can rely on it for
--- RLS.
-UPDATE public.video_analytics va
-SET user_id = c.user_id
-FROM public.creators c
-WHERE va.user_id IS NULL
-  AND va.creator_id IS NOT NULL
-  AND va.creator_id = c.id;
-
-CREATE INDEX IF NOT EXISTS idx_video_analytics_user_id ON public.video_analytics(user_id);
-
--- Add UNIQUE(platform, video_id) alongside the existing UNIQUE(submission_id).
--- The two coexist: sync upserts by submission_id (one analytics row per
--- submission), while platform+video_id helps deduplicate cross-submission
--- shares of the same video. If you only need the latter later, drop
--- video_analytics_submission_id_key in a follow-up.
-DO $$
+    IF current_user::text NOT IN ('authenticated','anon')
+       AND coalesce(v_role, '') NOT IN ('authenticated','anon') THEN
+        RETURN NEW;
+    END IF;
+
+    IF TG_TABLE_NAME = 'creator_social_accounts' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_bad := CASE
+                WHEN NEW.link_handle          IS NOT NULL THEN 'link_handle'
+                WHEN NEW.link_status          IS NOT NULL THEN 'link_status'
+                WHEN NEW.link_code            IS NOT NULL THEN 'link_code'
+                WHEN NEW.link_code_expires_at IS NOT NULL THEN 'link_code_expires_at'
+                WHEN NEW.link_code_found_at   IS NOT NULL THEN 'link_code_found_at'
+                WHEN NEW.link_verified_at     IS NOT NULL THEN 'link_verified_at'
+                WHEN NEW.link_verified_by     IS NOT NULL THEN 'link_verified_by'
+                WHEN NEW.link_rejected_reason IS NOT NULL THEN 'link_rejected_reason'
+                WHEN NEW.link_health  IS DISTINCT FROM 'ok' THEN 'link_health'
+                WHEN NEW.link_failure_count IS DISTINCT FROM 0 THEN 'link_failure_count'
+                WHEN NEW.link_last_error      IS NOT NULL THEN 'link_last_error'
+                WHEN NEW.link_last_fetched_at IS NOT NULL THEN 'link_last_fetched_at'
+                WHEN NEW.follower_count       IS NOT NULL THEN 'follower_count'
+            END;
+        ELSE
+            v_bad := CASE
+                WHEN NEW.link_handle          IS DISTINCT FROM OLD.link_handle          THEN 'link_handle'
+                WHEN NEW.link_status          IS DISTINCT FROM OLD.link_status          THEN 'link_status'
+                WHEN NEW.link_code            IS DISTINCT FROM OLD.link_code            THEN 'link_code'
+                WHEN NEW.link_code_expires_at IS DISTINCT FROM OLD.link_code_expires_at THEN 'link_code_expires_at'
+                WHEN NEW.link_code_found_at   IS DISTINCT FROM OLD.link_code_found_at   THEN 'link_code_found_at'
+                WHEN NEW.link_verified_at     IS DISTINCT FROM OLD.link_verified_at     THEN 'link_verified_at'
+                WHEN NEW.link_verified_by     IS DISTINCT FROM OLD.link_verified_by     THEN 'link_verified_by'
+                WHEN NEW.link_rejected_reason IS DISTINCT FROM OLD.link_rejected_reason THEN 'link_rejected_reason'
+                WHEN NEW.link_health          IS DISTINCT FROM OLD.link_health          THEN 'link_health'
+                WHEN NEW.link_failure_count   IS DISTINCT FROM OLD.link_failure_count   THEN 'link_failure_count'
+                WHEN NEW.link_last_error      IS DISTINCT FROM OLD.link_last_error      THEN 'link_last_error'
+                WHEN NEW.link_last_fetched_at IS DISTINCT FROM OLD.link_last_fetched_at THEN 'link_last_fetched_at'
+                WHEN NEW.follower_count       IS DISTINCT FROM OLD.follower_count       THEN 'follower_count'
+            END;
+        END IF;
+
+    ELSIF TG_TABLE_NAME = 'submissions' THEN
+        IF TG_OP = 'INSERT' THEN
+            v_bad := CASE
+                WHEN coalesce(NEW.view_count_verified, 0) <> 0 THEN 'view_count_verified'
+                WHEN NEW.view_count_verified_at IS NOT NULL   THEN 'view_count_verified_at'
+                WHEN NEW.verified_views_source  IS NOT NULL   THEN 'verified_views_source'
+            END;
+        ELSE
+            v_bad := CASE
+                WHEN NEW.view_count_verified    IS DISTINCT FROM OLD.view_count_verified    THEN 'view_count_verified'
+                WHEN NEW.view_count_verified_at IS DISTINCT FROM OLD.view_count_verified_at THEN 'view_count_verified_at'
+                WHEN NEW.verified_views_source  IS DISTINCT FROM OLD.verified_views_source  THEN 'verified_views_source'
+            END;
+        END IF;
+
+    ELSIF TG_TABLE_NAME = 'creator_videos' THEN
+        IF NEW.source = 'link' OR (TG_OP = 'UPDATE' AND OLD.source = 'link') THEN
+            v_bad := 'source';
+        END IF;
+    END IF;
+
+    IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION 'Only the server can set %.% (spec 0002, AC-17)', TG_TABLE_NAME, v_bad
+            USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.guard_profile_self_update() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'video_analytics_platform_video_id_key'
-  ) THEN
-    ALTER TABLE public.video_analytics
-      ADD CONSTRAINT video_analytics_platform_video_id_key UNIQUE (platform, video_id);
+  IF auth.uid() IS NULL OR public.current_user_role() = 'owner' THEN
+    RETURN NEW;
   END IF;
-END $$;
+  IF NEW.role IS DISTINCT FROM OLD.role
+     OR NEW.email IS DISTINCT FROM OLD.email
+     OR to_jsonb(NEW) -> 'is_active' IS DISTINCT FROM to_jsonb(OLD) -> 'is_active' THEN
+    RAISE EXCEPTION 'Only an owner can change role, email or account status'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$$;
 
--- -----------------------------------------------------------------------------
--- 4. creator_connection_status view — safe frontend read
--- -----------------------------------------------------------------------------
--- This view excludes access_token / refresh_token / metadata so the browser
--- (or any code reading via the anon key) can never get raw OAuth secrets.
--- Use the /api/social/connections endpoint for the recommended path; this
--- view is a defensive fallback so even a direct anon-key query is safe.
-CREATE OR REPLACE VIEW public.creator_connection_status
-WITH (security_invoker = true) AS
-SELECT
-  id,
-  user_id,
-  platform,
-  platform_user_id,
-  platform_username,
-  status,
-  expires_at,
-  refresh_expires_at,
-  last_synced_at,
-  last_error,
-  created_at,
-  updated_at
-FROM public.creator_tokens;
+CREATE FUNCTION public.handle_new_client_user() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+    IF NEW.role = 'client' THEN
+        INSERT INTO public.clients (name, user_id, created_at)
+        VALUES (
+            COALESCE(NULLIF(trim(NEW.full_name), ''), NEW.email, 'New Client'),
+            NEW.id,
+            now()
+        )
+        ON CONFLICT ON CONSTRAINT clients_user_id_unique DO NOTHING;
+    END IF;
+    RETURN NEW;
+END;
+$$;
 
-COMMENT ON VIEW public.creator_connection_status IS
-  'Public-safe projection of creator_tokens (omits access/refresh tokens). '
-  'security_invoker=true means RLS on creator_tokens is enforced when the '
-  'view is queried by a non-service role.';
+COMMENT ON FUNCTION public.handle_new_client_user() IS 'Auto-provisions a clients row whenever a user_profiles row is inserted or updated with role=''client''. Prevents ClientDashboard infinite spinner.';
 
--- The view inherits RLS from creator_tokens via security_invoker=true, so
--- the existing creator_tokens_select_self policy (from the hardening migration)
--- correctly restricts rows to user_id = auth.uid() OR owner.
+CREATE FUNCTION public.handle_new_user() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+    v_requested TEXT;
+BEGIN
+    -- What the signup form asked for, kept as a request and nothing more.
+    v_requested := nullif(trim(NEW.raw_user_meta_data ->> 'requested_role'), '');
 
-GRANT SELECT ON public.creator_connection_status TO authenticated;
+    IF v_requested IS NULL OR v_requested NOT IN ('creator', 'am', 'account_manager', 'client') THEN
+        v_requested := 'creator';
+    END IF;
 
--- -----------------------------------------------------------------------------
--- 5. Update creator_tokens RLS to permit INSERT/UPDATE only via service role.
--- -----------------------------------------------------------------------------
--- The hardening migration created a SELECT and DELETE policy. No INSERT/UPDATE
--- policy was added because tokens are always written by server-side endpoints
--- via the service-role key (which bypasses RLS). That's still true here. No
--- change needed; included this note so the design intent is clear.
+    -- 'account_manager' is the database spelling; 'am' is the UI's. Store the
+    -- database spelling so the approval screen and the role checks agree.
+    IF v_requested = 'am' THEN
+        v_requested := 'account_manager';
+    END IF;
 
--- -----------------------------------------------------------------------------
--- 6. Helper: opportunistic cleanup of expired oauth_states.
--- -----------------------------------------------------------------------------
--- Vacuums on a manual basis. Wire as a scheduled function later if volume
--- warrants. Call as: SELECT public.purge_expired_oauth_states();
-CREATE OR REPLACE FUNCTION public.purge_expired_oauth_states()
-RETURNS INTEGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+    INSERT INTO public.user_profiles (id, email, full_name, role, requested_role)
+    VALUES (
+        NEW.id,
+        NEW.email,
+        nullif(trim(NEW.raw_user_meta_data ->> 'full_name'), ''),
+        'pending',            -- <- the fix. Never the requested role.
+        v_requested
+    )
+    ON CONFLICT (id) DO NOTHING;   -- signup retries must not error
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.handle_new_user() IS 'Creates the user_profiles row for a new auth.users row with role=''pending''. The role the signup form asked for is recorded in requested_role and granted only by an owner on the Approve Users page (N-20).';
+
+CREATE FUNCTION public.has_payout_permission(p_permission text) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+DECLARE
+  v_role TEXT;
+  v_ok   BOOLEAN := false;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN false;
+  END IF;
+
+  SELECT role INTO v_role
+  FROM   user_profiles
+  WHERE  id = auth.uid();
+
+  IF v_role IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- Owner: unconditional.
+  IF v_role IN ('owner', 'admin') THEN
+    RETURN true;
+  END IF;
+
+  -- manage_payment_managers cannot be delegated.
+  IF p_permission = 'manage_payment_managers' THEN
+    RETURN false;
+  END IF;
+
+  -- AM shortcut: view only.
+  IF p_permission = 'view_payouts' AND v_role IN ('am', 'account_manager') THEN
+    RETURN true;
+  END IF;
+
+  -- Delegated payment managers.
+  SELECT CASE p_permission
+           WHEN 'view_payouts'        THEN pm.can_view_payouts
+           WHEN 'approve_withdrawals' THEN pm.can_approve_withdrawals
+           WHEN 'export_batches'      THEN pm.can_export_batches
+           WHEN 'mark_paid'           THEN pm.can_mark_paid
+           ELSE false
+         END
+  INTO   v_ok
+  FROM   payment_managers pm
+  WHERE  pm.user_id = auth.uid()
+    AND  pm.active  = true;
+
+  RETURN COALESCE(v_ok, false);
+END;
+$$;
+
+CREATE FUNCTION public.is_payment_manager(p_permission text) RETURNS boolean
+    LANGUAGE plpgsql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $_$
+DECLARE
+    v_result BOOLEAN := false;
+BEGIN
+    -- Guard: only allow known column names to prevent SQL injection via the
+    -- function parameter.
+    IF p_permission NOT IN (
+        'can_view_payouts',
+        'can_approve_withdrawals',
+        'can_export_batches',
+        'can_mark_paid'
+    ) THEN
+        RETURN false;
+    END IF;
+
+    EXECUTE format(
+        'SELECT %I FROM public.payment_managers WHERE user_id = $1 AND active = true',
+        p_permission
+    )
+    INTO v_result
+    USING auth.uid();
+
+    RETURN coalesce(v_result, false);
+END;
+$_$;
+
+COMMENT ON FUNCTION public.is_payment_manager(p_permission text) IS 'Returns TRUE if the calling user has an active payment_managers row with the given boolean permission set to TRUE. Allowed values for p_permission: can_view_payouts, can_approve_withdrawals, can_export_batches, can_mark_paid.';
+
+CREATE FUNCTION public.list_unassigned_creators() RETURNS TABLE(id uuid, name text, tiktok_handle text, instagram_handle text, status text, created_at timestamp with time zone)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+    SELECT c.id, c.name, c.tiktok_handle, c.instagram_handle, c.status, c.created_at
+    FROM   public.creators c
+    WHERE  c.am_id IS NULL
+      AND  c.archived_at IS NULL
+      AND  public.current_user_role() IN ('owner', 'am')
+    ORDER  BY c.created_at DESC NULLS LAST;
+$$;
+
+CREATE FUNCTION public.log_admin_action(p_action text, p_entity_type text, p_entity_id uuid, p_entity_label text DEFAULT NULL::text, p_from text DEFAULT NULL::text, p_to text DEFAULT NULL::text, p_reason text DEFAULT NULL::text, p_metadata jsonb DEFAULT '{}'::jsonb, p_actor uuid DEFAULT NULL::uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+DECLARE
+    v_id    UUID;
+    v_actor UUID;
+    v_role  TEXT;
+BEGIN
+    v_actor := coalesce(auth.uid(), p_actor);
+
+    IF v_actor IS NOT NULL THEN
+        SELECT CASE WHEN role = 'account_manager' THEN 'am' ELSE role END
+        INTO   v_role
+        FROM   public.user_profiles
+        WHERE  id = v_actor;
+    END IF;
+
+    INSERT INTO public.admin_audit_logs (
+        actor_user_id, actor_role, action, entity_type, entity_id,
+        entity_label, from_value, to_value, reason, metadata
+    )
+    VALUES (
+        v_actor,
+        coalesce(v_role, 'system'),
+        p_action, p_entity_type, p_entity_id,
+        p_entity_label, p_from, p_to, p_reason, coalesce(p_metadata, '{}'::jsonb)
+    )
+    RETURNING id INTO v_id;
+
+    RETURN v_id;
+END;
+$$;
+
+CREATE FUNCTION public.mark_payout_batch_paid(p_batch_id uuid, p_marked_paid_by uuid DEFAULT NULL::uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+  PERFORM public.assert_payout_permission('mark_paid');
+  RETURN public.mark_payout_batch_paid_internal(p_batch_id, auth.uid());
+END;
+$$;
+
+CREATE FUNCTION public.mark_payout_batch_paid_internal(p_batch_id uuid, p_marked_paid_by uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+DECLARE
+  v_batch        RECORD;
+  v_creator_ids  UUID[];
+  v_paid_count   INTEGER;
+  v_total_amount NUMERIC(10,2);
+BEGIN
+  -- Lock the batch row
+  SELECT *
+  INTO   v_batch
+  FROM   payout_batches
+  WHERE  id = p_batch_id
+  FOR    UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Payout batch % not found', p_batch_id;
+  END IF;
+
+  IF v_batch.status = 'paid' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'already_paid',
+      'message', 'This payout batch has already been marked as paid'
+    );
+  END IF;
+
+  IF v_batch.status = 'cancelled' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'cancelled',
+      'message', 'Cannot mark a cancelled batch as paid'
+    );
+  END IF;
+
+  -- Collect creator IDs linked to this batch
+  SELECT ARRAY_AGG(DISTINCT creator_id)
+  INTO   v_creator_ids
+  FROM   withdrawal_requests
+  WHERE  batch_id = p_batch_id;
+
+  -- Mark the batch paid
+  UPDATE payout_batches
+  SET    status         = 'paid',
+         marked_paid_by = p_marked_paid_by,
+         marked_paid_at = now()
+  WHERE  id = p_batch_id;
+
+  -- Mark payments paid
+  UPDATE payments
+  SET    status       = 'paid',
+         processed_by = p_marked_paid_by,
+         processed_at = now()
+  WHERE  batch_id = p_batch_id;
+
+  GET DIAGNOSTICS v_paid_count = ROW_COUNT;
+
+  -- Mark withdrawal requests paid
+  UPDATE withdrawal_requests
+  SET    status         = 'paid',
+         paid_at        = now(),
+         marked_paid_by = p_marked_paid_by
+  WHERE  batch_id = p_batch_id;
+
+  -- Mark creator_earnings paid
+  UPDATE creator_earnings
+  SET    status = 'paid'
+  WHERE  creator_id = ANY(v_creator_ids)
+    AND  status = 'batched';
+
+  v_total_amount := v_batch.total_amount;
+
+  -- Audit log
+  INSERT INTO payment_audit_logs (
+    entity_type,
+    entity_id,
+    action,
+    actor_user_id,
+    metadata,
+    created_at
+  )
+  VALUES (
+    'payout_batch',
+    p_batch_id,
+    'batch_marked_paid',
+    p_marked_paid_by,
+    jsonb_build_object(
+      'batch_id',        p_batch_id,
+      'batch_number',    v_batch.batch_number,
+      'total_amount',    v_total_amount,
+      'paid_count',      v_paid_count,
+      'marked_paid_by',  p_marked_paid_by
+    ),
+    now()
+  );
+
+  RETURN jsonb_build_object(
+    'success',      true,
+    'batch_id',     p_batch_id,
+    'paid_count',   v_paid_count,
+    'total_amount', v_total_amount
+  );
+END;
+$$;
+
+CREATE FUNCTION public.payout_ledger_balance(p_creator_id uuid) RETURNS numeric
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+    SELECT coalesce(sum(amount_delta), 0)::NUMERIC
+    FROM public.payout_ledger
+    WHERE creator_id = p_creator_id
+      AND entity_type = 'earning';
+$$;
+
+COMMENT ON FUNCTION public.payout_ledger_balance(p_creator_id uuid) IS 'The creator''s payable balance derived purely from the journal. Should equal SUM(amount) over creator_earnings in approved / withdrawal_requested / batched -- see payout_ledger_reconcile().';
+
+CREATE FUNCTION public.payout_ledger_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'payout_ledger is append-only: % is not permitted. To correct entry %, call reverse_ledger_entry(id, reason) -- it appends a reversing row and leaves the original intact.',
+        TG_OP,
+        coalesce(OLD.id::text, '(unknown)')
+        USING ERRCODE = 'insufficient_privilege';
+END;
+$$;
+
+CREATE FUNCTION public.payout_ledger_reconcile(p_creator_id uuid DEFAULT NULL::uuid) RETURNS TABLE(creator_id uuid, ledger_balance numeric, table_balance numeric, drift numeric)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+    WITH ledger AS (
+        SELECT l.creator_id, coalesce(sum(l.amount_delta), 0) AS bal
+        FROM public.payout_ledger l
+        WHERE l.entity_type = 'earning'
+          AND (p_creator_id IS NULL OR l.creator_id = p_creator_id)
+        GROUP BY l.creator_id
+    ),
+    tbl AS (
+        SELECT e.creator_id, coalesce(sum(e.amount), 0) AS bal
+        FROM public.creator_earnings e
+        WHERE e.status IN ('approved', 'withdrawal_requested', 'batched')
+          AND (p_creator_id IS NULL OR e.creator_id = p_creator_id)
+        GROUP BY e.creator_id
+    )
+    SELECT
+        coalesce(ledger.creator_id, tbl.creator_id),
+        coalesce(ledger.bal, 0),
+        coalesce(tbl.bal, 0),
+        coalesce(ledger.bal, 0) - coalesce(tbl.bal, 0)
+    FROM ledger
+    FULL OUTER JOIN tbl ON tbl.creator_id = ledger.creator_id;
+$$;
+
+COMMENT ON FUNCTION public.payout_ledger_reconcile(p_creator_id uuid) IS 'Journal balance vs table balance per creator. drift <> 0 means a status was written without passing through the ledger trigger.';
+
+CREATE FUNCTION public.payout_reconciliation_report() RETURNS TABLE(creator_id uuid, creator_name text, ledger_balance numeric, table_balance numeric, drift numeric)
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+    -- The OUT parameters share names with the columns returned by
+    -- payout_ledger_reconcile(). Prefer the column in that collision.
+    #variable_conflict use_column
+    BEGIN
+        IF NOT public.has_payout_permission('view_payouts') THEN
+            RAISE EXCEPTION 'Not authorized: view_payouts required'
+                USING ERRCODE = '42501';
+        END IF;
+
+        RETURN QUERY
+        SELECT r.creator_id,
+               c.name,
+               r.ledger_balance,
+               r.table_balance,
+               r.drift
+        FROM   public.payout_ledger_reconcile(NULL) r
+        LEFT   JOIN public.creators c ON c.id = r.creator_id
+        ORDER  BY abs(coalesce(r.drift, 0)) DESC, c.name;
+    END;
+    $$;
+
+CREATE FUNCTION public.payout_status_weight(p_entity_type text, p_status text) RETURNS integer
+    LANGUAGE sql IMMUTABLE
+    AS $$
+    SELECT CASE
+        WHEN p_status IS NULL THEN 0
+        WHEN p_entity_type = 'earning' AND lower(p_status) IN
+             ('approved', 'withdrawal_requested', 'batched') THEN 1
+        WHEN p_entity_type = 'withdrawal' AND lower(p_status) IN
+             ('pending', 'approved', 'batched') THEN 1
+        WHEN p_entity_type = 'payment' AND lower(p_status) IN
+             ('pending', 'processing') THEN 1
+        ELSE 0
+    END;
+$$;
+
+COMMENT ON FUNCTION public.payout_status_weight(p_entity_type text, p_status text) IS 'Weight of a status for balance purposes: 1 = owed to the creator and not yet paid out, 0 = otherwise. Used to sign payout_ledger.amount_delta.';
+
+CREATE FUNCTION public.purge_expired_oauth_states() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
 DECLARE
   deleted_count INTEGER;
 BEGIN
@@ -1312,180 +1310,2465 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.purge_expired_oauth_states() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.purge_expired_oauth_states() TO service_role;
+CREATE FUNCTION public.record_payout_transition() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+    v_entity    TEXT := TG_ARGV[0];
+    v_amount    NUMERIC(12,2);
+    v_currency  TEXT;
+    v_creator   UUID;
+    v_actor     UUID;
+    v_role      TEXT;
+    v_delta     NUMERIC(12,2);
+BEGIN
+    -- Nothing to journal if the status did not move.
+    IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
+        RETURN NEW;
+    END IF;
 
-COMMIT;
+    -- Pull the amount out of whichever column this table calls it. to_jsonb
+    -- keeps the function generic across four tables with four different
+    -- shapes, without one branch per table.
+    v_amount := coalesce(
+        (to_jsonb(NEW) ->> 'amount')::NUMERIC,
+        (to_jsonb(NEW) ->> 'total_amount')::NUMERIC,
+        (to_jsonb(NEW) ->> 'amount_owed')::NUMERIC,
+        0
+    );
+    v_currency := coalesce(to_jsonb(NEW) ->> 'currency', 'USD');
+    v_creator  := (to_jsonb(NEW) ->> 'creator_id')::UUID;   -- NULL for batches
 
+    BEGIN
+        v_actor := auth.uid();
+    EXCEPTION WHEN OTHERS THEN
+        v_actor := NULL;    -- applied by a migration or a service job
+    END;
 
--- =============================================================================
--- SECTION 7.5: COLUMNS PRODUCTION ACQUIRED WITHOUT A MIGRATION
---
--- Every column below exists in the live database and is created by NO file in
--- this repository — not by the sections above, not by any migration. They were
--- added to production by hand over time.
---
--- That is not a cosmetic problem. Migrations reference these columns, so the
--- chain stops at whichever one it needs first: applying the set to an empty
--- database halted at 20260527120000_client_system_integration.sql, whose
--- client_safe_campaigns view selects c.brief_url.
---
--- Which meant the repository could not rebuild its own database, and therefore
--- there was no staging, no Supabase branch, and no disaster recovery. This
--- section is what closes that.
---
--- Types are taken from the live database, not inferred from column names —
--- `node tests/live-column-types.cjs <table>` prints them. A type mismatch
--- between the repo and production is worse than the missing column it was
--- meant to fix.
---
--- Everything here is additive and idempotent, so it is a no-op against
--- production and correct on an empty database.
---
--- Run `node tests/schema-drift-report.cjs` after changing this section. It
--- applies the base script plus every migration and diffs the result against
--- the live schema; the goal is zero missing columns.
--- =============================================================================
+    IF v_actor IS NOT NULL THEN
+        SELECT role INTO v_role FROM public.user_profiles WHERE id = v_actor;
+    END IF;
 
-BEGIN;
+    v_delta := v_amount * (
+        public.payout_status_weight(v_entity, NEW.status)
+      - public.payout_status_weight(v_entity, OLD.status)
+    );
 
--- ---- campaigns --------------------------------------------------------------
--- brief_url is the one that actually halted the chain: client_safe_campaigns
--- in 20260527120000 selects it. The other four are its neighbours in
--- production and are added here so the next reader does not rediscover them
--- one error at a time.
-ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS brief_url        TEXT;
-ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS delivery_day     TEXT;
-ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS start_date       DATE;
-ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS due_date         DATE;
-ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS is_sales_sourced BOOLEAN DEFAULT false;
+    INSERT INTO public.payout_ledger (
+        entity_type, entity_id, creator_id,
+        from_status, to_status,
+        amount, amount_delta, currency,
+        actor_user_id, actor_role,
+        metadata
+    ) VALUES (
+        v_entity, NEW.id, v_creator,
+        OLD.status, NEW.status,
+        v_amount, v_delta, v_currency,
+        v_actor, v_role,
+        jsonb_build_object('table', TG_TABLE_NAME, 'op', TG_OP)
+    );
 
--- ---- clients ----------------------------------------------------------------
--- The brief/contract fields the client management screens read and write.
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS description        TEXT;
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS goals              TEXT;
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS target_audience    TEXT;
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS content_guidelines TEXT;
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS notes              TEXT;
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS satisfaction_score INTEGER;
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS contract_notes     TEXT;
-ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS contract_url       TEXT;
+    RETURN NEW;
+END;
+$$;
 
--- ---- account_managers -------------------------------------------------------
--- Read by RevenueAnalytics to compute AM cost; defaulting to 0.1 matches the
--- 10% the margin calculations assume.
-ALTER TABLE public.account_managers ADD COLUMN IF NOT EXISTS commission_rate NUMERIC DEFAULT 0.1;
+COMMENT ON FUNCTION public.record_payout_transition() IS 'AFTER UPDATE trigger: appends a payout_ledger row whenever status changes. Takes the entity_type as its first trigger argument.';
 
--- ---- creators ---------------------------------------------------------------
-ALTER TABLE public.creators ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'B';
+CREATE FUNCTION public.refuse_hard_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        '% rows are never hard-deleted (%). Set the archive/void state instead: %',
+        TG_TABLE_NAME,
+        TG_ARGV[0],
+        TG_ARGV[1]
+    USING ERRCODE = 'restrict_violation';
+END;
+$$;
 
--- ---- submissions ------------------------------------------------------------
--- The review and analytics timestamps. submitted_at defaults to now() in
--- production, so a row inserted without it is still ordered correctly.
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS notes               TEXT;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS submitted_at        TIMESTAMPTZ DEFAULT now();
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS reviewed_at         TIMESTAMPTZ;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS due_date            DATE;
-ALTER TABLE public.submissions ADD COLUMN IF NOT EXISTS analytics_synced_at TIMESTAMPTZ;
+CREATE FUNCTION public.reject_withdrawal_request(p_request_id uuid, p_rejected_by uuid DEFAULT NULL::uuid, p_reason text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+  PERFORM public.assert_payout_permission('approve_withdrawals');
+  RETURN public.reject_withdrawal_request_internal(p_request_id, auth.uid(), p_reason);
+END;
+$$;
 
--- ---- user_profiles ----------------------------------------------------------
--- The role a signup asked for, as opposed to the one it was granted. The N-20
--- trigger writes it and the owner's Approve Users screen reads it, so without
--- this column the approval workflow has nothing to show.
-ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS requested_role TEXT;
+CREATE FUNCTION public.reject_withdrawal_request_internal(p_request_id uuid, p_rejected_by uuid, p_reason text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+DECLARE
+  v_request RECORD;
+BEGIN
+  -- Validate rejection reason
+  IF p_reason IS NULL OR trim(p_reason) = '' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'missing_reason',
+      'message', 'A rejection reason is required'
+    );
+  END IF;
 
--- ---- campaign_analytics -----------------------------------------------------
--- A live table created by no file in the repository at all. Rolled up per
--- campaign; cost_per_view is derived, not stored by the app.
-CREATE TABLE IF NOT EXISTS public.campaign_analytics (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  campaign_id       UUID REFERENCES public.campaigns(id) ON DELETE CASCADE,
-  total_views       BIGINT      DEFAULT 0,
-  total_spend       NUMERIC     DEFAULT 0,
-  cost_per_view     NUMERIC,
-  total_submissions INTEGER     DEFAULT 0,
-  approved_videos   INTEGER     DEFAULT 0,
-  updated_at        TIMESTAMPTZ DEFAULT now()
-);
+  -- Lock the row
+  SELECT *
+  INTO   v_request
+  FROM   withdrawal_requests
+  WHERE  id = p_request_id
+  FOR    UPDATE;
 
-CREATE INDEX IF NOT EXISTS idx_campaign_analytics_campaign_id
-  ON public.campaign_analytics(campaign_id);
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Withdrawal request % not found', p_request_id;
+  END IF;
 
--- RLS, because every other table here has it and a rollup of spend per campaign
--- is not something a creator or client should read.
-ALTER TABLE public.campaign_analytics ENABLE ROW LEVEL SECURITY;
+  IF v_request.status <> 'pending_admin_approval' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'invalid_status',
+      'message', 'Request is not in pending_admin_approval status',
+      'status',  v_request.status
+    );
+  END IF;
 
-DROP POLICY IF EXISTS campaign_analytics_staff_select ON public.campaign_analytics;
-CREATE POLICY campaign_analytics_staff_select ON public.campaign_analytics
-  FOR SELECT TO authenticated
-  USING (
-    public.current_user_role() = 'owner'
-    OR (
-      public.current_user_role() = 'am'
-      AND EXISTS (
-        SELECT 1
-        FROM   public.campaigns ca
-        JOIN   public.clients   cl ON cl.id = ca.client_id
-        JOIN   public.account_managers am ON am.id = cl.am_id
-        WHERE  ca.id = campaign_analytics.campaign_id
-          AND  am.user_id = auth.uid()
-      )
-    )
+  -- Reject the request
+  UPDATE withdrawal_requests
+  SET    status           = 'rejected',
+         rejected_at      = now(),
+         rejected_by      = p_rejected_by,
+         rejection_reason = p_reason
+  WHERE  id = p_request_id;
+
+  -- Release locked earnings back to approved so the creator can re-request later
+  UPDATE creator_earnings
+  SET    status = 'approved'
+  WHERE  creator_id = v_request.creator_id
+    AND  status = 'withdrawal_requested';
+
+  -- Audit log
+  INSERT INTO payment_audit_logs (
+    entity_type,
+    entity_id,
+    action,
+    actor_user_id,
+    metadata,
+    created_at
+  )
+  VALUES (
+    'withdrawal_request',
+    p_request_id,
+    'withdrawal_rejected',
+    p_rejected_by,
+    jsonb_build_object(
+      'request_id',       p_request_id,
+      'creator_id',       v_request.creator_id,
+      'amount',           v_request.amount,
+      'rejected_by',      p_rejected_by,
+      'rejection_reason', p_reason
+    ),
+    now()
   );
 
+  RETURN jsonb_build_object(
+    'success',    true,
+    'request_id', p_request_id,
+    'status',     'rejected'
+  );
+END;
+$$;
+
+CREATE FUNCTION public.release_creator(p_creator_id uuid) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+  v_done UUID;
+BEGIN
+  IF public.current_user_role() <> 'am' THEN
+    RAISE EXCEPTION 'Only an account manager can release a creator' USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE public.creators c
+  SET    am_id = NULL
+  FROM   public.account_managers am
+  WHERE  c.id = p_creator_id
+    AND  am.id = c.am_id
+    AND  am.user_id = auth.uid()
+  RETURNING c.id INTO v_done;
+
+  IF v_done IS NULL THEN
+    RAISE EXCEPTION 'That creator is not on your roster' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN v_done;
+END;
+$$;
+
+CREATE FUNCTION public.request_creator_withdrawal(p_creator_id uuid, p_currency text DEFAULT 'USD'::text, p_payment_method text DEFAULT NULL::text, p_payment_destination_summary text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+DECLARE
+  v_latest_request        RECORD;
+  v_next_eligible_at      TIMESTAMPTZ;
+  v_available_balance     NUMERIC(10,2);
+  v_payment_method        TEXT;
+  v_withdrawal_request_id UUID;
+  v_owns_creator          BOOLEAN;
+BEGIN
+  -- ---- F-2: authorization -------------------------------------------------
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authorized' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM creators c
+    WHERE  c.id = p_creator_id AND c.user_id = auth.uid()
+  ) INTO v_owns_creator;
+
+  IF NOT v_owns_creator AND NOT public.has_payout_permission('approve_withdrawals') THEN
+    RAISE EXCEPTION 'Not authorized to request a withdrawal for this creator'
+      USING ERRCODE = '42501';
+  END IF;
+  -- -------------------------------------------------------------------------
+
+  IF p_currency <> 'USD' THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'unsupported_currency',
+      'message', 'Only USD is supported at this time'
+    );
+  END IF;
+
+  -- 14-day cooldown check
+  SELECT *
+  INTO   v_latest_request
+  FROM   withdrawal_requests
+  WHERE  creator_id = p_creator_id
+    AND  status NOT IN ('rejected', 'cancelled')
+  ORDER BY requested_at DESC
+  LIMIT  1;
+
+  IF FOUND AND v_latest_request.requested_at > (now() - INTERVAL '14 days') THEN
+    v_next_eligible_at := v_latest_request.requested_at + INTERVAL '14 days';
+    RETURN jsonb_build_object(
+      'success',          false,
+      'error',            'withdrawal_cooldown',
+      'message',          'A withdrawal was requested recently. Please wait before requesting again.',
+      'next_eligible_at', v_next_eligible_at
+    );
+  END IF;
+
+  -- ---- F-9: lock the rows before reading the balance ----------------------
+  -- Without these locks two concurrent calls both read the same balance and
+  -- both create a request, committing the money twice.
+  PERFORM 1
+  FROM   creator_earnings
+  WHERE  creator_id = p_creator_id
+    AND  status = 'approved'
+  FOR UPDATE;
+
+  SELECT COALESCE(SUM(amount), 0)
+  INTO   v_available_balance
+  FROM   creator_earnings
+  WHERE  creator_id = p_creator_id
+    AND  status = 'approved';
+  -- -------------------------------------------------------------------------
+
+  IF v_available_balance <= 0 THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'no_balance',
+      'message', 'No approved earnings available for withdrawal'
+    );
+  END IF;
+
+  v_payment_method := p_payment_method;
+
+  IF v_payment_method IS NULL THEN
+    SELECT payment_method
+    INTO   v_payment_method
+    FROM   creators
+    WHERE  id = p_creator_id;
+  END IF;
+
+  IF v_payment_method IS NULL THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error',   'no_payment_method',
+      'message', 'No payment method configured. Please set a payout preference first.'
+    );
+  END IF;
+
+  INSERT INTO withdrawal_requests (
+    creator_id, amount, currency, payment_method,
+    payment_destination_summary, status, requested_at
+  )
+  VALUES (
+    p_creator_id, v_available_balance, p_currency, v_payment_method,
+    p_payment_destination_summary, 'pending_admin_approval', now()
+  )
+  RETURNING id INTO v_withdrawal_request_id;
+
+  UPDATE creator_earnings
+  SET    status = 'withdrawal_requested'
+  WHERE  creator_id = p_creator_id
+    AND  status = 'approved';
+
+  INSERT INTO payment_audit_logs (
+    entity_type, entity_id, action, actor_user_id, metadata, created_at
+  )
+  VALUES (
+    'withdrawal_request',
+    v_withdrawal_request_id,
+    'withdrawal_requested',
+    auth.uid(),
+    jsonb_build_object(
+      'creator_id',     p_creator_id,
+      'amount',         v_available_balance,
+      'currency',       p_currency,
+      'payment_method', v_payment_method
+    ),
+    now()
+  );
+
+  RETURN jsonb_build_object(
+    'success',               true,
+    'withdrawal_request_id', v_withdrawal_request_id,
+    'amount',                v_available_balance,
+    'currency',              p_currency,
+    'payment_method',        v_payment_method,
+    'status',                'pending_admin_approval'
+  );
+END;
+$$;
+
+CREATE FUNCTION public.reverse_ledger_entry(p_entry_id uuid, p_reason text) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+    v_orig public.payout_ledger%ROWTYPE;
+    v_new  UUID;
+    v_prior UUID;
+BEGIN
+    IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+        RAISE EXCEPTION 'reverse_ledger_entry: a reason is required. An unexplained reversal is worse than no ledger.';
+    END IF;
+
+    SELECT * INTO v_orig FROM public.payout_ledger WHERE id = p_entry_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'reverse_ledger_entry: no ledger entry %', p_entry_id;
+    END IF;
+
+    IF v_orig.reverses_entry_id IS NOT NULL THEN
+        RAISE EXCEPTION 'reverse_ledger_entry: entry % is itself a reversal. Reverse the original instead.', p_entry_id;
+    END IF;
+
+    SELECT id INTO v_prior FROM public.payout_ledger WHERE reverses_entry_id = p_entry_id LIMIT 1;
+    IF v_prior IS NOT NULL THEN
+        RAISE EXCEPTION 'reverse_ledger_entry: entry % has already been reversed by %', p_entry_id, v_prior;
+    END IF;
+
+    INSERT INTO public.payout_ledger (
+        entity_type, entity_id, creator_id,
+        from_status, to_status,
+        amount, amount_delta, currency,
+        actor_user_id, actor_role, reason,
+        reverses_entry_id, metadata
+    ) VALUES (
+        v_orig.entity_type, v_orig.entity_id, v_orig.creator_id,
+        v_orig.to_status, v_orig.from_status,       -- the transition, undone
+        v_orig.amount, -v_orig.amount_delta, v_orig.currency,
+        auth.uid(),
+        (SELECT role FROM public.user_profiles WHERE id = auth.uid()),
+        p_reason,
+        v_orig.id,
+        jsonb_build_object('reversal_of', v_orig.id)
+    )
+    RETURNING id INTO v_new;
+
+    RETURN v_new;
+END;
+$$;
+
+COMMENT ON FUNCTION public.reverse_ledger_entry(p_entry_id uuid, p_reason text) IS 'Appends a reversing entry for a ledger row. The original is never modified. Refuses to reverse a reversal, or to reverse twice.';
+
+CREATE FUNCTION public.set_updated_at() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.thin_video_metrics(p_keep_days integer) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+    v_deleted BIGINT;
+BEGIN
+    IF p_keep_days IS NULL OR p_keep_days < 1 THEN
+        RAISE EXCEPTION 'thin_video_metrics: keep_days must be at least 1' USING ERRCODE = '22023';
+    END IF;
+
+    WITH ranked AS (
+        SELECT id,
+               row_number() OVER (
+                   PARTITION BY video_id, (snapshot_at AT TIME ZONE 'UTC')::date
+                   ORDER BY snapshot_at DESC, id DESC
+               ) AS rn
+        FROM   public.video_metrics
+        WHERE  snapshot_at < now() - make_interval(days => p_keep_days)
+    ),
+    gone AS (
+        DELETE FROM public.video_metrics v
+        USING  ranked r
+        WHERE  v.id = r.id AND r.rn > 1
+        RETURNING 1
+    )
+    SELECT count(*) INTO v_deleted FROM gone;
+
+    RETURN v_deleted;
+END;
+$$;
+
+CREATE FUNCTION public.trg_audit_creator_archive() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    -- Fire only when archived_at changes (archive or restore).
+    IF (OLD.archived_at IS DISTINCT FROM NEW.archived_at) THEN
+        PERFORM public.log_admin_action(
+            CASE WHEN NEW.archived_at IS NOT NULL THEN 'creator_archived'
+                 ELSE 'creator_restored' END,   -- p_action
+            'creator',                          -- p_entity_type
+            NEW.id,                             -- p_entity_id (uuid)
+            NEW.name,                           -- p_entity_label
+            OLD.status,                         -- p_from
+            NEW.status,                         -- p_to
+            NEW.archive_reason,                 -- p_reason
+            jsonb_build_object('email', NEW.email, 'am_id', NEW.am_id),
+            NEW.archived_by                     -- p_actor
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.trg_audit_submission_archive() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'auth'
+    AS $$
+BEGIN
+    IF (OLD.archived_at IS DISTINCT FROM NEW.archived_at) THEN
+        PERFORM public.log_admin_action(
+            CASE WHEN NEW.archived_at IS NOT NULL THEN 'submission_archived'
+                 ELSE 'submission_restored' END,
+            'submission',
+            NEW.id,
+            NULL,
+            NULL,
+            NULL,
+            NEW.archive_reason,
+            jsonb_build_object('creator_id',  NEW.creator_id,
+                               'campaign_id', NEW.campaign_id),
+            NEW.archived_by
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+SET LOCAL default_tablespace = '';
+
+SET LOCAL default_table_access_method = heap;
+
+CREATE TABLE public.account_managers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid,
+    name text NOT NULL,
+    email text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    commission_rate numeric DEFAULT 0.1,
+    status text DEFAULT 'Active'::text NOT NULL,
+    archived_at timestamp with time zone,
+    archived_by uuid,
+    archive_reason text,
+    CONSTRAINT account_managers_status_check CHECK ((status = ANY (ARRAY['Active'::text, 'Archived'::text])))
+);
+
+CREATE TABLE public.admin_audit_logs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_user_id uuid,
+    actor_role text,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    entity_label text,
+    from_value text,
+    to_value text,
+    reason text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON TABLE public.admin_audit_logs IS 'Append-only journal of sensitive non-financial actions (§5.1): role changes, deactivation, restoration, archiving and content review decisions. Written by trigger, never by application code, so a direct UPDATE is recorded too. payment_audit_logs covers the money path.';
+
+CREATE SEQUENCE public.batch_number_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+CREATE TABLE public.campaign_analytics (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id uuid,
+    total_views bigint DEFAULT 0,
+    total_spend numeric DEFAULT 0,
+    cost_per_view numeric,
+    total_submissions integer DEFAULT 0,
+    approved_videos integer DEFAULT 0,
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.campaign_creators (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id uuid NOT NULL,
+    creator_id uuid NOT NULL,
+    assigned_at timestamp with time zone DEFAULT now() NOT NULL,
+    assigned_by uuid,
+    status text DEFAULT 'Approved'::text NOT NULL,
+    commitment integer,
+    demo_video_url text,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone,
+    CONSTRAINT campaign_creators_commitment_check CHECK (((commitment IS NULL) OR ((commitment >= 1) AND (commitment <= 500)))),
+    CONSTRAINT campaign_creators_status_check CHECK ((status = ANY (ARRAY['Applied'::text, 'Approved'::text, 'Declined'::text])))
+);
+
+COMMENT ON TABLE public.campaign_creators IS 'Authoritative campaign <-> creator assignment. campaigns.assigned_creators is a trigger-maintained mirror of this table and must not be written directly. See 20260822000003_campaign_creators.sql.';
+
+COMMENT ON COLUMN public.campaign_creators.assigned_by IS 'auth.users id of whoever made the assignment. NULL for rows created by the backfill or by a service-role write.';
+
+CREATE TABLE public.campaigns (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    client_id uuid,
+    description text,
+    format text DEFAULT 'TikTok'::text,
+    videos_needed integer DEFAULT 10,
+    pay_per_video numeric DEFAULT 10,
+    deadline date,
+    status text DEFAULT 'Open'::text,
+    application_type text DEFAULT 'Open Application'::text,
+    assigned_creators uuid[] DEFAULT '{}'::uuid[],
+    created_at timestamp with time zone DEFAULT now(),
+    brief_url text,
+    delivery_day text,
+    start_date date,
+    due_date date,
+    is_sales_sourced boolean DEFAULT false,
+    archived_at timestamp with time zone,
+    archived_by uuid,
+    archive_reason text,
+    share_token text DEFAULT (gen_random_uuid())::text,
+    share_enabled boolean DEFAULT false,
+    share_created_at timestamp with time zone DEFAULT now(),
+    sales_commission_rate numeric(4,2) DEFAULT 0.30 NOT NULL,
+    manager_commission_rate numeric(4,2),
+    show_client_cpm boolean DEFAULT false NOT NULL,
+    CONSTRAINT campaigns_manager_commission_rate_check CHECK (((manager_commission_rate IS NULL) OR ((manager_commission_rate >= (0)::numeric) AND (manager_commission_rate <= 0.50)))),
+    CONSTRAINT campaigns_sales_commission_rate_check CHECK ((sales_commission_rate = ANY (ARRAY[0.10, 0.20, 0.30])))
+);
+
+CREATE TABLE public.clients (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    deal_type text DEFAULT 'Monthly Retainer'::text,
+    videos_per_month integer DEFAULT 20,
+    budget numeric DEFAULT 0,
+    status text DEFAULT 'Active'::text,
+    contact_name text,
+    contact_email text,
+    contact_phone text,
+    contract_terms text,
+    drive_link text,
+    am_id uuid,
+    created_at timestamp with time zone DEFAULT now(),
+    description text,
+    goals text,
+    target_audience text,
+    content_guidelines text,
+    notes text,
+    satisfaction_score integer,
+    contract_notes text,
+    contract_url text,
+    user_id uuid,
+    archived_at timestamp with time zone,
+    archived_by uuid,
+    archive_reason text
+);
+
+CREATE TABLE public.creators (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid,
+    name text NOT NULL,
+    email text NOT NULL,
+    tiktok_handle text,
+    instagram_handle text,
+    status text DEFAULT 'Active'::text,
+    weekly_rate numeric DEFAULT 150,
+    videos_per_week integer DEFAULT 15,
+    payment_status text DEFAULT 'Current'::text,
+    am_id uuid,
+    created_at timestamp with time zone DEFAULT now(),
+    payout_email text,
+    payout_preference text DEFAULT 'paypal'::text,
+    tier text DEFAULT 'B'::text,
+    payment_method text,
+    payment_handle text,
+    payment_email text,
+    bank_name text,
+    bank_account_last4 text,
+    bank_transfer_notes text,
+    zelle_email text,
+    zelle_phone_last4 text,
+    payment_method_status text DEFAULT 'missing'::text,
+    payment_method_updated_at timestamp with time zone,
+    stripe_account_id text,
+    stripe_account_status text DEFAULT 'not_connected'::text,
+    stripe_onboarding_url text,
+    stripe_connected_at timestamp with time zone,
+    stripe_charges_enabled boolean DEFAULT false,
+    stripe_payouts_enabled boolean DEFAULT false,
+    stripe_details_submitted boolean DEFAULT false,
+    archived_at timestamp with time zone,
+    archived_by uuid,
+    archive_reason text,
+    score_override integer,
+    tier_override text,
+    CONSTRAINT creators_score_override_check CHECK (((score_override IS NULL) OR ((score_override >= 0) AND (score_override <= 100)))),
+    CONSTRAINT creators_tier_override_check CHECK (((tier_override IS NULL) OR (tier_override = ANY (ARRAY['A'::text, 'B'::text, 'C'::text, 'D'::text]))))
+);
+
+COMMENT ON COLUMN public.creators.archived_at IS 'When the creator was archived. NULL means active (status governs day-to-day).';
+
+CREATE TABLE public.video_analytics (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    platform text NOT NULL,
+    creator_id uuid,
+    campaign_id uuid,
+    submission_id uuid,
+    video_id text NOT NULL,
+    views bigint DEFAULT 0,
+    likes bigint DEFAULT 0,
+    comments bigint DEFAULT 0,
+    shares bigint DEFAULT 0,
+    reach bigint DEFAULT 0,
+    saves bigint DEFAULT 0,
+    watch_time numeric,
+    pulled_at timestamp with time zone DEFAULT now(),
+    user_id uuid,
+    video_url text,
+    watch_time_seconds bigint DEFAULT 0,
+    engagement_rate numeric DEFAULT 0,
+    raw_metrics jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE VIEW public.client_safe_analytics WITH (security_invoker='true') AS
+ SELECT va.id AS analytics_id,
+    va.video_id,
+    va.platform,
+    va.submission_id,
+    va.creator_id,
+    cr.name AS creator_name,
+    va.campaign_id,
+    c.name AS campaign_name,
+    c.client_id,
+    va.views,
+    va.likes,
+    va.comments,
+    va.shares,
+    va.reach,
+    va.engagement_rate,
+    va.pulled_at
+   FROM (((public.video_analytics va
+     JOIN public.creators cr ON ((va.creator_id = cr.id)))
+     JOIN public.campaigns c ON ((va.campaign_id = c.id)))
+     JOIN public.clients cl ON ((c.client_id = cl.id)))
+  WHERE (cl.user_id = auth.uid());
+
+CREATE VIEW public.client_safe_campaigns WITH (security_invoker='true') AS
+ SELECT c.id AS campaign_id,
+    c.client_id,
+    c.name AS campaign_name,
+    c.status AS campaign_status,
+    c.brief_url,
+    c.created_at,
+    c.format,
+    c.deadline,
+    c.start_date,
+    c.videos_needed,
+    c.show_client_cpm
+   FROM (public.campaigns c
+     JOIN public.clients cl ON ((c.client_id = cl.id)))
+  WHERE (cl.user_id = auth.uid());
+
+CREATE TABLE public.submissions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    creator_id uuid,
+    campaign_id uuid,
+    submission_type text DEFAULT 'Concept'::text,
+    concept_link text,
+    posted_link text,
+    platform text DEFAULT 'TikTok'::text,
+    feedback text,
+    approved_date date,
+    views_24h bigint,
+    views_72h bigint,
+    views_1w bigint,
+    views_2w bigint,
+    views_1m bigint,
+    likes bigint,
+    comments bigint,
+    shares bigint,
+    saves bigint,
+    payment_status text DEFAULT 'Unpaid'::text,
+    ai_insights jsonb,
+    created_at timestamp with time zone DEFAULT now(),
+    payout_batch_id uuid,
+    notes text,
+    submitted_at timestamp with time zone DEFAULT now(),
+    reviewed_at timestamp with time zone,
+    due_date date,
+    analytics_synced_at timestamp with time zone,
+    posted_url text,
+    posted_at timestamp with time zone,
+    view_count_submitted integer DEFAULT 0,
+    view_count_verified integer DEFAULT 0,
+    view_count_source text DEFAULT 'manual'::text,
+    view_count_updated_at timestamp with time zone,
+    bonus_snapshot_at timestamp with time zone,
+    bonus_locked boolean DEFAULT false,
+    bonus_eligible boolean DEFAULT false,
+    bonus_forfeited boolean DEFAULT false,
+    bonus_forfeit_reason text,
+    reviewed_by uuid,
+    archived_at timestamp with time zone,
+    archived_by uuid,
+    archive_reason text,
+    status text DEFAULT 'Draft'::text NOT NULL,
+    view_count_verified_at timestamp with time zone,
+    verified_views_source text,
+    thumbnail_url text,
+    CONSTRAINT submissions_status_check CHECK ((status = ANY (ARRAY['Draft'::text, 'Submitted'::text, 'Under Review'::text, 'Revision Requested'::text, 'Rejected'::text, 'Approved'::text, 'Published/Tracked'::text, 'Archived'::text]))),
+    CONSTRAINT submissions_verified_views_source_check CHECK (((verified_views_source IS NULL) OR (verified_views_source = ANY (ARRAY['oauth'::text, 'link'::text]))))
+);
+
+COMMENT ON COLUMN public.submissions.archived_at IS 'When the submission was archived. NULL means live.';
+
+CREATE VIEW public.client_safe_submissions WITH (security_invoker='true') AS
+ SELECT s.id AS submission_id,
+    s.campaign_id,
+    s.creator_id,
+    cr.name AS creator_name,
+    s.platform,
+    s.submission_type,
+    s.status,
+    s.posted_link,
+    s.created_at
+   FROM (((public.submissions s
+     JOIN public.campaigns ca ON ((s.campaign_id = ca.id)))
+     JOIN public.clients cl ON ((ca.client_id = cl.id)))
+     JOIN public.creators cr ON ((s.creator_id = cr.id)))
+  WHERE ((cl.user_id = auth.uid()) AND (s.status = 'Approved'::text));
+
+CREATE TABLE public.creator_tokens (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid,
+    platform text NOT NULL,
+    access_token text,
+    refresh_token text,
+    scopes text[],
+    expires_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    creator_id uuid,
+    account_id text,
+    account_name text,
+    status text DEFAULT 'connected'::text,
+    last_synced_at timestamp with time zone,
+    last_error text,
+    platform_user_id text,
+    platform_username text,
+    token_type text,
+    scope text,
+    refresh_expires_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb
+);
+
+COMMENT ON TABLE public.creator_tokens IS 'LEGACY, NOT WRITTEN TO. Superseded by public.creator_social_accounts, which stores the same connections with AES-256-GCM encrypted tokens (F-3 / F-13). Retained for history only. Rows are migrated by scripts/backfill-tokens.js; its --scrub phase NULLs the plaintext once a row is verified to round-trip. No browser-facing role has any privilege on this table. Do not add one.';
+
+COMMENT ON COLUMN public.creator_tokens.access_token IS 'PLAINTEXT LEGACY VALUE. Never expose. Encrypted equivalent lives in creator_social_accounts.access_token_encrypted.';
+
+COMMENT ON COLUMN public.creator_tokens.refresh_token IS 'PLAINTEXT LEGACY VALUE. Never expose. Encrypted equivalent lives in creator_social_accounts.refresh_token_encrypted.';
+
+CREATE VIEW public.creator_connection_status WITH (security_invoker='true') AS
+ SELECT id,
+    user_id,
+    platform,
+    platform_user_id,
+    platform_username,
+    status,
+    expires_at,
+    refresh_expires_at,
+    last_synced_at,
+    last_error,
+    created_at,
+    updated_at
+   FROM public.creator_tokens;
+
+COMMENT ON VIEW public.creator_connection_status IS 'Public-safe projection of creator_tokens (omits access/refresh tokens). security_invoker=true means RLS on creator_tokens is enforced when the view is queried by a non-service role.';
+
+CREATE TABLE public.creator_earnings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    creator_id uuid NOT NULL,
+    campaign_id uuid,
+    submission_id uuid,
+    earning_type text NOT NULL,
+    amount numeric(12,2) NOT NULL,
+    currency text DEFAULT 'USD'::text,
+    status text DEFAULT 'pending'::text,
+    description text,
+    views_counted integer DEFAULT 0,
+    bonus_tier text,
+    eligible_at timestamp with time zone,
+    locked_at timestamp with time zone,
+    approved_at timestamp with time zone,
+    approved_by uuid,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT creator_earnings_amount_non_negative CHECK ((amount >= (0)::numeric)),
+    CONSTRAINT creator_earnings_earning_type_check CHECK ((earning_type = ANY (ARRAY['base_video_pay'::text, 'performance_bonus'::text, 'weekly_rate'::text, 'adjustment'::text, 'bonus'::text, 'other'::text]))),
+    CONSTRAINT creator_earnings_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'needs_review'::text, 'eligible'::text, 'locked'::text, 'approved'::text, 'withdrawal_requested'::text, 'batched'::text, 'paid'::text, 'forfeited'::text, 'cancelled'::text])))
+);
+
+CREATE TABLE public.creator_social_accounts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    creator_id uuid,
+    workspace_id uuid,
+    platform text NOT NULL,
+    platform_user_id text,
+    username text,
+    display_name text,
+    profile_image_url text,
+    access_token_encrypted text,
+    refresh_token_encrypted text,
+    token_expires_at timestamp with time zone,
+    refresh_token_expires_at timestamp with time zone,
+    scopes text[] DEFAULT '{}'::text[] NOT NULL,
+    connection_status text DEFAULT 'not_connected'::text NOT NULL,
+    last_synced_at timestamp with time zone,
+    last_error text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    link_handle text,
+    link_status text,
+    link_code text,
+    link_code_expires_at timestamp with time zone,
+    link_code_found_at timestamp with time zone,
+    link_verified_at timestamp with time zone,
+    link_verified_by uuid,
+    link_rejected_reason text,
+    link_health text DEFAULT 'ok'::text NOT NULL,
+    link_failure_count integer DEFAULT 0 NOT NULL,
+    link_last_error text,
+    link_last_fetched_at timestamp with time zone,
+    follower_count bigint,
+    CONSTRAINT creator_social_accounts_connection_status_check CHECK ((connection_status = ANY (ARRAY['not_connected'::text, 'connected'::text, 'disconnected'::text, 'reauth_required'::text]))),
+    CONSTRAINT creator_social_accounts_link_handle_check CHECK (((link_handle IS NULL) OR (link_handle ~ '^[a-z0-9._]{2,24}$'::text))),
+    CONSTRAINT creator_social_accounts_link_handle_status_check CHECK (((link_handle IS NOT NULL) OR (link_status IS NULL))),
+    CONSTRAINT creator_social_accounts_link_health_check CHECK ((link_health = ANY (ARRAY['ok'::text, 'needs_attention'::text]))),
+    CONSTRAINT creator_social_accounts_link_rejected_reason_check CHECK (((link_rejected_reason IS NULL) OR (char_length(link_rejected_reason) <= 500))),
+    CONSTRAINT creator_social_accounts_link_status_check CHECK (((link_status IS NULL) OR (link_status = ANY (ARRAY['pending_code'::text, 'code_found'::text, 'verified'::text, 'rejected'::text])))),
+    CONSTRAINT creator_social_accounts_platform_check CHECK ((platform = ANY (ARRAY['tiktok'::text, 'instagram'::text, 'facebook'::text, 'youtube'::text])))
+);
+
+COMMENT ON TABLE public.creator_social_accounts IS 'One connected social account per (user_id, platform). Tokens are stored as AES-256-GCM ciphertext produced by api/_utils/encryption.js. Read from the browser through creator_social_accounts_safe, never from this table.';
+
+COMMENT ON COLUMN public.creator_social_accounts.access_token_encrypted IS 'base64([IV 12B | GCM tag 16B | ciphertext]). Never exposed to anon or to authenticated -- see the column grants in SECTION 7.';
+
+COMMENT ON COLUMN public.creator_social_accounts.link_status IS 'TikTok profile link state (spec 0002): pending_code -> code_found -> verified, or rejected. NULL when the creator has no link. Written only by api/tiktok-link/* and the link cron with the service role.';
+
+CREATE VIEW public.creator_social_accounts_safe WITH (security_invoker='true') AS
+ SELECT id,
+    user_id,
+    creator_id,
+    workspace_id,
+    platform,
+    platform_user_id,
+    username,
+    display_name,
+    profile_image_url,
+    token_expires_at,
+    refresh_token_expires_at,
+    scopes,
+    connection_status,
+    last_synced_at,
+    last_error,
+    metadata,
+    created_at,
+    updated_at,
+    link_handle,
+    link_status,
+    link_code,
+    link_code_expires_at,
+    link_code_found_at,
+    link_verified_at,
+    link_verified_by,
+    link_rejected_reason,
+    link_health,
+    link_failure_count,
+    link_last_error,
+    link_last_fetched_at,
+    follower_count
+   FROM public.creator_social_accounts csa;
+
+COMMENT ON VIEW public.creator_social_accounts_safe IS 'creator_social_accounts without access_token_encrypted / refresh_token_encrypted. This is the only connection-state read the browser is permitted to make; the base table revokes those two columns from authenticated and revokes everything from anon.';
+
+CREATE TABLE public.creator_videos (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    creator_id uuid,
+    workspace_id uuid,
+    social_account_id uuid,
+    platform text DEFAULT 'tiktok'::text NOT NULL,
+    platform_video_id text NOT NULL,
+    video_url text,
+    caption text,
+    thumbnail_url text,
+    posted_at timestamp with time zone,
+    view_count bigint DEFAULT 0 NOT NULL,
+    like_count bigint DEFAULT 0 NOT NULL,
+    comment_count bigint DEFAULT 0 NOT NULL,
+    share_count bigint DEFAULT 0 NOT NULL,
+    duration_seconds integer,
+    sync_status text DEFAULT 'synced'::text NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    source text DEFAULT 'oauth'::text NOT NULL,
+    author_handle text,
+    CONSTRAINT creator_videos_source_check CHECK ((source = ANY (ARRAY['oauth'::text, 'link'::text])))
+);
+
+COMMENT ON TABLE public.creator_videos IS 'Latest known state of one published video. The per-pull history lives in video_metrics; this table is overwritten on every sync.';
+
+CREATE TABLE public.messages (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    campaign_id uuid,
+    user_id uuid,
+    sender_name text,
+    content text,
+    is_pinned boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.oauth_states (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    platform text NOT NULL,
+    state_hash text NOT NULL,
+    code_verifier text,
+    redirect_after text,
+    expires_at timestamp with time zone NOT NULL,
+    used_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+COMMENT ON TABLE public.oauth_states IS 'Short-lived OAuth state + PKCE verifier store. Server-only; deny-all RLS.';
+
+CREATE TABLE public.payment_audit_logs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    actor_user_id uuid,
+    action text NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.payment_managers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    granted_by uuid,
+    can_view_payouts boolean DEFAULT true,
+    can_approve_withdrawals boolean DEFAULT true,
+    can_export_batches boolean DEFAULT true,
+    can_mark_paid boolean DEFAULT false,
+    active boolean DEFAULT true,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.payments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    creator_id uuid,
+    campaign_id uuid,
+    submission_id uuid,
+    week_ending date,
+    videos_approved integer DEFAULT 0,
+    amount_owed numeric DEFAULT 0,
+    status text DEFAULT 'Pending'::text,
+    payment_method text,
+    paid_date date,
+    created_at timestamp with time zone DEFAULT now(),
+    batch_id uuid,
+    withdrawal_request_id uuid,
+    amount numeric(12,2),
+    currency text DEFAULT 'USD'::text,
+    payment_reference text,
+    payment_destination_summary text,
+    processed_by uuid,
+    processed_at timestamp with time zone,
+    notes text,
+    updated_at timestamp with time zone DEFAULT now(),
+    stripe_transfer_id text,
+    stripe_transfer_status text,
+    stripe_transfer_error text,
+    stripe_initiated_at timestamp with time zone,
+    voided_at timestamp with time zone,
+    voided_by uuid,
+    void_reason text,
+    CONSTRAINT payments_status_payout_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'batched'::text, 'processing'::text, 'paid'::text, 'failed'::text, 'cancelled'::text])))
+);
+
+CREATE TABLE public.payout_batches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    status text DEFAULT 'draft'::text,
+    period_start date,
+    period_end date,
+    total_amount numeric(10,2) DEFAULT 0,
+    created_at timestamp with time zone DEFAULT now(),
+    paid_at timestamp with time zone,
+    period_type text,
+    batch_number text,
+    currency text DEFAULT 'USD'::text,
+    total_creators integer DEFAULT 0,
+    total_payments integer DEFAULT 0,
+    generated_by uuid,
+    generated_at timestamp with time zone DEFAULT now(),
+    exported_at timestamp with time zone,
+    approved_by uuid,
+    approved_at timestamp with time zone,
+    marked_paid_by uuid,
+    marked_paid_at timestamp with time zone,
+    notes text,
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE public.payout_ledger (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    entity_type text NOT NULL,
+    entity_id uuid NOT NULL,
+    creator_id uuid,
+    from_status text,
+    to_status text,
+    amount numeric(12,2),
+    amount_delta numeric(12,2) DEFAULT 0 NOT NULL,
+    currency text DEFAULT 'USD'::text,
+    actor_user_id uuid,
+    actor_role text,
+    reason text,
+    reverses_entry_id uuid,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payout_ledger_entity_type_check CHECK ((entity_type = ANY (ARRAY['earning'::text, 'withdrawal'::text, 'payment'::text, 'batch'::text])))
+);
+
+COMMENT ON TABLE public.payout_ledger IS 'Append-only journal of every status transition on the money path (F-7). Rows are written by trigger and can never be updated or deleted; a correction is a new reversing row. SUM(amount_delta) per creator is that creator''s payable balance.';
+
+COMMENT ON COLUMN public.payout_ledger.amount_delta IS 'Signed effect on the creator''s payable balance. See the migration header for the weighting rule.';
+
+COMMENT ON COLUMN public.payout_ledger.reverses_entry_id IS 'Set when this row corrects an earlier one. The earlier row is never modified -- that is the point of the table.';
+
+CREATE TABLE public.payout_line_items (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    batch_id uuid,
+    user_id uuid,
+    role text,
+    amount numeric(10,2) NOT NULL,
+    payment_method text,
+    payment_details jsonb,
+    status text DEFAULT 'pending'::text
+);
+
+CREATE TABLE public.social_profile_snapshots (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    social_account_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    snapshot_date date NOT NULL,
+    follower_count bigint NOT NULL,
+    video_count integer,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.user_profiles (
+    id uuid NOT NULL,
+    email text NOT NULL,
+    full_name text,
+    role text DEFAULT 'pending'::text,
+    created_at timestamp with time zone DEFAULT now(),
+    requested_role text,
+    status text DEFAULT 'active'::text NOT NULL,
+    deactivated_at timestamp with time zone,
+    deactivated_by uuid,
+    deactivation_reason text,
+    role_before_deactivation text,
+    role_changed_by uuid,
+    role_changed_at timestamp with time zone,
+    CONSTRAINT user_profiles_role_check CHECK ((role = ANY (ARRAY['owner'::text, 'am'::text, 'account_manager'::text, 'creator'::text, 'client'::text, 'pending'::text, 'denied'::text]))),
+    CONSTRAINT user_profiles_status_check CHECK ((status = ANY (ARRAY['active'::text, 'deactivated'::text])))
+);
+
+COMMENT ON COLUMN public.user_profiles.status IS 'active | deactivated. Separate from role on purpose: role says what the user may do, status says whether they may do anything at all. Restoring reads role_before_deactivation.';
+
+CREATE TABLE public.video_metrics (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    video_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    snapshot_at timestamp with time zone DEFAULT now() NOT NULL,
+    view_count bigint DEFAULT 0 NOT NULL,
+    like_count bigint DEFAULT 0 NOT NULL,
+    comment_count bigint DEFAULT 0 NOT NULL,
+    share_count bigint DEFAULT 0 NOT NULL,
+    engagement_rate numeric,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+COMMENT ON TABLE public.video_metrics IS 'Immutable metric snapshots for creator_videos rows. One row per sync.';
+
+CREATE TABLE public.withdrawal_requests (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    creator_id uuid NOT NULL,
+    amount numeric(12,2) NOT NULL,
+    currency text DEFAULT 'USD'::text,
+    status text DEFAULT 'pending_admin_approval'::text,
+    payment_method text NOT NULL,
+    payment_destination_summary text,
+    requested_at timestamp with time zone DEFAULT now(),
+    approved_at timestamp with time zone,
+    approved_by uuid,
+    rejected_at timestamp with time zone,
+    rejected_by uuid,
+    rejection_reason text,
+    batch_id uuid,
+    paid_at timestamp with time zone,
+    marked_paid_by uuid,
+    admin_notes text,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    is_stripe_payout boolean DEFAULT false,
+    CONSTRAINT withdrawal_requests_amount_positive CHECK ((amount > (0)::numeric)),
+    CONSTRAINT withdrawal_requests_currency_usd_only CHECK ((currency = 'USD'::text)),
+    CONSTRAINT withdrawal_requests_status_check CHECK ((status = ANY (ARRAY['pending_admin_approval'::text, 'approved'::text, 'rejected'::text, 'batched'::text, 'paid'::text, 'cancelled'::text])))
+);
+
+ALTER TABLE ONLY public.account_managers
+    ADD CONSTRAINT account_managers_email_key UNIQUE (email);
+
+ALTER TABLE ONLY public.account_managers
+    ADD CONSTRAINT account_managers_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.admin_audit_logs
+    ADD CONSTRAINT admin_audit_logs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.campaign_analytics
+    ADD CONSTRAINT campaign_analytics_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.campaign_creators
+    ADD CONSTRAINT campaign_creators_campaign_creator_key UNIQUE (campaign_id, creator_id);
+
+ALTER TABLE ONLY public.campaign_creators
+    ADD CONSTRAINT campaign_creators_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.campaigns
+    ADD CONSTRAINT campaigns_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.campaigns
+    ADD CONSTRAINT campaigns_share_token_key UNIQUE (share_token);
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_user_id_unique UNIQUE (user_id);
+
+ALTER TABLE ONLY public.creator_earnings
+    ADD CONSTRAINT creator_earnings_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.creator_social_accounts
+    ADD CONSTRAINT creator_social_accounts_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.creator_social_accounts
+    ADD CONSTRAINT creator_social_accounts_user_id_platform_key UNIQUE (user_id, platform);
+
+ALTER TABLE ONLY public.creator_tokens
+    ADD CONSTRAINT creator_tokens_creator_id_platform_key UNIQUE (creator_id, platform);
+
+ALTER TABLE ONLY public.creator_tokens
+    ADD CONSTRAINT creator_tokens_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.creator_tokens
+    ADD CONSTRAINT creator_tokens_user_id_platform_key UNIQUE (user_id, platform);
+
+ALTER TABLE ONLY public.creator_videos
+    ADD CONSTRAINT creator_videos_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.creator_videos
+    ADD CONSTRAINT creator_videos_user_platform_video_key UNIQUE (user_id, platform, platform_video_id);
+
+ALTER TABLE ONLY public.creators
+    ADD CONSTRAINT creators_email_key UNIQUE (email);
+
+ALTER TABLE ONLY public.creators
+    ADD CONSTRAINT creators_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.oauth_states
+    ADD CONSTRAINT oauth_states_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.payment_audit_logs
+    ADD CONSTRAINT payment_audit_logs_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.payment_managers
+    ADD CONSTRAINT payment_managers_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.payment_managers
+    ADD CONSTRAINT payment_managers_user_id_key UNIQUE (user_id);
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.payout_batches
+    ADD CONSTRAINT payout_batches_batch_number_unique UNIQUE (batch_number);
+
+ALTER TABLE ONLY public.payout_batches
+    ADD CONSTRAINT payout_batches_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.payout_ledger
+    ADD CONSTRAINT payout_ledger_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.payout_line_items
+    ADD CONSTRAINT payout_line_items_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.social_profile_snapshots
+    ADD CONSTRAINT social_profile_snapshots_account_day_key UNIQUE (social_account_id, snapshot_date);
+
+ALTER TABLE ONLY public.social_profile_snapshots
+    ADD CONSTRAINT social_profile_snapshots_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.submissions
+    ADD CONSTRAINT submissions_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.user_profiles
+    ADD CONSTRAINT user_profiles_email_key UNIQUE (email);
+
+ALTER TABLE ONLY public.user_profiles
+    ADD CONSTRAINT user_profiles_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.video_analytics
+    ADD CONSTRAINT video_analytics_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.video_analytics
+    ADD CONSTRAINT video_analytics_platform_video_id_key UNIQUE (platform, video_id);
+
+ALTER TABLE ONLY public.video_analytics
+    ADD CONSTRAINT video_analytics_submission_id_key UNIQUE (submission_id);
+
+ALTER TABLE ONLY public.video_metrics
+    ADD CONSTRAINT video_metrics_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.withdrawal_requests
+    ADD CONSTRAINT withdrawal_requests_pkey PRIMARY KEY (id);
+
+CREATE UNIQUE INDEX creator_earnings_base_pay_per_submission ON public.creator_earnings USING btree (submission_id) WHERE ((earning_type = 'base_video_pay'::text) AND (submission_id IS NOT NULL));
+
+CREATE UNIQUE INDEX creator_earnings_bonus_per_submission ON public.creator_earnings USING btree (submission_id) WHERE ((earning_type = 'performance_bonus'::text) AND (submission_id IS NOT NULL));
+
+CREATE UNIQUE INDEX creator_social_accounts_verified_handle_key ON public.creator_social_accounts USING btree (lower(link_handle)) WHERE (link_status = 'verified'::text);
+
+CREATE INDEX idx_admin_audit_actor ON public.admin_audit_logs USING btree (actor_user_id, occurred_at DESC);
+
+CREATE INDEX idx_admin_audit_entity ON public.admin_audit_logs USING btree (entity_type, entity_id, occurred_at DESC);
+
+CREATE INDEX idx_admin_audit_occurred ON public.admin_audit_logs USING btree (occurred_at DESC);
+
+CREATE INDEX idx_campaign_analytics_campaign_id ON public.campaign_analytics USING btree (campaign_id);
+
+CREATE INDEX idx_campaign_creators_campaign_id ON public.campaign_creators USING btree (campaign_id);
+
+CREATE INDEX idx_campaign_creators_creator_id ON public.campaign_creators USING btree (creator_id);
+
+CREATE INDEX idx_campaigns_client_id ON public.campaigns USING btree (client_id);
+
+CREATE INDEX idx_campaigns_share_token ON public.campaigns USING btree (share_token) WHERE (share_token IS NOT NULL);
+
+CREATE INDEX idx_clients_am_id ON public.clients USING btree (am_id);
+
+CREATE UNIQUE INDEX idx_clients_user_id ON public.clients USING btree (user_id) WHERE (user_id IS NOT NULL);
+
+CREATE INDEX idx_creator_earnings_campaign_id ON public.creator_earnings USING btree (campaign_id);
+
+CREATE INDEX idx_creator_earnings_creator_id ON public.creator_earnings USING btree (creator_id);
+
+CREATE INDEX idx_creator_earnings_status ON public.creator_earnings USING btree (status);
+
+CREATE INDEX idx_creator_earnings_submission_id ON public.creator_earnings USING btree (submission_id);
+
+CREATE INDEX idx_creator_social_accounts_creator_id ON public.creator_social_accounts USING btree (creator_id);
+
+CREATE INDEX idx_creator_social_accounts_link_queue ON public.creator_social_accounts USING btree (link_status, link_last_fetched_at) WHERE (platform = 'tiktok'::text);
+
+CREATE INDEX idx_creator_social_accounts_status ON public.creator_social_accounts USING btree (connection_status);
+
+CREATE INDEX idx_creator_social_accounts_token_expiry ON public.creator_social_accounts USING btree (token_expires_at) WHERE (token_expires_at IS NOT NULL);
+
+CREATE INDEX idx_creator_social_accounts_user_id ON public.creator_social_accounts USING btree (user_id);
+
+CREATE INDEX idx_creator_tokens_creator_id ON public.creator_tokens USING btree (creator_id);
+
+CREATE INDEX idx_creator_tokens_user_id ON public.creator_tokens USING btree (user_id);
+
+CREATE INDEX idx_creator_videos_creator_id ON public.creator_videos USING btree (creator_id);
+
+CREATE INDEX idx_creator_videos_posted_at ON public.creator_videos USING btree (posted_at DESC);
+
+CREATE INDEX idx_creator_videos_social_account_id ON public.creator_videos USING btree (social_account_id);
+
+CREATE INDEX idx_creator_videos_user_id ON public.creator_videos USING btree (user_id);
+
+CREATE INDEX idx_creators_am_id ON public.creators USING btree (am_id);
+
+CREATE UNIQUE INDEX idx_creators_stripe_account_id ON public.creators USING btree (stripe_account_id) WHERE (stripe_account_id IS NOT NULL);
+
+CREATE INDEX idx_messages_campaign_id ON public.messages USING btree (campaign_id);
+
+CREATE INDEX idx_oauth_states_expires_at ON public.oauth_states USING btree (expires_at);
+
+CREATE INDEX idx_oauth_states_state_hash ON public.oauth_states USING btree (state_hash);
+
+CREATE INDEX idx_oauth_states_user_platform ON public.oauth_states USING btree (user_id, platform);
+
+CREATE INDEX idx_payment_audit_logs_action ON public.payment_audit_logs USING btree (action);
+
+CREATE INDEX idx_payment_audit_logs_actor_user_id ON public.payment_audit_logs USING btree (actor_user_id);
+
+CREATE INDEX idx_payment_audit_logs_entity_id ON public.payment_audit_logs USING btree (entity_id);
+
+CREATE INDEX idx_payments_batch_id ON public.payments USING btree (batch_id);
+
+CREATE INDEX idx_payments_batch_id_payout ON public.payments USING btree (batch_id);
+
+CREATE INDEX idx_payments_creator_id ON public.payments USING btree (creator_id);
+
+CREATE INDEX idx_payments_creator_id_payout ON public.payments USING btree (creator_id);
+
+CREATE INDEX idx_payments_status ON public.payments USING btree (status);
+
+CREATE INDEX idx_payments_status_payout ON public.payments USING btree (status);
+
+CREATE INDEX idx_payments_stripe_transfer_id ON public.payments USING btree (stripe_transfer_id) WHERE (stripe_transfer_id IS NOT NULL);
+
+CREATE INDEX idx_payments_withdrawal_request_id ON public.payments USING btree (withdrawal_request_id);
+
+CREATE INDEX idx_payout_batches_period ON public.payout_batches USING btree (period_start, period_end, period_type);
+
+CREATE INDEX idx_payout_batches_status ON public.payout_batches USING btree (status);
+
+CREATE INDEX idx_payout_ledger_creator ON public.payout_ledger USING btree (creator_id, occurred_at DESC);
+
+CREATE INDEX idx_payout_ledger_entity ON public.payout_ledger USING btree (entity_type, entity_id, occurred_at DESC);
+
+CREATE INDEX idx_payout_ledger_occurred ON public.payout_ledger USING btree (occurred_at DESC);
+
+CREATE INDEX idx_payout_ledger_reverses ON public.payout_ledger USING btree (reverses_entry_id) WHERE (reverses_entry_id IS NOT NULL);
+
+CREATE INDEX idx_social_profile_snapshots_user_id ON public.social_profile_snapshots USING btree (user_id);
+
+CREATE INDEX idx_submissions_campaign_id ON public.submissions USING btree (campaign_id);
+
+CREATE INDEX idx_submissions_creator_id ON public.submissions USING btree (creator_id);
+
+CREATE INDEX idx_submissions_payout_batch_id ON public.submissions USING btree (payout_batch_id);
+
+CREATE INDEX idx_video_analytics_campaign_id ON public.video_analytics USING btree (campaign_id);
+
+CREATE INDEX idx_video_analytics_creator_id ON public.video_analytics USING btree (creator_id);
+
+CREATE INDEX idx_video_analytics_submission_id ON public.video_analytics USING btree (submission_id);
+
+CREATE INDEX idx_video_analytics_user_id ON public.video_analytics USING btree (user_id);
+
+CREATE INDEX idx_video_metrics_user_id ON public.video_metrics USING btree (user_id);
+
+CREATE INDEX idx_video_metrics_video_id ON public.video_metrics USING btree (video_id);
+
+CREATE INDEX idx_video_metrics_video_snapshot ON public.video_metrics USING btree (video_id, snapshot_at DESC);
+
+CREATE INDEX idx_withdrawal_requests_batch_id ON public.withdrawal_requests USING btree (batch_id);
+
+CREATE INDEX idx_withdrawal_requests_creator_id ON public.withdrawal_requests USING btree (creator_id);
+
+CREATE INDEX idx_withdrawal_requests_status ON public.withdrawal_requests USING btree (status);
+
+CREATE TRIGGER on_client_role_assigned AFTER INSERT OR UPDATE OF role ON public.user_profiles FOR EACH ROW EXECUTE FUNCTION public.handle_new_client_user();
+
+CREATE TRIGGER trg_account_managers_no_delete BEFORE DELETE ON public.account_managers FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete('scope §11.1: an account manager anchors creator/client assignment history', 'UPDATE account_managers SET status = ''Archived'', archived_at = now(), archived_by = ..., archive_reason = ...');
+
+CREATE TRIGGER trg_admin_audit_immutable BEFORE DELETE OR UPDATE ON public.admin_audit_logs FOR EACH ROW EXECUTE FUNCTION public.admin_audit_immutable();
+
+CREATE TRIGGER trg_audit_account_manager AFTER UPDATE ON public.account_managers FOR EACH ROW EXECUTE FUNCTION public.audit_account_manager_change();
+
+CREATE TRIGGER trg_audit_campaign AFTER UPDATE ON public.campaigns FOR EACH ROW EXECUTE FUNCTION public.audit_campaign_change();
+
+CREATE TRIGGER trg_audit_client AFTER UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.audit_client_change();
+
+CREATE TRIGGER trg_audit_client_delete BEFORE DELETE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.audit_client_delete();
+
+CREATE TRIGGER trg_audit_creator_archive AFTER UPDATE ON public.creators FOR EACH ROW EXECUTE FUNCTION public.trg_audit_creator_archive();
+
+CREATE TRIGGER trg_audit_payment_void AFTER UPDATE ON public.payments FOR EACH ROW EXECUTE FUNCTION public.audit_payment_void();
+
+CREATE TRIGGER trg_audit_submission_archive AFTER UPDATE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.trg_audit_submission_archive();
+
+CREATE TRIGGER trg_audit_submission_review AFTER UPDATE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.audit_submission_review();
+
+CREATE TRIGGER trg_audit_user_profile AFTER UPDATE ON public.user_profiles FOR EACH ROW EXECUTE FUNCTION public.audit_user_profile_change();
+
+CREATE TRIGGER trg_campaign_creators_sync_array AFTER INSERT OR DELETE OR UPDATE ON public.campaign_creators FOR EACH ROW EXECUTE FUNCTION public.campaign_creators_sync_array();
+
+CREATE TRIGGER trg_campaigns_guard_commission_rates BEFORE INSERT OR UPDATE ON public.campaigns FOR EACH ROW EXECUTE FUNCTION public.campaigns_guard_commission_rates();
+
+CREATE TRIGGER trg_campaigns_no_delete BEFORE DELETE ON public.campaigns FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete('scope §7.1: a campaign closes or archives, preserving history and financial links', 'UPDATE campaigns SET status = ''Archived'', archived_at = now(), archive_reason = ...');
+
+CREATE TRIGGER trg_campaigns_sync_cc_insert AFTER INSERT ON public.campaigns FOR EACH ROW WHEN (((new.assigned_creators IS NOT NULL) AND (array_length(new.assigned_creators, 1) > 0))) EXECUTE FUNCTION public.campaigns_sync_campaign_creators();
+
+CREATE TRIGGER trg_campaigns_sync_cc_update AFTER UPDATE OF assigned_creators ON public.campaigns FOR EACH ROW WHEN ((new.assigned_creators IS DISTINCT FROM old.assigned_creators)) EXECUTE FUNCTION public.campaigns_sync_campaign_creators();
+
+CREATE TRIGGER trg_creator_earnings_no_delete BEFORE DELETE ON public.creator_earnings FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete('scope §9.5: no hard deletion of financial records', 'UPDATE creator_earnings SET status = ''cancelled''');
+
+CREATE TRIGGER trg_creator_earnings_updated_at BEFORE UPDATE ON public.creator_earnings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER trg_creator_social_accounts_updated_at BEFORE UPDATE ON public.creator_social_accounts FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER trg_creator_videos_updated_at BEFORE UPDATE ON public.creator_videos FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER trg_creators_guard_overrides BEFORE INSERT OR UPDATE ON public.creators FOR EACH ROW EXECUTE FUNCTION public.creators_guard_overrides();
+
+CREATE TRIGGER trg_creators_no_delete BEFORE DELETE ON public.creators FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete();
+
+CREATE TRIGGER trg_guard_link_verification BEFORE INSERT OR UPDATE ON public.creator_social_accounts FOR EACH ROW EXECUTE FUNCTION public.guard_link_verification_columns();
+
+CREATE TRIGGER trg_guard_link_verification BEFORE INSERT OR UPDATE ON public.creator_videos FOR EACH ROW EXECUTE FUNCTION public.guard_link_verification_columns();
+
+CREATE TRIGGER trg_guard_link_verification BEFORE INSERT OR UPDATE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.guard_link_verification_columns();
+
+CREATE TRIGGER trg_guard_profile_self_update BEFORE UPDATE ON public.user_profiles FOR EACH ROW EXECUTE FUNCTION public.guard_profile_self_update();
+
+CREATE TRIGGER trg_ledger_batch AFTER UPDATE OF status ON public.payout_batches FOR EACH ROW EXECUTE FUNCTION public.record_payout_transition('batch');
+
+CREATE TRIGGER trg_ledger_earning AFTER UPDATE OF status ON public.creator_earnings FOR EACH ROW EXECUTE FUNCTION public.record_payout_transition('earning');
+
+CREATE TRIGGER trg_ledger_payment AFTER UPDATE OF status ON public.payments FOR EACH ROW EXECUTE FUNCTION public.record_payout_transition('payment');
+
+CREATE TRIGGER trg_ledger_withdrawal AFTER UPDATE OF status ON public.withdrawal_requests FOR EACH ROW EXECUTE FUNCTION public.record_payout_transition('withdrawal');
+
+CREATE TRIGGER trg_payment_managers_updated_at BEFORE UPDATE ON public.payment_managers FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER trg_payments_no_delete BEFORE DELETE ON public.payments FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete('scope §9.5: no hard deletion of financial records', 'UPDATE payments SET status = ''cancelled'', voided_at = now(), void_reason = ...');
+
+CREATE TRIGGER trg_payments_updated_at BEFORE UPDATE ON public.payments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER trg_payout_batches_updated_at BEFORE UPDATE ON public.payout_batches FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+CREATE TRIGGER trg_payout_ledger_immutable BEFORE DELETE OR UPDATE ON public.payout_ledger FOR EACH ROW EXECUTE FUNCTION public.payout_ledger_immutable();
+
+CREATE TRIGGER trg_submissions_no_delete BEFORE DELETE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete();
+
+CREATE TRIGGER trg_user_profiles_no_delete BEFORE DELETE ON public.user_profiles FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete();
+
+CREATE TRIGGER trg_withdrawal_requests_no_delete BEFORE DELETE ON public.withdrawal_requests FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete('scope §9.5: no hard deletion of financial records', 'UPDATE withdrawal_requests SET status = ''cancelled''');
+
+CREATE TRIGGER trg_withdrawal_requests_updated_at BEFORE UPDATE ON public.withdrawal_requests FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+ALTER TABLE ONLY public.account_managers
+    ADD CONSTRAINT account_managers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id);
+
+ALTER TABLE ONLY public.campaign_analytics
+    ADD CONSTRAINT campaign_analytics_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.campaign_creators
+    ADD CONSTRAINT campaign_creators_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.campaign_creators
+    ADD CONSTRAINT campaign_creators_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.campaign_creators
+    ADD CONSTRAINT campaign_creators_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.campaigns
+    ADD CONSTRAINT campaigns_client_id_fkey FOREIGN KEY (client_id) REFERENCES public.clients(id);
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_am_id_fkey FOREIGN KEY (am_id) REFERENCES public.account_managers(id);
+
+ALTER TABLE ONLY public.clients
+    ADD CONSTRAINT clients_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_earnings
+    ADD CONSTRAINT creator_earnings_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_earnings
+    ADD CONSTRAINT creator_earnings_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_earnings
+    ADD CONSTRAINT creator_earnings_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.creator_earnings
+    ADD CONSTRAINT creator_earnings_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_social_accounts
+    ADD CONSTRAINT creator_social_accounts_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_social_accounts
+    ADD CONSTRAINT creator_social_accounts_link_verified_by_fkey FOREIGN KEY (link_verified_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_social_accounts
+    ADD CONSTRAINT creator_social_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.creator_tokens
+    ADD CONSTRAINT creator_tokens_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.creator_tokens
+    ADD CONSTRAINT creator_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.creator_videos
+    ADD CONSTRAINT creator_videos_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_videos
+    ADD CONSTRAINT creator_videos_social_account_id_fkey FOREIGN KEY (social_account_id) REFERENCES public.creator_social_accounts(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.creator_videos
+    ADD CONSTRAINT creator_videos_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.creators
+    ADD CONSTRAINT creators_am_id_fkey FOREIGN KEY (am_id) REFERENCES public.account_managers(id);
+
+ALTER TABLE ONLY public.creators
+    ADD CONSTRAINT creators_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id);
+
+ALTER TABLE ONLY public.messages
+    ADD CONSTRAINT messages_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+ALTER TABLE ONLY public.oauth_states
+    ADD CONSTRAINT oauth_states_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.payment_audit_logs
+    ADD CONSTRAINT payment_audit_logs_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payment_managers
+    ADD CONSTRAINT payment_managers_granted_by_fkey FOREIGN KEY (granted_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payment_managers
+    ADD CONSTRAINT payment_managers_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.payout_batches(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id);
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_processed_by_fkey FOREIGN KEY (processed_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id);
+
+ALTER TABLE ONLY public.payments
+    ADD CONSTRAINT payments_withdrawal_request_id_fkey FOREIGN KEY (withdrawal_request_id) REFERENCES public.withdrawal_requests(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payout_batches
+    ADD CONSTRAINT payout_batches_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payout_batches
+    ADD CONSTRAINT payout_batches_generated_by_fkey FOREIGN KEY (generated_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payout_batches
+    ADD CONSTRAINT payout_batches_marked_paid_by_fkey FOREIGN KEY (marked_paid_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.payout_ledger
+    ADD CONSTRAINT payout_ledger_reverses_entry_id_fkey FOREIGN KEY (reverses_entry_id) REFERENCES public.payout_ledger(id);
+
+ALTER TABLE ONLY public.payout_line_items
+    ADD CONSTRAINT payout_line_items_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.payout_batches(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.payout_line_items
+    ADD CONSTRAINT payout_line_items_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id);
+
+ALTER TABLE ONLY public.social_profile_snapshots
+    ADD CONSTRAINT social_profile_snapshots_social_account_id_fkey FOREIGN KEY (social_account_id) REFERENCES public.creator_social_accounts(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.submissions
+    ADD CONSTRAINT submissions_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+ALTER TABLE ONLY public.submissions
+    ADD CONSTRAINT submissions_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id);
+
+ALTER TABLE ONLY public.submissions
+    ADD CONSTRAINT submissions_payout_batch_id_fkey FOREIGN KEY (payout_batch_id) REFERENCES public.payout_batches(id);
+
+ALTER TABLE ONLY public.user_profiles
+    ADD CONSTRAINT user_profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id);
+
+ALTER TABLE ONLY public.video_analytics
+    ADD CONSTRAINT video_analytics_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+ALTER TABLE ONLY public.video_analytics
+    ADD CONSTRAINT video_analytics_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id);
+
+ALTER TABLE ONLY public.video_analytics
+    ADD CONSTRAINT video_analytics_submission_id_fkey FOREIGN KEY (submission_id) REFERENCES public.submissions(id);
+
+ALTER TABLE ONLY public.video_analytics
+    ADD CONSTRAINT video_analytics_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.video_metrics
+    ADD CONSTRAINT video_metrics_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.video_metrics
+    ADD CONSTRAINT video_metrics_video_id_fkey FOREIGN KEY (video_id) REFERENCES public.creator_videos(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.withdrawal_requests
+    ADD CONSTRAINT withdrawal_requests_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.withdrawal_requests
+    ADD CONSTRAINT withdrawal_requests_batch_id_fkey FOREIGN KEY (batch_id) REFERENCES public.payout_batches(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.withdrawal_requests
+    ADD CONSTRAINT withdrawal_requests_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.withdrawal_requests
+    ADD CONSTRAINT withdrawal_requests_marked_paid_by_fkey FOREIGN KEY (marked_paid_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.withdrawal_requests
+    ADD CONSTRAINT withdrawal_requests_rejected_by_fkey FOREIGN KEY (rejected_by) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+ALTER TABLE public.account_managers ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY account_managers_modify_owner ON public.account_managers TO authenticated USING ((public.current_user_role() = 'owner'::text)) WITH CHECK ((public.current_user_role() = 'owner'::text));
+
+CREATE POLICY account_managers_select ON public.account_managers FOR SELECT TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text) OR (public.current_user_role() = 'am'::text)));
+
+CREATE POLICY admin_audit_am_select ON public.admin_audit_logs FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND ((actor_user_id = auth.uid()) OR ((entity_type = 'submission'::text) AND (EXISTS ( SELECT 1
+   FROM ((public.submissions s
+     JOIN public.creators c ON ((c.id = s.creator_id)))
+     JOIN public.account_managers m ON ((m.id = c.am_id)))
+  WHERE ((s.id = admin_audit_logs.entity_id) AND (m.user_id = auth.uid()))))))));
+
+CREATE POLICY admin_audit_creator_select ON public.admin_audit_logs FOR SELECT TO authenticated USING (((public.current_user_role() = 'creator'::text) AND (((entity_type = 'user'::text) AND (entity_id = auth.uid())) OR ((entity_type = 'submission'::text) AND (EXISTS ( SELECT 1
+   FROM (public.submissions s
+     JOIN public.creators c ON ((c.id = s.creator_id)))
+  WHERE ((s.id = admin_audit_logs.entity_id) AND (c.user_id = auth.uid()))))))));
+
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY admin_audit_owner_select ON public.admin_audit_logs FOR SELECT TO authenticated USING ((public.current_user_role() = 'owner'::text));
+
+ALTER TABLE public.campaign_analytics ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY campaign_analytics_staff_select ON public.campaign_analytics FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM ((public.campaigns ca
+     JOIN public.clients cl ON ((cl.id = ca.client_id)))
+     JOIN public.account_managers am ON ((am.id = cl.am_id)))
+  WHERE ((ca.id = campaign_analytics.campaign_id) AND (am.user_id = auth.uid())))))));
+
+ALTER TABLE public.campaign_creators ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY campaign_creators_creator_apply ON public.campaign_creators FOR INSERT TO authenticated WITH CHECK (((public.current_user_role() = 'creator'::text) AND (status = 'Applied'::text) AND (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.id = campaign_creators.creator_id) AND (c.user_id = auth.uid()) AND (c.archived_at IS NULL)))) AND (EXISTS ( SELECT 1
+   FROM public.campaigns ca
+  WHERE ((ca.id = campaign_creators.campaign_id) AND (ca.status = 'Open'::text) AND (ca.application_type = 'Open Application'::text))))));
+
+CREATE POLICY campaign_creators_modify_owner_am ON public.campaign_creators TO authenticated USING (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM ((public.campaigns ca
+     JOIN public.clients cl ON ((cl.id = ca.client_id)))
+     JOIN public.account_managers am ON ((am.id = cl.am_id)))
+  WHERE ((ca.id = campaign_creators.campaign_id) AND (am.user_id = auth.uid()))))))) WITH CHECK (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM ((public.campaigns ca
+     JOIN public.clients cl ON ((cl.id = ca.client_id)))
+     JOIN public.account_managers am ON ((am.id = cl.am_id)))
+  WHERE ((ca.id = campaign_creators.campaign_id) AND (am.user_id = auth.uid())))))));
+
+CREATE POLICY campaign_creators_select_scoped ON public.campaign_creators FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM ((public.campaigns ca
+     JOIN public.clients cl ON ((cl.id = ca.client_id)))
+     JOIN public.account_managers am ON ((am.id = cl.am_id)))
+  WHERE ((ca.id = campaign_creators.campaign_id) AND (am.user_id = auth.uid()))))) OR ((public.current_user_role() = 'creator'::text) AND (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.id = campaign_creators.creator_id) AND (c.user_id = auth.uid())))))));
+
+ALTER TABLE public.campaigns ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY campaigns_modify_owner_or_am ON public.campaigns TO authenticated USING (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.clients cl
+     JOIN public.account_managers am ON ((cl.am_id = am.id)))
+  WHERE ((cl.id = campaigns.client_id) AND (am.user_id = auth.uid()))))))) WITH CHECK (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.clients cl
+     JOIN public.account_managers am ON ((cl.am_id = am.id)))
+  WHERE ((cl.id = campaigns.client_id) AND (am.user_id = auth.uid())))))));
+
+CREATE POLICY campaigns_select_open_jobs ON public.campaigns FOR SELECT TO authenticated USING (((public.current_user_role() = 'creator'::text) AND (status = 'Open'::text) AND (application_type = 'Open Application'::text)));
+
+CREATE POLICY campaigns_select_scoped ON public.campaigns FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.clients cl
+     JOIN public.account_managers am ON ((cl.am_id = am.id)))
+  WHERE ((cl.id = campaigns.client_id) AND (am.user_id = auth.uid()))))) OR ((public.current_user_role() = 'creator'::text) AND (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.user_id = auth.uid()) AND (c.id = ANY (campaigns.assigned_creators))))))));
+
+CREATE POLICY client_select_creators_on_own_campaigns ON public.creators FOR SELECT TO authenticated USING (((public.current_user_role() = 'client'::text) AND public.client_may_see_creator(id)));
+
+CREATE POLICY client_select_own_analytics ON public.video_analytics FOR SELECT TO authenticated USING (((public.current_user_role() = 'client'::text) AND (EXISTS ( SELECT 1
+   FROM ((public.submissions s
+     JOIN public.campaigns ca ON ((ca.id = s.campaign_id)))
+     JOIN public.clients cl ON ((cl.id = ca.client_id)))
+  WHERE ((s.id = video_analytics.submission_id) AND (cl.user_id = auth.uid()))))));
+
+CREATE POLICY client_select_own_campaigns ON public.campaigns FOR SELECT TO authenticated USING (((public.current_user_role() = 'client'::text) AND (EXISTS ( SELECT 1
+   FROM public.clients cl
+  WHERE ((cl.user_id = auth.uid()) AND (cl.id = campaigns.client_id))))));
+
+CREATE POLICY client_select_own_profile ON public.clients FOR SELECT TO authenticated USING (((public.current_user_role() = 'client'::text) AND (user_id = auth.uid())));
+
+CREATE POLICY client_select_own_submissions ON public.submissions FOR SELECT TO authenticated USING (((public.current_user_role() = 'client'::text) AND (EXISTS ( SELECT 1
+   FROM (public.campaigns c
+     JOIN public.clients cl ON ((c.client_id = cl.id)))
+  WHERE ((cl.user_id = auth.uid()) AND (c.id = submissions.campaign_id))))));
+
+ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY clients_delete_owner ON public.clients FOR DELETE TO authenticated USING ((public.current_user_role() = 'owner'::text));
+
+CREATE POLICY clients_modify_owner ON public.clients TO authenticated USING ((public.current_user_role() = 'owner'::text)) WITH CHECK ((public.current_user_role() = 'owner'::text));
+
+CREATE POLICY clients_select_scoped ON public.clients FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM public.account_managers am
+  WHERE ((am.id = clients.am_id) AND (am.user_id = auth.uid())))))));
+
+ALTER TABLE public.creator_earnings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY creator_earnings_am_select ON public.creator_earnings FOR SELECT TO authenticated USING (((public.get_my_payout_role() = ANY (ARRAY['am'::text, 'account_manager'::text])) AND (EXISTS ( SELECT 1
+   FROM (public.creators cr
+     JOIN public.account_managers am ON ((cr.am_id = am.id)))
+  WHERE ((cr.id = creator_earnings.creator_id) AND (am.user_id = auth.uid()))))));
+
+CREATE POLICY creator_earnings_creator_select ON public.creator_earnings FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.creators cr
+  WHERE ((cr.id = creator_earnings.creator_id) AND (cr.user_id = auth.uid())))));
+
+CREATE POLICY creator_earnings_owner_delete ON public.creator_earnings FOR DELETE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY creator_earnings_owner_insert ON public.creator_earnings FOR INSERT TO authenticated WITH CHECK ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY creator_earnings_owner_pm_select ON public.creator_earnings FOR SELECT TO authenticated USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY creator_earnings_owner_update ON public.creator_earnings FOR UPDATE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text)) WITH CHECK ((public.get_my_payout_role() = 'owner'::text));
+
+ALTER TABLE public.creator_social_accounts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY creator_social_accounts_delete_self ON public.creator_social_accounts FOR DELETE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+CREATE POLICY creator_social_accounts_insert_self ON public.creator_social_accounts FOR INSERT TO authenticated WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+CREATE POLICY creator_social_accounts_select_am ON public.creator_social_accounts FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((am.id = c.am_id)))
+  WHERE ((am.user_id = auth.uid()) AND ((c.user_id = creator_social_accounts.user_id) OR (c.id = creator_social_accounts.creator_id)))))));
+
+CREATE POLICY creator_social_accounts_select_owner_pm ON public.creator_social_accounts FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY creator_social_accounts_select_self ON public.creator_social_accounts FOR SELECT TO authenticated USING ((user_id = auth.uid()));
+
+CREATE POLICY creator_social_accounts_update_self ON public.creator_social_accounts FOR UPDATE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text))) WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+ALTER TABLE public.creator_tokens ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.creator_videos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY creator_videos_delete_self ON public.creator_videos FOR DELETE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+CREATE POLICY creator_videos_insert_self ON public.creator_videos FOR INSERT TO authenticated WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+CREATE POLICY creator_videos_select_am ON public.creator_videos FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((am.id = c.am_id)))
+  WHERE ((am.user_id = auth.uid()) AND ((c.user_id = creator_videos.user_id) OR (c.id = creator_videos.creator_id)))))));
+
+CREATE POLICY creator_videos_select_owner_pm ON public.creator_videos FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY creator_videos_select_self ON public.creator_videos FOR SELECT TO authenticated USING ((user_id = auth.uid()));
+
+CREATE POLICY creator_videos_update_self ON public.creator_videos FOR UPDATE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text))) WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+ALTER TABLE public.creators ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY creators_insert_self_or_staff ON public.creators FOR INSERT TO authenticated WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = ANY (ARRAY['owner'::text, 'am'::text]))));
+
+CREATE POLICY creators_select_am_campaign ON public.creators FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND public.am_may_see_creator(id)));
+
+CREATE POLICY creators_select_scoped ON public.creators FOR SELECT TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM public.account_managers am
+  WHERE ((am.id = creators.am_id) AND (am.user_id = auth.uid())))))));
+
+CREATE POLICY creators_update_scoped ON public.creators FOR UPDATE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM public.account_managers am
+  WHERE ((am.id = creators.am_id) AND (am.user_id = auth.uid()))))))) WITH CHECK (((public.current_user_role() = ANY (ARRAY['owner'::text, 'am'::text])) OR (user_id = auth.uid())));
+
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY messages_delete_self_or_owner ON public.messages FOR DELETE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+CREATE POLICY messages_insert_self ON public.messages FOR INSERT TO authenticated WITH CHECK (((user_id = auth.uid()) AND (EXISTS ( SELECT 1
+   FROM public.campaigns ca
+  WHERE ((ca.id = messages.campaign_id) AND ((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+           FROM (public.clients cl
+             JOIN public.account_managers am ON ((cl.am_id = am.id)))
+          WHERE ((cl.id = ca.client_id) AND (am.user_id = auth.uid()))))) OR ((public.current_user_role() = 'creator'::text) AND (EXISTS ( SELECT 1
+           FROM public.creators c
+          WHERE ((c.user_id = auth.uid()) AND (c.id = ANY (ca.assigned_creators))))))))))));
+
+CREATE POLICY messages_select_by_campaign ON public.messages FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.campaigns ca
+  WHERE ((ca.id = messages.campaign_id) AND ((public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+           FROM (public.clients cl
+             JOIN public.account_managers am ON ((cl.am_id = am.id)))
+          WHERE ((cl.id = ca.client_id) AND (am.user_id = auth.uid()))))) OR ((public.current_user_role() = 'creator'::text) AND (EXISTS ( SELECT 1
+           FROM public.creators c
+          WHERE ((c.user_id = auth.uid()) AND (c.id = ANY (ca.assigned_creators)))))))))));
+
+CREATE POLICY messages_update_self_or_owner ON public.messages FOR UPDATE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text))) WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+ALTER TABLE public.oauth_states ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.payment_audit_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY payment_audit_logs_owner_select ON public.payment_audit_logs FOR SELECT TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
+
+ALTER TABLE public.payment_managers ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY payment_managers_owner_delete ON public.payment_managers FOR DELETE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY payment_managers_owner_insert ON public.payment_managers FOR INSERT TO authenticated WITH CHECK ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY payment_managers_owner_select ON public.payment_managers FOR SELECT TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY payment_managers_owner_update ON public.payment_managers FOR UPDATE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text)) WITH CHECK ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY payment_managers_self_select ON public.payment_managers FOR SELECT TO authenticated USING ((user_id = auth.uid()));
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY payments_am_approval_insert ON public.payments FOR INSERT TO authenticated WITH CHECK (((public.current_user_role() = 'am'::text) AND (status = 'Pending'::text) AND public.am_owns_campaign(campaign_id) AND (EXISTS ( SELECT 1
+   FROM public.campaigns ca
+  WHERE ((ca.id = payments.campaign_id) AND (COALESCE(payments.amount_owed, (0)::numeric) <= (COALESCE(ca.pay_per_video, (0)::numeric) * (GREATEST(COALESCE(payments.videos_approved, 1), 1))::numeric)))))));
+
+CREATE POLICY payments_am_select ON public.payments FOR SELECT TO authenticated USING (((public.get_my_payout_role() = ANY (ARRAY['am'::text, 'account_manager'::text])) AND (EXISTS ( SELECT 1
+   FROM (public.creators cr
+     JOIN public.account_managers am ON ((cr.am_id = am.id)))
+  WHERE ((cr.id = payments.creator_id) AND (am.user_id = auth.uid()))))));
+
+CREATE POLICY payments_creator_select ON public.payments FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.creators cr
+  WHERE ((cr.id = payments.creator_id) AND (cr.user_id = auth.uid())))));
+
+CREATE POLICY payments_modify_owner_or_am ON public.payments TO authenticated USING ((public.current_user_role() = ANY (ARRAY['owner'::text, 'am'::text]))) WITH CHECK ((public.current_user_role() = ANY (ARRAY['owner'::text, 'am'::text])));
+
+CREATE POLICY payments_owner_delete ON public.payments FOR DELETE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY payments_owner_pm_insert ON public.payments FOR INSERT TO authenticated WITH CHECK (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_export_batches'::text)));
+
+CREATE POLICY payments_owner_pm_select ON public.payments FOR SELECT TO authenticated USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY payments_owner_pm_update ON public.payments FOR UPDATE TO authenticated USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_mark_paid'::text))) WITH CHECK (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_mark_paid'::text)));
+
+CREATE POLICY payments_select_scoped ON public.payments FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.id = payments.creator_id) AND (c.user_id = auth.uid())))) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((c.am_id = am.id)))
+  WHERE ((c.id = payments.creator_id) AND (am.user_id = auth.uid())))))));
+
+ALTER TABLE public.payout_batches ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY payout_batches_modify_owner ON public.payout_batches TO authenticated USING ((public.current_user_role() = 'owner'::text)) WITH CHECK ((public.current_user_role() = 'owner'::text));
+
+CREATE POLICY payout_batches_owner_delete ON public.payout_batches FOR DELETE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY payout_batches_owner_pm_insert ON public.payout_batches FOR INSERT TO authenticated WITH CHECK (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_export_batches'::text)));
+
+CREATE POLICY payout_batches_owner_pm_select ON public.payout_batches FOR SELECT TO authenticated USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY payout_batches_owner_pm_update ON public.payout_batches FOR UPDATE TO authenticated USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_mark_paid'::text))) WITH CHECK (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_mark_paid'::text)));
+
+CREATE POLICY payout_batches_select_owner_or_am ON public.payout_batches FOR SELECT TO authenticated USING ((public.current_user_role() = ANY (ARRAY['owner'::text, 'am'::text])));
+
+ALTER TABLE public.payout_ledger ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY payout_ledger_creator_select ON public.payout_ledger FOR SELECT USING ((creator_id IN ( SELECT c.id
+   FROM public.creators c
+  WHERE (c.user_id = auth.uid()))));
+
+CREATE POLICY payout_ledger_owner_pm_select ON public.payout_ledger FOR SELECT USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+ALTER TABLE public.payout_line_items ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY payout_line_items_owner_only ON public.payout_line_items TO authenticated USING ((public.current_user_role() = 'owner'::text)) WITH CHECK ((public.current_user_role() = 'owner'::text));
+
+ALTER TABLE public.social_profile_snapshots ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY social_profile_snapshots_select_am ON public.social_profile_snapshots FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((am.id = c.am_id)))
+  WHERE ((am.user_id = auth.uid()) AND (c.user_id = social_profile_snapshots.user_id))))));
+
+CREATE POLICY social_profile_snapshots_select_owner_pm ON public.social_profile_snapshots FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY social_profile_snapshots_select_self ON public.social_profile_snapshots FOR SELECT TO authenticated USING ((user_id = auth.uid()));
+
+ALTER TABLE public.submissions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY submissions_insert_scoped ON public.submissions FOR INSERT TO authenticated WITH CHECK (((public.current_user_role() = 'owner'::text) OR (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.id = submissions.creator_id) AND (c.user_id = auth.uid())))) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((c.am_id = am.id)))
+  WHERE ((c.id = submissions.creator_id) AND (am.user_id = auth.uid())))))));
+
+CREATE POLICY submissions_select_am_campaign ON public.submissions FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND public.am_owns_campaign(campaign_id)));
+
+CREATE POLICY submissions_select_scoped ON public.submissions FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.id = submissions.creator_id) AND (c.user_id = auth.uid())))) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((c.am_id = am.id)))
+  WHERE ((c.id = submissions.creator_id) AND (am.user_id = auth.uid())))))));
+
+CREATE POLICY submissions_update_am_campaign ON public.submissions FOR UPDATE TO authenticated USING (((public.current_user_role() = 'am'::text) AND public.am_owns_campaign(campaign_id))) WITH CHECK (((public.current_user_role() = 'am'::text) AND public.am_owns_campaign(campaign_id)));
+
+CREATE POLICY submissions_update_scoped ON public.submissions FOR UPDATE TO authenticated USING (((public.current_user_role() = 'owner'::text) OR (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.id = submissions.creator_id) AND (c.user_id = auth.uid())))) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((c.am_id = am.id)))
+  WHERE ((c.id = submissions.creator_id) AND (am.user_id = auth.uid()))))))) WITH CHECK (((public.current_user_role() = 'owner'::text) OR (EXISTS ( SELECT 1
+   FROM public.creators c
+  WHERE ((c.id = submissions.creator_id) AND (c.user_id = auth.uid())))) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((c.am_id = am.id)))
+  WHERE ((c.id = submissions.creator_id) AND (am.user_id = auth.uid())))))));
+
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY user_profiles_insert_self_or_owner ON public.user_profiles FOR INSERT TO authenticated WITH CHECK (((public.current_user_role() = 'owner'::text) OR ((id = auth.uid()) AND (role = ANY (ARRAY['pending'::text, 'client'::text])))));
+
+COMMENT ON POLICY user_profiles_insert_self_or_owner ON public.user_profiles IS 'Allows self-insert only for pending/client roles. Blocks self-promotion to owner, am, or account_manager. Owners can insert any row for provisioning.';
+
+CREATE POLICY user_profiles_select_self_or_scoped ON public.user_profiles FOR SELECT TO authenticated USING (((id = auth.uid()) OR (public.current_user_role() = 'owner'::text) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((c.am_id = am.id)))
+  WHERE ((c.user_id = user_profiles.id) AND (am.user_id = auth.uid())))))));
+
+CREATE POLICY user_profiles_update_self_or_owner ON public.user_profiles FOR UPDATE TO authenticated USING (((id = auth.uid()) OR (public.current_user_role() = 'owner'::text))) WITH CHECK (((public.current_user_role() = 'owner'::text) OR ((id = auth.uid()) AND (role = ANY (ARRAY['pending'::text, 'creator'::text, 'am'::text, 'account_manager'::text, 'denied'::text])))));
+
+ALTER TABLE public.video_analytics ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY video_analytics_select_scoped ON public.video_analytics FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR (EXISTS ( SELECT 1
+   FROM (public.submissions s
+     JOIN public.creators c ON ((c.id = s.creator_id)))
+  WHERE ((s.id = video_analytics.submission_id) AND (c.user_id = auth.uid())))) OR ((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM ((public.submissions s
+     JOIN public.creators c ON ((c.id = s.creator_id)))
+     JOIN public.account_managers am ON ((c.am_id = am.id)))
+  WHERE ((s.id = video_analytics.submission_id) AND (am.user_id = auth.uid())))))));
+
+ALTER TABLE public.video_metrics ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY video_metrics_insert_self ON public.video_metrics FOR INSERT TO authenticated WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
+
+CREATE POLICY video_metrics_select_am ON public.video_metrics FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
+   FROM (public.creators c
+     JOIN public.account_managers am ON ((am.id = c.am_id)))
+  WHERE ((am.user_id = auth.uid()) AND (c.user_id = video_metrics.user_id))))));
+
+CREATE POLICY video_metrics_select_owner_pm ON public.video_metrics FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY video_metrics_select_self ON public.video_metrics FOR SELECT TO authenticated USING ((user_id = auth.uid()));
+
+ALTER TABLE public.withdrawal_requests ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY withdrawal_requests_am_select ON public.withdrawal_requests FOR SELECT TO authenticated USING (((public.get_my_payout_role() = ANY (ARRAY['am'::text, 'account_manager'::text])) AND (EXISTS ( SELECT 1
+   FROM (public.creators cr
+     JOIN public.account_managers am ON ((cr.am_id = am.id)))
+  WHERE ((cr.id = withdrawal_requests.creator_id) AND (am.user_id = auth.uid()))))));
+
+CREATE POLICY withdrawal_requests_creator_cancel ON public.withdrawal_requests FOR UPDATE TO authenticated USING (((EXISTS ( SELECT 1
+   FROM public.creators cr
+  WHERE ((cr.id = withdrawal_requests.creator_id) AND (cr.user_id = auth.uid())))) AND (public.get_my_payout_role() = 'creator'::text) AND (status = 'pending_admin_approval'::text))) WITH CHECK ((status = 'cancelled'::text));
+
+CREATE POLICY withdrawal_requests_creator_insert ON public.withdrawal_requests FOR INSERT TO authenticated WITH CHECK (((EXISTS ( SELECT 1
+   FROM public.creators cr
+  WHERE ((cr.id = withdrawal_requests.creator_id) AND (cr.user_id = auth.uid())))) AND (public.get_my_payout_role() = 'creator'::text)));
+
+CREATE POLICY withdrawal_requests_creator_select ON public.withdrawal_requests FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
+   FROM public.creators cr
+  WHERE ((cr.id = withdrawal_requests.creator_id) AND (cr.user_id = auth.uid())))));
+
+CREATE POLICY withdrawal_requests_owner_delete ON public.withdrawal_requests FOR DELETE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
+
+CREATE POLICY withdrawal_requests_owner_pm_insert ON public.withdrawal_requests FOR INSERT TO authenticated WITH CHECK (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_approve_withdrawals'::text)));
+
+CREATE POLICY withdrawal_requests_owner_pm_select ON public.withdrawal_requests FOR SELECT TO authenticated USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
+
+CREATE POLICY withdrawal_requests_owner_pm_update ON public.withdrawal_requests FOR UPDATE TO authenticated USING (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_approve_withdrawals'::text))) WITH CHECK (((public.get_my_payout_role() = 'owner'::text) OR public.is_payment_manager('can_approve_withdrawals'::text)));
+
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated, service_role;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated, service_role;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated, service_role;
+
+GRANT ALL ON FUNCTION public.admin_audit_immutable() TO anon;
+GRANT ALL ON FUNCTION public.admin_audit_immutable() TO authenticated;
+GRANT ALL ON FUNCTION public.admin_audit_immutable() TO service_role;
+
+REVOKE ALL ON FUNCTION public.admin_migration_status(probes jsonb) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.admin_migration_status(probes jsonb) TO service_role;
+
+REVOKE ALL ON FUNCTION public.am_may_see_creator(p_creator_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.am_may_see_creator(p_creator_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.am_may_see_creator(p_creator_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.am_may_see_creator(p_creator_id uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.am_owns_campaign(p_campaign_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.am_owns_campaign(p_campaign_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.am_owns_campaign(p_campaign_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.am_owns_campaign(p_campaign_id uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.apply_verified_views(p_submission_id uuid, p_views bigint, p_source text, p_user_id uuid, p_handle text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.apply_verified_views(p_submission_id uuid, p_views bigint, p_source text, p_user_id uuid, p_handle text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.approve_withdrawal_request(p_request_id uuid, p_approved_by uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.approve_withdrawal_request(p_request_id uuid, p_approved_by uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.approve_withdrawal_request(p_request_id uuid, p_approved_by uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.approve_withdrawal_request_internal(p_request_id uuid, p_approved_by uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.approve_withdrawal_request_internal(p_request_id uuid, p_approved_by uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.assert_payout_permission(p_permission text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.assert_payout_permission(p_permission text) TO authenticated;
+GRANT ALL ON FUNCTION public.assert_payout_permission(p_permission text) TO service_role;
+
+GRANT ALL ON FUNCTION public.audit_account_manager_change() TO anon;
+GRANT ALL ON FUNCTION public.audit_account_manager_change() TO authenticated;
+GRANT ALL ON FUNCTION public.audit_account_manager_change() TO service_role;
+
+GRANT ALL ON FUNCTION public.audit_campaign_change() TO anon;
+GRANT ALL ON FUNCTION public.audit_campaign_change() TO authenticated;
+GRANT ALL ON FUNCTION public.audit_campaign_change() TO service_role;
+
+GRANT ALL ON FUNCTION public.audit_client_change() TO anon;
+GRANT ALL ON FUNCTION public.audit_client_change() TO authenticated;
+GRANT ALL ON FUNCTION public.audit_client_change() TO service_role;
+
+GRANT ALL ON FUNCTION public.audit_client_delete() TO anon;
+GRANT ALL ON FUNCTION public.audit_client_delete() TO authenticated;
+GRANT ALL ON FUNCTION public.audit_client_delete() TO service_role;
+
+GRANT ALL ON FUNCTION public.audit_payment_void() TO anon;
+GRANT ALL ON FUNCTION public.audit_payment_void() TO authenticated;
+GRANT ALL ON FUNCTION public.audit_payment_void() TO service_role;
+
+GRANT ALL ON FUNCTION public.audit_submission_review() TO anon;
+GRANT ALL ON FUNCTION public.audit_submission_review() TO authenticated;
+GRANT ALL ON FUNCTION public.audit_submission_review() TO service_role;
+
+GRANT ALL ON FUNCTION public.audit_user_profile_change() TO anon;
+GRANT ALL ON FUNCTION public.audit_user_profile_change() TO authenticated;
+GRANT ALL ON FUNCTION public.audit_user_profile_change() TO service_role;
+
+REVOKE ALL ON FUNCTION public.campaign_creators_sync_array() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.campaign_creators_sync_array() TO anon;
+GRANT ALL ON FUNCTION public.campaign_creators_sync_array() TO authenticated;
+GRANT ALL ON FUNCTION public.campaign_creators_sync_array() TO service_role;
+
+REVOKE ALL ON FUNCTION public.campaigns_guard_commission_rates() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.campaigns_guard_commission_rates() TO anon;
+GRANT ALL ON FUNCTION public.campaigns_guard_commission_rates() TO authenticated;
+GRANT ALL ON FUNCTION public.campaigns_guard_commission_rates() TO service_role;
+
+REVOKE ALL ON FUNCTION public.campaigns_sync_campaign_creators() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.campaigns_sync_campaign_creators() TO anon;
+GRANT ALL ON FUNCTION public.campaigns_sync_campaign_creators() TO authenticated;
+GRANT ALL ON FUNCTION public.campaigns_sync_campaign_creators() TO service_role;
+
+GRANT ALL ON FUNCTION public.cc_sync_in_progress() TO anon;
+GRANT ALL ON FUNCTION public.cc_sync_in_progress() TO authenticated;
+GRANT ALL ON FUNCTION public.cc_sync_in_progress() TO service_role;
+
+REVOKE ALL ON FUNCTION public.claim_creator(p_creator_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.claim_creator(p_creator_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.claim_creator(p_creator_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.claim_creator(p_creator_id uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.client_may_see_creator(p_creator_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.client_may_see_creator(p_creator_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.client_may_see_creator(p_creator_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.client_may_see_creator(p_creator_id uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.create_payout_batch(p_withdrawal_request_ids uuid[], p_generated_by uuid, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.create_payout_batch(p_withdrawal_request_ids uuid[], p_generated_by uuid, p_notes text) TO authenticated;
+GRANT ALL ON FUNCTION public.create_payout_batch(p_withdrawal_request_ids uuid[], p_generated_by uuid, p_notes text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.create_payout_batch_internal(p_withdrawal_request_ids uuid[], p_generated_by uuid, p_notes text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.create_payout_batch_internal(p_withdrawal_request_ids uuid[], p_generated_by uuid, p_notes text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.creators_guard_overrides() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.creators_guard_overrides() TO anon;
+GRANT ALL ON FUNCTION public.creators_guard_overrides() TO authenticated;
+GRANT ALL ON FUNCTION public.creators_guard_overrides() TO service_role;
+
+REVOKE ALL ON FUNCTION public.current_user_role() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.current_user_role() TO anon;
+GRANT ALL ON FUNCTION public.current_user_role() TO authenticated;
+GRANT ALL ON FUNCTION public.current_user_role() TO service_role;
+
+REVOKE ALL ON FUNCTION public.get_my_payout_role() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.get_my_payout_role() TO anon;
+GRANT ALL ON FUNCTION public.get_my_payout_role() TO authenticated;
+GRANT ALL ON FUNCTION public.get_my_payout_role() TO service_role;
+
+GRANT ALL ON FUNCTION public.guard_link_verification_columns() TO anon;
+GRANT ALL ON FUNCTION public.guard_link_verification_columns() TO authenticated;
+GRANT ALL ON FUNCTION public.guard_link_verification_columns() TO service_role;
+
+GRANT ALL ON FUNCTION public.guard_profile_self_update() TO anon;
+GRANT ALL ON FUNCTION public.guard_profile_self_update() TO authenticated;
+GRANT ALL ON FUNCTION public.guard_profile_self_update() TO service_role;
+
+REVOKE ALL ON FUNCTION public.handle_new_client_user() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.handle_new_client_user() TO anon;
+GRANT ALL ON FUNCTION public.handle_new_client_user() TO authenticated;
+GRANT ALL ON FUNCTION public.handle_new_client_user() TO service_role;
+
+REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.handle_new_user() TO anon;
+GRANT ALL ON FUNCTION public.handle_new_user() TO authenticated;
+GRANT ALL ON FUNCTION public.handle_new_user() TO service_role;
+
+REVOKE ALL ON FUNCTION public.has_payout_permission(p_permission text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.has_payout_permission(p_permission text) TO authenticated;
+GRANT ALL ON FUNCTION public.has_payout_permission(p_permission text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.is_payment_manager(p_permission text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.is_payment_manager(p_permission text) TO anon;
+GRANT ALL ON FUNCTION public.is_payment_manager(p_permission text) TO authenticated;
+GRANT ALL ON FUNCTION public.is_payment_manager(p_permission text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.list_unassigned_creators() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.list_unassigned_creators() TO anon;
+GRANT ALL ON FUNCTION public.list_unassigned_creators() TO authenticated;
+GRANT ALL ON FUNCTION public.list_unassigned_creators() TO service_role;
+
+REVOKE ALL ON FUNCTION public.log_admin_action(p_action text, p_entity_type text, p_entity_id uuid, p_entity_label text, p_from text, p_to text, p_reason text, p_metadata jsonb, p_actor uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.log_admin_action(p_action text, p_entity_type text, p_entity_id uuid, p_entity_label text, p_from text, p_to text, p_reason text, p_metadata jsonb, p_actor uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.log_admin_action(p_action text, p_entity_type text, p_entity_id uuid, p_entity_label text, p_from text, p_to text, p_reason text, p_metadata jsonb, p_actor uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.mark_payout_batch_paid(p_batch_id uuid, p_marked_paid_by uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.mark_payout_batch_paid(p_batch_id uuid, p_marked_paid_by uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.mark_payout_batch_paid(p_batch_id uuid, p_marked_paid_by uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.mark_payout_batch_paid_internal(p_batch_id uuid, p_marked_paid_by uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.mark_payout_batch_paid_internal(p_batch_id uuid, p_marked_paid_by uuid) TO service_role;
+
+GRANT ALL ON FUNCTION public.payout_ledger_balance(p_creator_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.payout_ledger_balance(p_creator_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.payout_ledger_balance(p_creator_id uuid) TO service_role;
+
+GRANT ALL ON FUNCTION public.payout_ledger_immutable() TO anon;
+GRANT ALL ON FUNCTION public.payout_ledger_immutable() TO authenticated;
+GRANT ALL ON FUNCTION public.payout_ledger_immutable() TO service_role;
+
+GRANT ALL ON FUNCTION public.payout_ledger_reconcile(p_creator_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.payout_ledger_reconcile(p_creator_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.payout_ledger_reconcile(p_creator_id uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.payout_reconciliation_report() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.payout_reconciliation_report() TO authenticated;
+GRANT ALL ON FUNCTION public.payout_reconciliation_report() TO service_role;
+
+GRANT ALL ON FUNCTION public.payout_status_weight(p_entity_type text, p_status text) TO anon;
+GRANT ALL ON FUNCTION public.payout_status_weight(p_entity_type text, p_status text) TO authenticated;
+GRANT ALL ON FUNCTION public.payout_status_weight(p_entity_type text, p_status text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.purge_expired_oauth_states() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_expired_oauth_states() TO anon;
+GRANT ALL ON FUNCTION public.purge_expired_oauth_states() TO authenticated;
+GRANT ALL ON FUNCTION public.purge_expired_oauth_states() TO service_role;
+
+GRANT ALL ON FUNCTION public.record_payout_transition() TO anon;
+GRANT ALL ON FUNCTION public.record_payout_transition() TO authenticated;
+GRANT ALL ON FUNCTION public.record_payout_transition() TO service_role;
+
+GRANT ALL ON FUNCTION public.refuse_hard_delete() TO anon;
+GRANT ALL ON FUNCTION public.refuse_hard_delete() TO authenticated;
+GRANT ALL ON FUNCTION public.refuse_hard_delete() TO service_role;
+
+REVOKE ALL ON FUNCTION public.reject_withdrawal_request(p_request_id uuid, p_rejected_by uuid, p_reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reject_withdrawal_request(p_request_id uuid, p_rejected_by uuid, p_reason text) TO authenticated;
+GRANT ALL ON FUNCTION public.reject_withdrawal_request(p_request_id uuid, p_rejected_by uuid, p_reason text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.reject_withdrawal_request_internal(p_request_id uuid, p_rejected_by uuid, p_reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reject_withdrawal_request_internal(p_request_id uuid, p_rejected_by uuid, p_reason text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.release_creator(p_creator_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.release_creator(p_creator_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.release_creator(p_creator_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.release_creator(p_creator_id uuid) TO service_role;
+
+REVOKE ALL ON FUNCTION public.request_creator_withdrawal(p_creator_id uuid, p_currency text, p_payment_method text, p_payment_destination_summary text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.request_creator_withdrawal(p_creator_id uuid, p_currency text, p_payment_method text, p_payment_destination_summary text) TO authenticated;
+GRANT ALL ON FUNCTION public.request_creator_withdrawal(p_creator_id uuid, p_currency text, p_payment_method text, p_payment_destination_summary text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.reverse_ledger_entry(p_entry_id uuid, p_reason text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reverse_ledger_entry(p_entry_id uuid, p_reason text) TO anon;
+GRANT ALL ON FUNCTION public.reverse_ledger_entry(p_entry_id uuid, p_reason text) TO authenticated;
+GRANT ALL ON FUNCTION public.reverse_ledger_entry(p_entry_id uuid, p_reason text) TO service_role;
+
+REVOKE ALL ON FUNCTION public.set_updated_at() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.set_updated_at() TO anon;
+GRANT ALL ON FUNCTION public.set_updated_at() TO authenticated;
+GRANT ALL ON FUNCTION public.set_updated_at() TO service_role;
+
+REVOKE ALL ON FUNCTION public.thin_video_metrics(p_keep_days integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.thin_video_metrics(p_keep_days integer) TO service_role;
+
+GRANT ALL ON FUNCTION public.trg_audit_creator_archive() TO anon;
+GRANT ALL ON FUNCTION public.trg_audit_creator_archive() TO authenticated;
+GRANT ALL ON FUNCTION public.trg_audit_creator_archive() TO service_role;
+
+GRANT ALL ON FUNCTION public.trg_audit_submission_archive() TO anon;
+GRANT ALL ON FUNCTION public.trg_audit_submission_archive() TO authenticated;
+GRANT ALL ON FUNCTION public.trg_audit_submission_archive() TO service_role;
+
+GRANT ALL ON TABLE public.account_managers TO anon;
+GRANT ALL ON TABLE public.account_managers TO authenticated;
+GRANT ALL ON TABLE public.account_managers TO service_role;
+
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE ON TABLE public.admin_audit_logs TO anon;
+GRANT SELECT,INSERT,REFERENCES,TRIGGER,TRUNCATE ON TABLE public.admin_audit_logs TO authenticated;
+GRANT ALL ON TABLE public.admin_audit_logs TO service_role;
+
+GRANT ALL ON SEQUENCE public.batch_number_seq TO anon;
+GRANT ALL ON SEQUENCE public.batch_number_seq TO authenticated;
+GRANT ALL ON SEQUENCE public.batch_number_seq TO service_role;
+
+GRANT ALL ON TABLE public.campaign_analytics TO anon;
+GRANT ALL ON TABLE public.campaign_analytics TO authenticated;
+GRANT ALL ON TABLE public.campaign_analytics TO service_role;
+
+GRANT ALL ON TABLE public.campaign_creators TO authenticated;
+GRANT ALL ON TABLE public.campaign_creators TO service_role;
+
+GRANT ALL ON TABLE public.campaigns TO anon;
+GRANT ALL ON TABLE public.campaigns TO authenticated;
+GRANT ALL ON TABLE public.campaigns TO service_role;
+
+GRANT ALL ON TABLE public.clients TO anon;
+GRANT ALL ON TABLE public.clients TO authenticated;
+GRANT ALL ON TABLE public.clients TO service_role;
+
+GRANT ALL ON TABLE public.creators TO anon;
+GRANT ALL ON TABLE public.creators TO authenticated;
+GRANT ALL ON TABLE public.creators TO service_role;
+
+GRANT ALL ON TABLE public.video_analytics TO anon;
+GRANT ALL ON TABLE public.video_analytics TO authenticated;
+GRANT ALL ON TABLE public.video_analytics TO service_role;
+
+GRANT ALL ON TABLE public.client_safe_analytics TO anon;
+GRANT ALL ON TABLE public.client_safe_analytics TO authenticated;
+GRANT ALL ON TABLE public.client_safe_analytics TO service_role;
+
+GRANT ALL ON TABLE public.client_safe_campaigns TO anon;
+GRANT ALL ON TABLE public.client_safe_campaigns TO authenticated;
+GRANT ALL ON TABLE public.client_safe_campaigns TO service_role;
+
+GRANT ALL ON TABLE public.submissions TO anon;
+GRANT ALL ON TABLE public.submissions TO authenticated;
+GRANT ALL ON TABLE public.submissions TO service_role;
+
+GRANT ALL ON TABLE public.client_safe_submissions TO anon;
+GRANT ALL ON TABLE public.client_safe_submissions TO authenticated;
+GRANT ALL ON TABLE public.client_safe_submissions TO service_role;
+
+GRANT ALL ON TABLE public.creator_tokens TO service_role;
+
+GRANT ALL ON TABLE public.creator_connection_status TO anon;
+GRANT ALL ON TABLE public.creator_connection_status TO authenticated;
+GRANT ALL ON TABLE public.creator_connection_status TO service_role;
+
+GRANT ALL ON TABLE public.creator_earnings TO anon;
+GRANT ALL ON TABLE public.creator_earnings TO authenticated;
+GRANT ALL ON TABLE public.creator_earnings TO service_role;
+
+GRANT INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE public.creator_social_accounts TO authenticated;
+GRANT ALL ON TABLE public.creator_social_accounts TO service_role;
+
+GRANT SELECT(id) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(user_id) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(creator_id) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(workspace_id) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(platform) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(platform_user_id) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(username) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(display_name) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(profile_image_url) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(token_expires_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(refresh_token_expires_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(scopes) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(connection_status) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(last_synced_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(last_error) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(metadata) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(created_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(updated_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_handle) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_status) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_code) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_code_expires_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_code_found_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_verified_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_verified_by) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_rejected_reason) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_health) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_failure_count) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_last_error) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(link_last_fetched_at) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT SELECT(follower_count) ON TABLE public.creator_social_accounts TO authenticated;
+
+GRANT ALL ON TABLE public.creator_social_accounts_safe TO anon;
+GRANT ALL ON TABLE public.creator_social_accounts_safe TO authenticated;
+GRANT ALL ON TABLE public.creator_social_accounts_safe TO service_role;
+
+GRANT ALL ON TABLE public.creator_videos TO authenticated;
+GRANT ALL ON TABLE public.creator_videos TO service_role;
+
+GRANT ALL ON TABLE public.messages TO anon;
+GRANT ALL ON TABLE public.messages TO authenticated;
+GRANT ALL ON TABLE public.messages TO service_role;
+
+GRANT ALL ON TABLE public.oauth_states TO anon;
+GRANT ALL ON TABLE public.oauth_states TO authenticated;
+GRANT ALL ON TABLE public.oauth_states TO service_role;
+
+GRANT ALL ON TABLE public.payment_audit_logs TO anon;
+GRANT ALL ON TABLE public.payment_audit_logs TO authenticated;
+GRANT ALL ON TABLE public.payment_audit_logs TO service_role;
+
+GRANT ALL ON TABLE public.payment_managers TO anon;
+GRANT ALL ON TABLE public.payment_managers TO authenticated;
+GRANT ALL ON TABLE public.payment_managers TO service_role;
+
+GRANT ALL ON TABLE public.payments TO anon;
+GRANT ALL ON TABLE public.payments TO authenticated;
+GRANT ALL ON TABLE public.payments TO service_role;
+
+GRANT ALL ON TABLE public.payout_batches TO anon;
+GRANT ALL ON TABLE public.payout_batches TO authenticated;
+GRANT ALL ON TABLE public.payout_batches TO service_role;
+
+GRANT SELECT,REFERENCES,TRIGGER ON TABLE public.payout_ledger TO authenticated;
+GRANT SELECT,INSERT,REFERENCES,TRIGGER ON TABLE public.payout_ledger TO service_role;
+
+GRANT ALL ON TABLE public.payout_line_items TO anon;
+GRANT ALL ON TABLE public.payout_line_items TO authenticated;
+GRANT ALL ON TABLE public.payout_line_items TO service_role;
+
+GRANT ALL ON TABLE public.social_profile_snapshots TO service_role;
+GRANT SELECT ON TABLE public.social_profile_snapshots TO authenticated;
+
+GRANT ALL ON TABLE public.user_profiles TO anon;
+GRANT ALL ON TABLE public.user_profiles TO authenticated;
+GRANT ALL ON TABLE public.user_profiles TO service_role;
+
+GRANT ALL ON TABLE public.video_metrics TO authenticated;
+GRANT ALL ON TABLE public.video_metrics TO service_role;
+
+GRANT ALL ON TABLE public.withdrawal_requests TO anon;
+GRANT ALL ON TABLE public.withdrawal_requests TO authenticated;
+GRANT ALL ON TABLE public.withdrawal_requests TO service_role;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
 COMMIT;
-
-
--- =============================================================================
--- SECTION 8: VERIFICATION
--- Eyeball these results to confirm the script ran cleanly. The "Expected"
--- notes describe a healthy result.
--- =============================================================================
-
--- 8a. Tables that should exist (Expected: 13 rows).
-SELECT table_name
-FROM information_schema.tables
-WHERE table_schema = 'public'
-  AND table_name IN (
-    'user_profiles','account_managers','creators','clients','campaigns',
-    'submissions','payments','messages','creator_tokens','video_analytics',
-    'payout_batches','payout_line_items','oauth_states'
-  )
-ORDER BY table_name;
-
--- 8b. New columns that the new code depends on (Expected: 7+ rows).
-SELECT table_name, column_name
-FROM information_schema.columns
-WHERE table_schema = 'public'
-  AND (
-    (table_name = 'payments'       AND column_name = 'batch_id') OR
-    (table_name = 'payout_batches' AND column_name = 'period_type') OR
-    (table_name = 'creators'       AND column_name IN ('payout_email','payout_preference')) OR
-    (table_name = 'creator_tokens' AND column_name IN ('user_id','status','last_synced_at','platform_user_id')) OR
-    (table_name = 'video_analytics' AND column_name IN ('user_id','engagement_rate','raw_metrics'))
-  )
-ORDER BY table_name, column_name;
-
--- 8c. RLS policies — every protected table should have its own role-scoped
--- policy, and NO policy should be named "Allow all". (Expected: many rows.)
-SELECT tablename, policyname
-FROM pg_policies
-WHERE schemaname = 'public'
-ORDER BY tablename, policyname;
-
--- 8d. Should return 0 rows. If you see any "Allow all" rows here, the
--- hardening migration did not run and your RLS is still permissive.
-SELECT tablename, policyname
-FROM pg_policies
-WHERE schemaname = 'public' AND policyname = 'Allow all';
-
--- 8e. Helper function exists (Expected: 1 row).
-SELECT proname
-FROM pg_proc
-WHERE proname IN ('current_user_role','purge_expired_oauth_states')
-ORDER BY proname;
-
--- 8f. View exists (Expected: 1 row).
-SELECT table_name
-FROM information_schema.views
-WHERE table_schema = 'public' AND table_name = 'creator_connection_status';

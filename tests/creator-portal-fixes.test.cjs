@@ -153,8 +153,8 @@ console.log('\n=== Guards against defects that have already happened once');
   R(!/pay_per_video/.test(cd), 'the client portal never reads pay_per_video (it is what creators are paid)');
   R(!/\|\|\s*10\)\s*\*\s*Number/.test(cd) && /clientProfile\?\.budget/.test(cd),
     'client CPM comes from the client\'s own budget, never a made-up fallback');
-  const mig = read('supabase/migrations/20260918000000_creator_portal_fixes.sql');
-  const view = mig.slice(mig.indexOf('CREATE OR REPLACE VIEW public.client_safe_campaigns'));
+  const setup = read('supabase/SETUP.sql');
+  const view = setup.slice(setup.indexOf('CREATE VIEW public.client_safe_campaigns'));
   R(/show_client_cpm/.test(view) && !/pay_per_video|budget|commission/.test(view.slice(0, view.indexOf('FROM'))),
     'client_safe_campaigns exposes the CPM switch and no cost columns');
 }

@@ -28,7 +28,7 @@ const path = require('path');
 const manifest = require('../../supabase/migrations/probes.json');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', '..', 'supabase', 'migrations');
-const STATUS_MIGRATION = '20261001000000_admin_migration_status.sql';
+const SETUP_FILE = path.join(__dirname, '..', '..', 'supabase', 'SETUP.sql');
 
 // Only forward migrations live in supabase/migrations/ (spec 0001 invariant).
 const MIGRATION_FILE_RE = /^\d{14}_[a-z0-9_]+\.sql$/;
@@ -130,15 +130,13 @@ function probePayload(m = manifest) {
     });
 }
 
-// The runner's probe query, lifted out of the status migration itself so the
-// SQL exists exactly once. The runner cannot call the RPC: on a database that
-// predates 20261001000000 the function does not exist yet.
+// The runner's probe query, lifted out of admin_migration_status() in SETUP.sql so the SQL exists once.
 let _probeSql = null;
 function probeSelectSql() {
   if (_probeSql) return _probeSql;
-  const src = fs.readFileSync(path.join(MIGRATIONS_DIR, STATUS_MIGRATION), 'utf8');
+  const src = fs.readFileSync(SETUP_FILE, 'utf8');
   const m = src.match(/-- PROBE_SELECT[^\n]*\n([\s\S]*?)-- end PROBE_SELECT/);
-  if (!m) throw new Error(`could not find the PROBE_SELECT block in ${STATUS_MIGRATION}`);
+  if (!m) throw new Error('could not find the PROBE_SELECT block in supabase/SETUP.sql');
   const body = m[1].replace('jsonb_array_elements(probes)', 'jsonb_array_elements($1::jsonb)');
   if (!body.includes('$1::jsonb')) throw new Error('PROBE_SELECT no longer reads jsonb_array_elements(probes)');
   _probeSql = body.trim();
@@ -221,7 +219,7 @@ function summarize(rows) {
 module.exports = {
   manifest,
   MIGRATIONS_DIR,
-  STATUS_MIGRATION,
+  SETUP_FILE,
   MIGRATION_FILE_RE,
   versionOf,
   nameOf,

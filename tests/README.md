@@ -119,7 +119,7 @@ rather than as an anonymous 500:
 
   Blocked on migrations that have not been applied:
     · N-03 — the live CHECK rejects withdrawal_requested / batched
-           fix: migration step 2 — 20260821000000_payout_drift_and_authz.sql
+           fix: npm run db:migrate (supabase/SETUP.sql on a fresh project)
 ```
 
 Exit codes: `0` all passed · `1` a real failure · `3` blocked on a pending
@@ -166,66 +166,10 @@ cannot quietly reopen the hole.
 | `regression.test.cjs` | Re-runs the three checks that previously misreported |
 | `role-boundaries.test.cjs` | Two-tenant authorization matrix; guards N-10 and N-11 |
 | `payout-acceptance.test.cjs` | Walks money from earned to paid; the acceptance criterion for the payout migrations |
-| `../supabase/migrations/__tests__/migration.test.cjs` | Runs the payout migrations against real Postgres (PGlite) |
+| `../supabase/migrations/__tests__/*.test.cjs` | Schema behaviour (RLS, payouts, audit, guards) against real Postgres (PGlite) |
 
----
+## Database suites
 
-## Added 2026-08-22
+`supabase/migrations/__tests__/*.test.cjs` run against real Postgres in memory (PGlite). `db.cjs` builds each database the way Supabase would: auth stubs, the `anon` / `authenticated` / `service_role` roles and their default grants, then `supabase/SETUP.sql` and every migration after it.
 
-Four suites and one probe, all offline. None needs a browser, a dev server or an
-applied migration, so they run on every edit rather than only before a deploy.
-
-| File | Purpose |
-|---|---|
-| `token-security.test.cjs` | F-3 / F-4. AES-GCM round trip and tamper detection, the token-free projection guard, the whole refresh decision tree, and the nightly cron's auth and refusal behaviour. |
-| `analytics-token-path.test.cjs` | Guards the wrong-table read described below. |
-| `live-token-inventory.cjs` | Read-only. Counts what the backfill would actually move. Writes nothing, prints no token material. |
-| `../supabase/migrations/__tests__/new-migrations.test.cjs` | Applies the 2026-08-22 migrations to real Postgres, twice, and asserts the behaviour each one promises. |
-| `../supabase/migrations/__tests__/tenant-isolation.test.cjs` | N-10, two tenants. Runs BEFORE and AFTER the fix. |
-
-### The wrong-table read
-
-The OAuth callbacks were moved onto `creator_social_accounts` (encrypted) while
-`api/_utils/analytics.js` still read `creator_tokens`. Nothing threw. Sync found
-no token for any newly connected account, recorded `no_token`, and moved on — so
-a creator would connect successfully and then watch their view counts never
-update, with nothing in any log to explain it.
-
-`analytics-token-path.test.cjs` asserts on the tables actually touched, not just
-on the summary counts, because the summary looked plausible the whole time.
-
-### Two failures the harness itself had
-
-Both are the founding fault of this directory — a test reporting a defect in the
-app that was a defect in the test.
-
-**The secret scanner cried wolf on every page load.** It matched the bare string
-`service_role`, which `@supabase/auth-js` ships inside its own "never expose
-this" doc comment, compiled into `bundle.js`. Removed. The real question is
-answered twice and precisely in `scanForSecrets()`: once by matching the actual
-`SUPABASE_SERVICE_ROLE_KEY` value, once by decoding every JWT and reading its
-`role` claim.
-
-**The tenant test was measuring nothing.** PGlite connects as `postgres`, a
-superuser, and a superuser bypasses RLS unconditionally — `ENABLE` does not stop
-it and neither does `FORCE`, which only subjects a non-superuser owner. Every
-role read every row, so the BEFORE half reported "the leak is reproducible" and
-would have kept reporting it after the leak was fixed. Measurements now run as
-`authenticated`, and `assertRlsIsEnforced()` aborts the suite if a role that
-should see one row can see two.
-
-The lesson both times: assert that the instrument is live before trusting what
-it reads.
-
-### Fixture fidelity
-
-`fixture_schema.sql` gained three things it was missing, each of which had
-produced a false result:
-
-- `is_payment_manager()` — the TikTok baseline calls it, and without it that
-  migration failed here for a reason that does not exist in real apply order.
-- `auth.users.raw_user_meta_data` — where Supabase puts the `signUp()` payload
-  the N-20 trigger reads.
-- `current_user_role()` now normalises `account_manager` -> `am`, as the real one
-  does. Without the `CASE`, an AM fails every `= 'am'` policy test and appears
-  correctly confined to their tenant **for entirely the wrong reason**.
+PGlite connects as a superuser, which bypasses RLS. Measure as `authenticated` with a JWT subject, and assert the instrument is live (a role that should see one row sees one) before trusting any count.

@@ -172,7 +172,7 @@ module.exports = async (req, res) => {
         .from('submissions')
         .update({ thumbnail_url: video.thumbnailUrl })
         .eq('id', sub.id);
-      if (thumbErr) console.error('[verify-video-link] thumbnail not saved (migration 20261029000000 applied?):', thumbErr.message);
+      if (thumbErr) console.error('[verify-video-link] thumbnail not saved:', thumbErr.message);
     }
 
     // Upsert into video_analytics

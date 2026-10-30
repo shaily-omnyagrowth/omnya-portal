@@ -53,7 +53,7 @@ export default function ReconciliationSection({ callApi }) {
 
       <p className="fs-12 text-muted">
         {report?.checkedAt && `Checked ${new Date(report.checkedAt).toLocaleString()}.`}
-        {report?.source === 'payout_ledger_reconcile' && ' Using the raw reconcile function. Apply migration 20260823000000 for creator names.'}
+        {report?.source === 'payout_ledger_reconcile' && ' Using the raw reconcile function. Creator names are missing until the pending migrations are applied.'}
       </p>
     </div>
   );

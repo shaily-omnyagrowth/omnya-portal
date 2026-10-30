@@ -1,41 +1,12 @@
-// supabase/migrations/__tests__/tiktok-profile-links.test.cjs
-//
-// Behaviour test for 20261023000000_tiktok_profile_links.sql (spec 0002).
-//
-// Built on the real chain (SETUP, then every migration in the
-// order full-chain.test.cjs uses), so the policies, grants and the safe view
-// this migration extends are the production ones, not stand-ins.
-//
-// The questions it asks:
-//
-//   AC-17  can a browser caller set its own verification state, verified
-//          views, or write a 'link' video row?          (must be 42501)
-//   AC-2   can two creators both hold the same verified handle?
-//   AC-8   does apply_verified_views only ever raise the count, and refuse a
-//          write once the handle has changed?
-//   AC-18  does thin_video_metrics keep one snapshot per video per old day?
-//   AC-20  can a client read follower snapshots? can the wrong AM?
+// TikTok profile links: the browser cannot verify itself, verified handles are unique,
+// verified views only rise, old metrics are thinned, and snapshots stay tenant scoped.
 //
 // Browser callers run as `authenticated` with a JWT subject and role, which is
 // what PostgREST does. assertRlsIsEnforced() aborts if that instrument is dead.
 //
 //   node supabase/migrations/__tests__/tiktok-profile-links.test.cjs
 
-const fs = require('fs');
-const path = require('path');
-
-let PGlite;
-try {
-  ({ PGlite } = require('@electric-sql/pglite'));
-} catch {
-  console.error('SKIP: @electric-sql/pglite is not installed.  npm i -D @electric-sql/pglite');
-  process.exit(0);
-}
-
-const S = __dirname;
-const MIG = path.join(__dirname, '..');
-const read = p => fs.readFileSync(p, 'utf8');
-const MIGRATION = '20261023000000_tiktok_profile_links.sql';
+const { freshDb } = require('./db.cjs');
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
@@ -99,28 +70,7 @@ async function asService(db, sql) {
 }
 
 async function build() {
-  const chainSrc = read(path.join(S, 'full-chain.test.cjs'));
-  const BOOT = chainSrc.match(/const BOOTSTRAP = `([\s\S]*?)`;/)[1];
-  const ORDER = [...chainSrc.match(/const ORDER = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+\.sql)'/g)].map(x => x[1]);
-  const later = fs.readdirSync(MIG)
-    .filter(f => /^\d{14}_.*\.sql$/.test(f) && !ORDER.includes(f) && f !== MIGRATION)
-    .sort();
-
-  const db = await PGlite.create();
-  await db.exec(BOOT);
-  // What a Supabase project grants before any project SQL runs. Set up front,
-  // so the column level REVOKE in 20260604000000 lands on top of it exactly as
-  // it did in production (granting afterwards would undo that revoke).
-  await db.exec(`
-    GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO anon, authenticated, service_role;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-  `);
-  await db.exec(read(path.join(MIG, '..', 'SETUP.sql')));
-  for (const f of [...ORDER, ...later]) {
-    const p = path.join(MIG, f);
-    if (fs.existsSync(p)) await db.exec(read(p));
-  }
+  const db = await freshDb();
 
 
   // The N-20 signup trigger copies auth.users.email into user_profiles, so
@@ -160,22 +110,8 @@ async function assertRlsIsEnforced(db) {
 }
 
 async function run() {
-  console.log(`\n${MIGRATION}`);
+  console.log('\nTikTok profile links');
   const db = await build();
-
-  try {
-    await db.exec(read(path.join(MIG, MIGRATION)));
-    R(true, 'the migration applies on top of the real chain');
-  } catch (e) {
-    R(false, 'the migration applies on top of the real chain', e.message.slice(0, 400));
-    return db.close();
-  }
-  try {
-    await db.exec(read(path.join(MIG, MIGRATION)));
-    R(true, 'and is idempotent');
-  } catch (e) {
-    R(false, 'and is idempotent', e.message.slice(0, 400));
-  }
 
   await assertRlsIsEnforced(db);
 

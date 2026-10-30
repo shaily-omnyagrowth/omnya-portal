@@ -1,27 +1,8 @@
-// supabase/migrations/__tests__/client-may-see-creator.test.cjs
-//
-// Regression test for 20261030000000_fix_client_may_see_creator.sql: the
-// function still read submissions.final_status after 20260826000000 dropped
-// it, so every client read of creators failed. Builds the real chain up to the
-// fix, reproduces the failure, applies the fix and checks the result.
+// A brand sees a creator only once that creator has an approved submission on one of its campaigns.
 //
 //   node supabase/migrations/__tests__/client-may-see-creator.test.cjs
 
-const fs = require('fs');
-const path = require('path');
-
-let PGlite;
-try {
-  ({ PGlite } = require('@electric-sql/pglite'));
-} catch {
-  console.error('SKIP: @electric-sql/pglite is not installed.  npm i -D @electric-sql/pglite');
-  process.exit(0);
-}
-
-const S = __dirname;
-const MIG = path.join(__dirname, '..');
-const read = p => fs.readFileSync(p, 'utf8');
-const FIX = '20261030000000_fix_client_may_see_creator.sql';
+const { freshDb } = require('./db.cjs');
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
@@ -35,17 +16,7 @@ const APPROVED_CR = 'e0000000-0000-0000-0000-000000000001';
 const PENDING_CR = 'e0000000-0000-0000-0000-000000000002';
 
 async function build() {
-  const chainSrc = read(path.join(S, 'full-chain.test.cjs'));
-  const BOOT = chainSrc.match(/const BOOTSTRAP = `([\s\S]*?)`;/)[1];
-  const ORDER = [...chainSrc.match(/const ORDER = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+\.sql)'/g)].map(x => x[1]);
-  const later = fs.readdirSync(MIG)
-    .filter(f => /^\d{14}_.*\.sql$/.test(f) && !ORDER.includes(f) && f < FIX)
-    .sort();
-
-  const db = await PGlite.create();
-  await db.exec(BOOT);
-  await db.exec(read(path.join(MIG, '..', 'SETUP.sql')));
-  for (const f of [...ORDER, ...later]) await db.exec(read(path.join(MIG, f)));
+  const db = await freshDb();
 
   await db.exec(`
     insert into auth.users(id, email) values ('${CLIENT_USER}','client@x.com') on conflict do nothing;
@@ -71,19 +42,10 @@ const tryQuery = async (db, sql) => {
 const sees = id => `select public.client_may_see_creator('${id}') as ok`;
 
 (async () => {
-  console.log(`\n${FIX}`);
+  console.log('\nclient_may_see_creator');
   const db = await build();
 
   let r = await tryQuery(db, sees(APPROVED_CR));
-  R(r.err && /final_status/.test(r.err), 'before the fix, the check fails on the dropped column', r.err || 'it did NOT fail');
-
-  for (const label of ['the fix applies', 'and is idempotent']) {
-    let err = null;
-    try { await db.exec(read(path.join(MIG, FIX))); } catch (e) { err = e.message; }
-    R(!err, label, err);
-  }
-
-  r = await tryQuery(db, sees(APPROVED_CR));
   R(!r.err && r.rows[0].ok === true, 'a client sees a creator with an approved submission on its campaign', r.err);
   r = await tryQuery(db, sees(PENDING_CR));
   R(!r.err && r.rows[0].ok === false, 'but not one whose only submission is still under review', r.err);

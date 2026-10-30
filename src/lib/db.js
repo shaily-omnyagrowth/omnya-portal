@@ -19,7 +19,7 @@ import { supabase } from "../supabaseClient";
 // case from silence into a countable zero.
 //
 // Returns null on success, or a sentence fit to show the user.
-export const MIGRATION_HINT = "The database is missing a column this screen needs. Apply the pending migration (supabase/migrations/20260918000000_creator_portal_fixes.sql), then retry.";
+export const MIGRATION_HINT = "The database is missing a column this screen needs. Apply the pending migrations (npm run db:migrate), then retry.";
 
 export function describeWriteError(error) {
   if (!error) return null;

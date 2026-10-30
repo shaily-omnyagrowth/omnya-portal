@@ -16,11 +16,10 @@ const crypto = require('crypto');
 // migration is what is missing: name it, rather than the generic failure that
 // in September 2026 left "Failed to update share settings." on the screen with
 // nothing to act on.
-const MIGRATION = '20260908000000_campaign_shares_and_progress.sql';
 const SHARE_COLUMNS = 'the campaign share columns (share_token, share_enabled, share_created_at)';
 
 function dbFailure(res, err, verb) {
-  if (isSchemaMissing(err)) return Errors.schemaMissing(res, MIGRATION, SHARE_COLUMNS);
+  if (isSchemaMissing(err)) return Errors.schemaMissing(res, SHARE_COLUMNS);
   console.error(`Failed to ${verb} campaign share settings:`, err.message);
   return Errors.internal(res, `Failed to ${verb} share settings.`);
 }

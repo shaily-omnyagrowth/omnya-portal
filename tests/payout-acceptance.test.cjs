@@ -29,13 +29,13 @@ const { BASE } = require('./lib/ui.cjs');
 const BLOCKERS = [
   { match: /creator_earnings_status_check|23514/i, finding: 'N-03',
     why: 'the live CHECK rejects withdrawal_requested / batched',
-    fix: 'migration step 2 — 20260821000000_payout_drift_and_authz.sql' },
+    fix: 'npm run db:migrate (supabase/SETUP.sql on a fresh project)' },
   { match: /performed_by/i, finding: 'N-04',
     why: 'the deployed RPC bodies are the stale pre-bbf9612 versions',
-    fix: 'migration step 1 — 20260530000001_payout_rpc_functions.sql' },
+    fix: 'npm run db:migrate (supabase/SETUP.sql on a fresh project)' },
   { match: /stripe_account_id|stripe_transfer_id|column .*stripe/i, finding: 'N-08',
     why: 'the Stripe columns do not exist',
-    fix: 'migration step 3 — 20260530000002_stripe_connect.sql' },
+    fix: 'npm run db:migrate (supabase/SETUP.sql on a fresh project)' },
   { match: /can_manage_payment_managers/i, finding: 'N-07',
     why: 'a permission column that has never existed',
     fix: 'already fixed in api/_lib/paymentPermissions.js — redeploy' },
@@ -201,9 +201,7 @@ const rpc = async (fn, args, token) => {
   if (seen.size) {
     console.log('\n  Blocked on migrations that have not been applied:\n');
     for (const b of seen) console.log('    · ' + b);
-    console.log('\n  See supabase/migrations/APPLY_20260821.md. Steps 1 and 2 must go');
-    console.log('  together — step 1 alone repairs the RPC bodies and removes the only');
-    console.log('  thing currently stopping a creator approving their own payout.');
+    console.log('\n  Run npm run db:migrate (supabase/SETUP.sql on a fresh project).');
   } else if (!failed) {
     console.log('\n  The payout system completes end to end.');
   }

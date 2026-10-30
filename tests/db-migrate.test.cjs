@@ -15,13 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-let PGlite;
-try {
-  ({ PGlite } = require('@electric-sql/pglite'));
-} catch {
-  console.error('SKIP: @electric-sql/pglite is not installed.  npm i -D @electric-sql/pglite');
-  process.exit(0);
-}
+const { freshDb } = require('../supabase/migrations/__tests__/db.cjs');
 
 const runner = require('../scripts/db-migrate.cjs');
 const probes = require('../api/_lib/migrationProbes');
@@ -30,7 +24,7 @@ const ROOT = path.join(__dirname, '..');
 const MIG = probes.MIGRATIONS_DIR;
 const REF = 'abcdefghijklmnopqrst';
 const URL_OK = `postgresql://postgres.${REF}:s3cret@aws-0-us-east-1.pooler.supabase.com:5432/postgres`;
-const LAST_TWO = ['20260908000000_campaign_shares_and_progress.sql', '20261001000000_admin_migration_status.sql'];
+const LAST_TWO = probes.listMigrationFiles().slice(-2);
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
@@ -50,19 +44,10 @@ const goodEnv = () => envFile([
   `MIGRATE_BACKUP_DIR=${path.join(TMP, 'backups')}`,
 ]);
 
-// Production as it was on 2026-10-01: the schema built, history empty, the
-// last two files never applied.
-async function productionLike() {
-  const chainSrc = fs.readFileSync(path.join(MIG, '__tests__', 'full-chain.test.cjs'), 'utf8');
-  const BOOT = chainSrc.match(/const BOOTSTRAP = `([\s\S]*?)`;/)[1];
-  const ORDER = [...chainSrc.match(/const ORDER = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+\.sql)'/g)].map((x) => x[1]);
-  const files = probes.listMigrationFiles().filter((f) => probes.manifest[f]);
-  const chain = [...ORDER.filter((f) => files.includes(f)), ...files.filter((f) => !ORDER.includes(f))]
-    .filter((f) => !LAST_TWO.includes(f));
-  const db = await PGlite.create();
-  await db.exec(BOOT);
-  await db.exec(fs.readFileSync(path.join(MIG, '..', 'SETUP.sql'), 'utf8'));
-  for (const f of chain) await db.exec(fs.readFileSync(path.join(MIG, f), 'utf8'));
+// Production: SETUP.sql, with the first migration pasted in by hand (drift) unless `drift` is false.
+async function productionLike({ drift = true } = {}) {
+  const db = await freshDb({ migrations: false });
+  if (drift) await db.exec(fs.readFileSync(path.join(MIG, LAST_TWO[0]), 'utf8'));
   return db;
 }
 
@@ -219,7 +204,8 @@ const historyOf = async (db) => {
   const out = st.logs.join('\n');
   R(cs === 1, '--status exits 1 while gaps remain', `exit ${cs}`);
   R(/file\s+recorded\s+probe\s+state/.test(out), 'prints one table with file, recorded, probe, state');
-  R(LAST_TWO.every((f) => new RegExp(`${f}\\s+no\\s+missing\\s+pending`).test(out)), 'the two unapplied files show pending');
+  R(new RegExp(`${LAST_TWO[0]}\\s+no\\s+present\\s+drift`).test(out), 'the hand pasted file shows drift');
+  R(new RegExp(`${LAST_TWO[1]}\\s+no\\s+missing\\s+pending`).test(out), 'the unapplied file shows pending');
   R(st.asked === 0 && !st.dumped() && (await historyOf(db)) === null, 'asks nothing, dumps nothing, writes nothing');
   R(fs.readFileSync(path.join(TMP, 'backups', 'migrate.log'), 'utf8').includes('\tstatus\t'), 'appends a line to migrate.log');
 
@@ -231,9 +217,9 @@ const historyOf = async (db) => {
   const rows = probes.computeRows({ files: probes.listMigrationFiles().filter((f) => probes.manifest[f]), history: [], present: {} });
   const manualFiles = rows.filter((r) => r.state === 'manual').map((r) => r.file);
   R(bl.asked === 1 && bl.dumped(), 'asked for the ref and dumped before writing');
-  R(hist && !LAST_TWO.some((f) => hist.includes(probes.versionOf(f))), 'never records a file whose probe is missing');
+  R(hist && !hist.includes(probes.versionOf(LAST_TWO[1])), 'never records a file whose probe is missing');
   R(hist && !manualFiles.some((f) => hist.includes(probes.versionOf(f))), 'never records a manual file');
-  R(hist && hist.includes('20260530000001'), 'records a retiredBy file whose later file is present');
+  R(hist && hist.includes(probes.versionOf(LAST_TWO[0])), 'records the drift file');
   R(cb === 1, 'exits 1: pending files remain', `exit ${cb}`);
   const backups = fs.readdirSync(path.join(TMP, 'backups')).filter((d) => d !== 'migrate.log');
   R(backups.length >= 1 && ['schema.sql', 'data.sql'].every((f) => fs.existsSync(path.join(TMP, 'backups', backups[0], f))),
@@ -244,26 +230,25 @@ const historyOf = async (db) => {
 
   // ------------------------------------------------------------ partial failure
   console.log('\nPush stops at a failing file and says where (AC-6)');
-  await db.exec('ALTER ROLE service_role RENAME TO service_role_gone;');
+  await db.exec('ALTER TABLE public.payments RENAME TO payments_gone;');
   const pf = makeSys(db);
   const cp = await runner.main([`--env-file=${goodEnv()}`], pf);
   const pfOut = pf.logs.join('\n');
   const hist2 = await historyOf(db);
   R(cp === 1, 'exits non zero', `exit ${cp}`);
-  R(hist2.includes('20260908000000') && !hist2.includes('20261001000000'), 'the first file landed and is recorded; the failing one is not');
-  R(/FAILED at 20261001000000_admin_migration_status\.sql/.test(pfOut), 'names the failed file');
-  R(/Postgres said: .*service_role/.test(pfOut), 'prints the Postgres error');
-  R(/supabase\/rollbacks\/20261001000000_admin_migration_status\.rollback\.sql/.test(pfOut), 'prints the rollback path, and does not run it');
-  R(/Landed: .*20260908000000/.test(pfOut), 'lists what landed');
-  await db.exec('ALTER ROLE service_role_gone RENAME TO service_role;');
+  R(!hist2.includes(probes.versionOf(LAST_TWO[1])), 'the failing file is not recorded');
+  R(new RegExp(`FAILED at ${LAST_TWO[1]}`).test(pfOut), 'names the failed file');
+  R(/Postgres said: .*payments/.test(pfOut), 'prints the Postgres error');
+  R(/No rollback file exists for it\.|Rollback, if you decide you need it/.test(pfOut), 'says whether a rollback exists, and does not run it');
+  await db.exec('ALTER TABLE public.payments_gone RENAME TO payments;');
 
   // ------------------------------------------------------------ happy push
   console.log('\nPush applies the rest and proves it (AC-5, AC-6)');
   const hp = makeSys(db);
   const ch = await runner.main([`--env-file=${goodEnv()}`], hp);
   const after = await historyOf(db);
-  const fn = (await db.query("SELECT to_regprocedure('public.admin_migration_status(jsonb)') IS NOT NULL AS ok")).rows[0].ok;
-  R(fn && after.includes('20261001000000'), '20261001000000 applied and recorded');
+  const pol = (await db.query("SELECT count(*)::int AS n FROM pg_policies WHERE policyname = 'payments_am_insert_own_campaign'")).rows[0].n;
+  R(pol === 1 && after.includes(probes.versionOf(LAST_TWO[1])), `${LAST_TWO[1]} applied and recorded`);
   R(/Push will apply/.test(hp.logs.join('\n')) &&
     hp.logs.findIndex((l) => /Push will apply/.test(l)) < hp.logs.findIndex((l) => /State after/.test(l)),
     'the plan is printed before the apply');
@@ -286,7 +271,7 @@ const historyOf = async (db) => {
   // the push, so a file the CLI had already applied and recorded ran again.
   console.log('\nThe fallback never repeats a file the CLI already landed (AC-6)');
   {
-    const db3 = await productionLike();
+    const db3 = await productionLike({ drift: false });
     await runner.main(['--baseline', `--env-file=${goodEnv()}`], makeSys(db3));
     const ps = makeSys(db3, { cliPush: 'partial403' });
     const c = await runner.main([`--env-file=${goodEnv()}`], ps);
@@ -302,7 +287,7 @@ const historyOf = async (db) => {
 
   console.log('\nA real SQL error is reported, not mistaken for the 403 (AC-6)');
   {
-    const db4 = await productionLike();
+    const db4 = await productionLike({ drift: false });
     await runner.main(['--baseline', `--env-file=${goodEnv()}`], makeSys(db4));
     const se = makeSys(db4, { cliPush: 'sqlerror' });
     const c = await runner.main([`--env-file=${goodEnv()}`], se);

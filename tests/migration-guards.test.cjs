@@ -3,7 +3,6 @@
 // Offline guards on supabase/migrations/ (spec 0001). No database, no network.
 //
 //   AC-1   only forward migration files live directly in supabase/migrations/
-//          (no rollbacks, no superseded files, no verify scripts)
 //   AC-2   probes.json has exactly one well formed entry per migration file
 //   AC-14  migrations dated 20261001000000 or later are expand only: no
 //          DROP TABLE / DROP COLUMN / RENAME TO / RENAME COLUMN unless the file
@@ -35,14 +34,7 @@ const sqlFiles = fs.readdirSync(MIG).filter((f) => f.toLowerCase().endsWith('.sq
 const strays = sqlFiles.filter((f) => !probes.MIGRATION_FILE_RE.test(f));
 R(strays.length === 0, 'every .sql file is named NNNNNNNNNNNNNN_name.sql', strays.join(', '));
 
-const SUPERSEDED = '20260821000001_client_creator_visibility.sql';
-R(!fs.existsSync(path.join(MIG, SUPERSEDED)), `${SUPERSEDED} is out of migrations/`,
-  'move it to supabase/superseded/ (20260822000005 supersedes it)');
-R(fs.existsSync(path.join(SUPA, 'superseded', SUPERSEDED)), 'it lives in supabase/superseded/');
-const supersededReadme = path.join(SUPA, 'superseded', 'README.md');
-R(fs.existsSync(supersededReadme) && /20260822000005/.test(fs.readFileSync(supersededReadme, 'utf8')),
-  'supabase/superseded/README.md points to 20260822000005');
-R(fs.existsSync(path.join(SUPA, 'verify', 'VERIFY_20260821.sql')), 'VERIFY_20260821.sql lives in supabase/verify/');
+R(fs.existsSync(path.join(SUPA, 'SETUP.sql')), 'supabase/SETUP.sql holds the schema the migrations build on');
 
 // --- AC-2 ---------------------------------------------------------------------
 console.log('\nAC-2: probes.json covers every migration file, exactly once');
@@ -110,9 +102,6 @@ console.log('\nAC-15: the runner is the documented apply path');
 
 const readme = fs.readFileSync(path.join(MIG, 'README.md'), 'utf8');
 R(/only way to apply to production: `npm run db:migrate`/.test(readme), 'supabase/migrations/README.md names npm run db:migrate as the only apply path');
-const applyDocs = fs.readdirSync(MIG).filter((f) => /^APPLY_.*\.md$/.test(f));
-const unmarked = applyDocs.filter((f) => !fs.readFileSync(path.join(MIG, f), 'utf8').startsWith('> **Historical.**'));
-R(unmarked.length === 0, `every APPLY_*.md (${applyDocs.length}) opens with a Historical marker`, unmarked.join(', '));
 const gitignore = fs.readFileSync(path.join(SUPA, '..', '.gitignore'), 'utf8');
 R(/^\.env\.migrate$/m.test(gitignore), '.env.migrate is gitignored');
 R(fs.existsSync(path.join(SUPA, '..', '.env.migrate.example')), '.env.migrate.example exists');

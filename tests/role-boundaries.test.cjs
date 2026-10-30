@@ -218,10 +218,10 @@ const ids = rows => new Set(rows.map(r => r.id));
   const FIXES = [
     { match: /N-10/, finding: 'N-10',
       why: "an AM reads every tenant's clients, campaigns and submissions",
-      migration: '20260822000005_tenant_policy_reset.sql' },
+      migration: 'supabase/SETUP.sql' },
     { match: /N-11/, finding: 'N-11',
       why: 'creator, client and anon all reach the payout RPC bodies',
-      migration: '20260821000000_payout_drift_and_authz.sql' },
+      migration: 'supabase/SETUP.sql' },
   ];
 
   if (openFindings.length) {
@@ -237,7 +237,6 @@ const ids = rows => new Set(rows.map(r => r.id));
       console.log(`    · ${fx.finding} — ${fx.why}`);
       console.log(`           fix: ${fx.migration}`);
     }
-    console.log('\n  Apply order and expected output: supabase/migrations/APPLY_20260822.md');
     console.log('  After applying, this suite should read 24 held · 0 open.');
 
     if (unexplained.length) {

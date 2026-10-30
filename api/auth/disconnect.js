@@ -8,10 +8,6 @@
 // Soft-delete: clears the stored tokens and flips connection_status to
 // 'disconnected'. The row stays, with its profile and history, for audit.
 // Only ever affects the caller's own row.
-//
-// F-3/F-13: this writes creator_social_accounts, not creator_tokens. The
-// legacy row is cleared too when one exists, best-effort — see the note on
-// access_token below.
 
 const { applyCors } = require('../_utils/cors');
 const { requireAuth } = require('../_utils/auth');
@@ -21,20 +17,6 @@ const { SUPPORTED_PLATFORMS } = require('../_utils/oauth');
 const { storagePlatform, PLATFORMS } = require('../_utils/socialAccounts');
 const { revokeToken } = require('../_utils/tiktok');
 
-// creator_tokens.access_token is NOT NULL in production until migration
-// 20260822000002 drops it, so a plain null-out fails with 23502. Try the clean
-// version first and fall back to the status flip so a disconnect never 500s on
-// a legacy row.
-async function clearLegacyRow(supabase, userId, platform) {
-  const base = { status: 'disconnected', last_error: null, updated_at: new Date().toISOString() };
-  const { error } = await supabase
-    .from('creator_tokens')
-    .update({ ...base, access_token: null, refresh_token: null, expires_at: null, refresh_expires_at: null })
-    .eq('user_id', userId)
-    .eq('platform', platform);
-  if (!error) return;
-  await supabase.from('creator_tokens').update(base).eq('user_id', userId).eq('platform', platform);
-}
 
 module.exports = async (req, res) => {
   if (applyCors(req, res)) return;
@@ -77,9 +59,7 @@ module.exports = async (req, res) => {
     }
 
     if (!account) {
-      // Nothing existed for that user+platform. Still clear any legacy row, and
-      // report success — the UI gets a consistent "disconnected" state.
-      await clearLegacyRow(supabase, user.id, requested);
+      // Nothing existed for that user+platform; report success so the UI gets a consistent state.
       return sendOk(res, { platform, status: 'disconnected', wasConnected: false });
     }
 
@@ -105,8 +85,6 @@ module.exports = async (req, res) => {
       console.error('[disconnect] update failed:', error.message);
       return Errors.internal(res, 'Failed to disconnect');
     }
-
-    await clearLegacyRow(supabase, user.id, requested);
 
     return sendOk(res, { platform, status: 'disconnected', wasConnected: true });
   } catch (err) {

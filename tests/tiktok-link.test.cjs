@@ -228,7 +228,7 @@ function stubFetch(list) {
     send(b) { sent.body = JSON.parse(b); },
   });
   R(sent.status === 503 && sent.body.error.code === 'migration_missing' &&
-    sent.body.error.message.includes('20261023000000_tiktok_profile_links.sql'),
+    sent.body.error.message.includes('supabase/SETUP.sql'),
     'it answers 503 migration_missing naming the file', JSON.stringify(sent));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');

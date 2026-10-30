@@ -38,10 +38,7 @@ const { instagramAppCredentials } = require('../_utils/meta');
 const { evaluateConfig } = require('../_lib/configRules');
 const migrationProbes = require('../_lib/migrationProbes');
 
-const STATUS_MIGRATION = migrationProbes.STATUS_MIGRATION;
-
-// PostgREST answers PGRST202 when the function is not in its schema cache,
-// which here means 20261001000000 has not been applied yet.
+// PostgREST answers PGRST202 when admin_migration_status() is not in its schema cache.
 async function readMigrations(supabase) {
   const { data, error } = await supabase.rpc('admin_migration_status', {
     probes: migrationProbes.probePayload(),
@@ -53,7 +50,7 @@ async function readMigrations(supabase) {
       available: false,
       code: error.code || null,
       hint: missingFn
-        ? `Migration status is unavailable until supabase/migrations/${STATUS_MIGRATION} is applied (npm run db:migrate).`
+        ? 'Migration status is unavailable until supabase/SETUP.sql is applied.'
         : `Migration status could not be read: ${error.message}`,
       rows: [],
       summary: null,

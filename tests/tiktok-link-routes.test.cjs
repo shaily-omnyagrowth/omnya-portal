@@ -293,7 +293,7 @@ const daysAgo = (d) => new Date(Date.now() - d * 86400000).toISOString();
   db.failNext = { table: 'creator_social_accounts', code: '42703' };
   r = await call(save, { token: A.token, body: { handle: 'some.creator' } });
   R(r.statusCode === 503 && r.body.error.code === 'migration_missing' &&
-    r.body.error.message.includes('20261023000000'), 'an unapplied migration is 503 migration_missing naming the file');
+    r.body.error.message.includes('supabase/SETUP.sql'), 'an unapplied migration is 503 migration_missing naming the file');
 
   // =========================================================================
   console.log('\nreview -- AC-5, AC-6');

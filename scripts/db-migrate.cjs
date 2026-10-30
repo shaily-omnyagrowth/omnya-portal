@@ -384,8 +384,7 @@ async function main(argv, sys = defaultSys()) {
     } else {
       const drift = before.rows.filter((r) => r.state === 'drift');
       if (drift.length) {
-        // `db push --include-all` would run these again. Some are not safe to
-        // repeat (20260530000001 would bring back the unguarded payout RPCs).
+        // `db push --include-all` would run these again.
         throw new Refusal(`${drift.length} file(s) are present but unrecorded (drift). Run npm run db:migrate -- --baseline first, so push does not run them again.`);
       }
       targets = before.rows.filter((r) => !r.recorded).map((r) => r.file);

@@ -1,10 +1,5 @@
-// supabase/migrations/__tests__/migration-status.test.cjs
+// admin_migration_status() and the shared evaluator in api/_lib/migrationProbes.js:
 //
-// Acceptance for 20261001000000_admin_migration_status.sql and the shared
-// evaluator in api/_lib/migrationProbes.js (spec 0001, AC-4,
-// AC-7), against a real PostgreSQL engine (PGlite).
-//
-//   1. the file applies, is idempotent, and is one transaction
 //   2. only service_role may execute it (authenticated and anon are refused)
 //   3. every probe kind answers present AND missing correctly
 //   4. the RPC and the runner's query (lifted from the same file) agree
@@ -15,23 +10,9 @@
 //
 //   node supabase/migrations/__tests__/migration-status.test.cjs
 
-const fs = require('fs');
 const path = require('path');
-
-let PGlite;
-try {
-  ({ PGlite } = require('@electric-sql/pglite'));
-} catch {
-  console.error('SKIP: @electric-sql/pglite is not installed.  npm i -D @electric-sql/pglite');
-  process.exit(0);
-}
-
+const { freshDb, read, MIG } = require('./db.cjs');
 const probes = require('../../../api/_lib/migrationProbes');
-
-const S = __dirname;
-const MIG = path.join(__dirname, '..');
-const FILE = '20261001000000_admin_migration_status.sql';
-const read = (p) => fs.readFileSync(p, 'utf8');
 
 let pass = 0, fail = 0;
 const R = (ok, label, detail) => {
@@ -83,26 +64,8 @@ function payloadFor() {
 const one = async (db, sql, params) => (await db.query(sql, params)).rows[0];
 
 (async () => {
-  console.log('\n' + FILE);
-  const sql = read(path.join(MIG, FILE));
-
-  R(/^\s*BEGIN;/m.test(sql) && /^\s*COMMIT;\s*$/m.test(sql), 'is wrapped in BEGIN; ... COMMIT; (README rule)');
-  R(/NOTIFY pgrst, 'reload schema';/.test(sql), 'reloads the PostgREST schema cache');
-
-  const db = await PGlite.create();
-  await db.exec(read(S + '/fixture_schema.sql'));
-
-  try {
-    await db.exec(sql);
-    await db.exec(sql);
-    R(true, 'applies, and applies again (idempotent)');
-  } catch (e) {
-    R(false, 'applies, and applies again (idempotent)', e.message.slice(0, 160));
-    process.exit(1);
-  }
-
-  const rollback = path.join(MIG, '..', 'rollbacks', FILE.replace(/\.sql$/, '.rollback.sql'));
-  R(fs.existsSync(rollback), 'has a rollback in supabase/rollbacks/');
+  console.log('\nadmin_migration_status');
+  const db = await freshDb({ migrations: false });
 
   await db.exec(SETUP);
   const payload = payloadFor();
@@ -222,36 +185,21 @@ const one = async (db, sql, params) => (await db.query(sql, params)).rows[0];
   // unapplied). A probe that is missing after the whole chain is a wrong
   // object name, and would leave its file pending forever.
   console.log('\n  --- probes.json against SETUP + every migration ---');
-  const chainSrc = read(path.join(S, 'full-chain.test.cjs'));
-  const BOOT = chainSrc.match(/const BOOTSTRAP = `([\s\S]*?)`;/)[1];
-  // The runbook order, then every later file in filename order.
-  const ORDER = [...chainSrc.match(/const ORDER = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+\.sql)'/g)].map((x) => x[1]);
   const files = probes.listMigrationFiles().filter((f) => probes.manifest[f]);
-  const chain = [...ORDER.filter((f) => files.includes(f)), ...files.filter((f) => !ORDER.includes(f))];
   const realPayload = JSON.stringify(probes.probePayload());
-
-  const setupSql = read(path.join(MIG, '..', 'SETUP.sql'));
-  // SETUP embeds some migrations verbatim and names them in its
-  // header. On a database built from it those files really did run, so their
-  // probes reading present there is the truth (baseline records them).
-  const embedded = new Set([...setupSql.slice(0, 3000).matchAll(/\((\d{14}_[a-z0-9_]+\.sql)\)/g)].map((x) => x[1]));
-
-  const chainDb = await PGlite.create();
-  await chainDb.exec(BOOT);
-  await chainDb.exec(setupSql);
+  const chainDb = await freshDb({ migrations: false });
   const before = (await chainDb.query(probes.probeSelectSql(), [realPayload])).rows;
-  const early = before.filter((r) => r.present && !embedded.has(r.file)).map((r) => r.file);
-  R(early.length === 0, `no probe is satisfied by the base schema alone (except the ${embedded.size} files SETUP embeds)`,
-    early.join(', '));
+  const early = before.filter((r) => r.present).map((r) => r.file);
+  R(early.length === 0, 'no probe is satisfied by SETUP.sql alone', early.join(', '));
 
   let halted = null;
-  for (const f of chain) {
+  for (const f of files) {
     try { await chainDb.exec(read(path.join(MIG, f))); } catch (e) { halted = `${f}: ${e.message.slice(0, 100)}`; break; }
   }
-  R(!halted, `the chain applies (${chain.length} files)`, halted || '');
+  R(!halted, `every migration applies on SETUP.sql (${files.length} files)`, halted || '');
   const after = (await chainDb.query(probes.probeSelectSql(), [realPayload])).rows;
   const absent = after.filter((r) => !r.present).map((r) => r.file);
-  R(absent.length === 0, `every probe reads present after the chain (${after.length} probes)`, absent.join(', '));
+  R(absent.length === 0, `every probe reads present after them (${after.length} probes)`, absent.join(', '));
   await chainDb.close();
 
   console.log('\n  ' + pass + ' passed, ' + fail + ' failed\n');
