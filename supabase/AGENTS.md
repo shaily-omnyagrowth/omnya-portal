@@ -2,7 +2,7 @@
 
 ## Overview
 
-The database schema, RLS policies and `SECURITY DEFINER` functions. `SETUP.sql` is production as of 2026-10-30; later changes are migrations, applied with `npm run db:migrate`, so the live database can lag behind this folder.
+The database schema, RLS policies and `SECURITY DEFINER` functions. `SETUP.sql` is always the full current schema. Each change is also a migration for databases that already exist, and the live database can lag behind this folder until it's applied.
 
 ## Key files
 
@@ -23,6 +23,7 @@ npm run db:migrate -- --status                        # what production has appl
 ## Conventions
 
 - Name new files `YYYYMMDDHHMMSS_short_name.sql`, wrap the whole file in `BEGIN; … COMMIT;`, and add its `probes.json` entry.
+- Add every migration to `SETUP.sql` in the same PR. `tests/setup-sql.test.cjs` fails when a probe's object is missing from it.
 - Write migrations to be safe to run twice (`IF NOT EXISTS`, `CREATE OR REPLACE`, drop policy before create). The PGlite tests apply them twice.
 - RLS policies go through `current_user_role()` and helpers like `is_payment_manager()`. A policy for one tenant must test the row, not just the role (finding N-10).
 - When a migration adds a column the app reads, also update the migration hint the app shows (`MIGRATION_HINT` in `src/lib/db.js`, `isSchemaMissing` in `api/`).

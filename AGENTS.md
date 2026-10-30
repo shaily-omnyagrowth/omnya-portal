@@ -36,7 +36,7 @@ node tests/run-all.cjs                  # everything; exit 3 means blocked on a 
 
 - Roles come from `user_profiles.role` in the database, never from email or client input. Values: `owner`, `am` (stored as `account_manager`), `creator`, `client`, `pending`, `denied`. Normalize `account_manager` to `am` everywhere.
 - Anything privileged (service role key, money, user lifecycle, OAuth tokens) runs in `api/`, never in the browser. The browser only uses the anon key under RLS.
-- Every schema change is a new timestamped file in `supabase/migrations/`, wrapped in `BEGIN; … COMMIT;`. Code must expect that a migration may not be applied yet in production and say so (PostgREST `42703` / `PGRST204`) rather than fail generically.
+- Every schema change is a new timestamped file in `supabase/migrations/`, wrapped in `BEGIN; … COMMIT;`, and the same change goes into `supabase/SETUP.sql` in the same PR. Code must expect that a migration may not be applied yet in production and say so (PostgREST `42703` / `PGRST204`) rather than fail generically.
 - Writes must report when they did not happen: check `error` and ask for the row back (`.select()`), since RLS filtering returns zero rows, not an error.
 - Server only env vars never get a `REACT_APP_` prefix; only `REACT_APP_*` values are bundled into the browser.
 - Comments explain why, often citing an audit finding id (`N-10`, `F-3`). Keep those ids when editing nearby code.
@@ -47,7 +47,7 @@ node tests/run-all.cjs                  # everything; exit 3 means blocked on a 
 - `vercel.json` uses `cleanUrls`, so rewrite destinations must not end in `.html` or deep links 404. `tests/vercel-rewrites.test.cjs` guards this.
 - Preview deployments sit behind Vercel SSO, so automated checks against them get a login page.
 - The CSP in `vercel.json` only allows `connect-src` to Supabase. Any new browser side third party call must go through `api/`.
-- `supabase/SETUP.sql` is the schema as of 2026-10-30; `supabase/migrations/` holds every change since. A fresh project runs `SETUP.sql`, then `npm run db:migrate`.
+- `supabase/SETUP.sql` is always the full current schema, so a fresh project only needs that one file. `supabase/migrations/` holds the changes for databases that already exist.
 - `docs/guides/` holds the design context and the social OAuth setup guide.
 
 ## Agent skills

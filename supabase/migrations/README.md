@@ -1,8 +1,8 @@
 # Database migrations
 
-`supabase/SETUP.sql` is the production schema as of 2026-10-30. Every change after it is a new `YYYYMMDDHHMMSS_short_name.sql` file here, applied in filename order.
+`supabase/SETUP.sql` is always the full current schema. Every change is a new `YYYYMMDDHHMMSS_short_name.sql` file here, applied in filename order, and also goes into `SETUP.sql` in the same PR.
 
-A fresh project runs `SETUP.sql` once in the SQL editor, then `npm run db:migrate`.
+A fresh project runs `SETUP.sql` once in the SQL editor.
 
 ## The only way to apply to production: `npm run db:migrate`
 
