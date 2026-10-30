@@ -9,7 +9,7 @@ import EmptyState from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import Segmented from "../../ui/Segmented";
-import { DropZone, HowItWorks, PostedChoice } from "./submit/parts";
+import { DropZone, HowItWorks, LINK_HELP, LinkHelp, PostedChoice } from "./submit/parts";
 import { authedPost, linkPlatform, useConnectedPlatforms, useVerifyLink } from "./submit/useVerifyLink";
 import Select from "../../ui/Select";
 import { campaignPlatform, platformMeta } from "../../utils";
@@ -168,7 +168,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
             <div className="flex-between mb-12">
               <span className="form-label" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 0 }}>
                 Video
-                {uploadMode === "link" && (
+                {uploadMode === "link" && !(form.type === "Final" && LINK_HELP[platform]) && (
                   <button type="button" className="info-tip" aria-label="Which links work" data-tip={form.type === "Concept" ? "Loom, Google Drive or Frame.io links work." : platform === "Facebook" ? "Open the video in a browser and paste the link from the address bar." : `Paste the link to your ${platform || "posted"} video. App share links work too.`}>
                     <Icon icon={InformationCircleIcon} size={15} />
                   </button>
@@ -184,6 +184,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
                 <input id="video-link" className="form-input" inputMode="url" value={form.concept_link}
                   placeholder={form.type === "Final" && platform ? `Paste your ${platform} link` : "Paste a link to your draft"}
                   onChange={e => { set({ concept_link: e.target.value }); resetVerify(); }} />
+                {form.type === "Final" && LINK_HELP[platform] && <LinkHelp {...LINK_HELP[platform]} />}
               </div>
             )}
 

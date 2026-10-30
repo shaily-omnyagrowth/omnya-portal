@@ -80,3 +80,17 @@ export function PostedChoice({ value, onChange }) {
     </fieldset>
   );
 }
+
+export const LINK_HELP = {
+  Facebook: { format: "https://www.facebook.com/reel/1234567890", how: "Open the reel on facebook.com in a browser and copy the link from the address bar. Share links from the Facebook app won't work." },
+  Instagram: { format: "https://www.instagram.com/reel/ABC123xyz/", how: "Open the reel in Instagram, tap Share, then Copy link." },
+};
+
+export function LinkHelp({ format, how }) {
+  return (
+    <div className="form-hint" style={{ display: "grid", gap: 2, marginTop: 6 }}>
+      <span>Use your reel link: <span className="break-anywhere" style={{ color: "var(--ink2)" }}>{format}</span></span>
+      <span>{how}</span>
+    </div>
+  );
+}
