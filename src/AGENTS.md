@@ -2,30 +2,35 @@
 
 ## Overview
 
-The whole browser app: one Create React App bundle serving owners, account managers, creators and clients. Most screens live in `App.js`; larger dashboards are split into `pages/` and `components/` and lazy loaded so each role only downloads what it uses.
+The whole browser app: one Create React App bundle serving owners, account managers, creators and clients. Screens are lazy loaded per role from `app/routes.js`, so each role only downloads what it uses.
 
 ## Key files
 
 | File | Owns |
 |---|---|
-| `App.js` | Session, role resolution, `loadDB()`, the `navs` sidebar map plus `navsFor(role, caps)`, and the per role `if (page === "…")` render ladder near the bottom |
-| `supabaseClient.js` | The anon key client; throws if `REACT_APP_SUPABASE_URL` or `REACT_APP_SUPABASE_ANON_KEY` is missing |
-| `utils.js` | Shared formatters (`fmtMoney`, `fmtNum`, `fmtDate`), `platformMeta`, status badges |
-| `pages/` | Role dashboards (`ClientDashboard`, `CreatorDashboard`, `AnalyticsDashboard`), owner admin (`UserManagement`, `AuditHistory`, `SystemConfig`), `Legal`, the public `SharedCampaignReport` and `Landing` |
-| `components/PayoutManager.js`, `components/CreatorEarnings.js` | Money screens; every money action goes through `/api/*` |
-| `pages/CreatorConnections.js` | Social account connect and disconnect UI (OAuth starts in `api/auth/*`) |
+| `App.js` | Session gate, public routes (share report, legal), toaster and tooltip layer, then the shell and the routed page |
+| `app/` | `useSession` (auth and profile), `useWorkspace` (`loadDB`, background refresh), `nav.js` (page titles, grouped nav per role), `routes.js` (page per role and its skeleton), `Shell.js` and `Sidebar.js` |
+| `pages/<area>/` | Screens by area: `campaigns`, `clients`, `client` (the brand portal), `creator`, `money`, `people`, `review`, `owner`, `content`; plus `Settings`, `AuditHistory`, `SystemConfig`, `Legal`, `SharedCampaignReport`, `Landing` |
+| `components/` | Shared feature pieces: `UGCDashboardView`, `PostsGalleryView`, `CampaignProgressCard`, `payouts/*` behind `PayoutManager.js`, `earnings/*` behind `CreatorEarnings.js` |
+| `ui/` | Primitives: `Dialog`, `Alert`, `EmptyState` (+ `NoMatchRow`), `PageHeader`, `Tabs`, `Segmented`, `Select`, `TooltipLayer`, `Skeleton`, `charts` (`AreaChart`, `BarChart`, `Sparkline`, `ShareBars`), `Icon` |
+| `styles/` | `tokens.css` (colours, type, radii, motion), `base`, `components`, `shell`, `utilities` |
+| `lib/` | `db.js` (`updateRows`, `describeWriteError`), `api.js` (`callApi`) |
+| `utils.js` | Formatters (`fmtMoney`, `fmtNum`, `fmtCompactNum`, `fmtDate`, `EMPTY` is `--`), `platformMeta`, `calcPacing`, status badges |
 
 ## Conventions
 
-- No router. Navigation is a `page` string in state, mirrored to the URL with `history.pushState` and to `localStorage.last_page`. Adding a screen means a `navs` entry plus a branch in the render ladder for each role that sees it.
-- Wrap each rendered page in `<ErrorBoundary label="…">` and load heavy screens with `React.lazy`, as the existing pages do.
-- Browser writes go through `updateRows()` and errors through `describeWriteError()` in `App.js`. Server calls go through `callApi()`, which attaches the session bearer token and throws on `{ ok: false }`.
-- An owner can preview other roles with the role override select. Code that gates on role should use the resolved `role`, not `user.role`.
+- No router. Navigation is a `page` string mirrored to `?page=`. Adding a screen means an entry in `pages` in `app/nav.js`, a nav group item (or `hidden`), and a row in `routes.js` for each role.
+- Use the `ui/` primitives: `Select` instead of `<select>`, `Dialog` instead of overlays, `Alert` for inline errors, `EmptyState` with a next step, skeletons instead of spinners. Icon-only buttons need an `aria-label`; the tooltip layer shows it. Use `data-tip` for any other hover hint and `data-tip-side="right"` on the collapsed rail.
+- Feedback: action results are `gooeyToast` toasts (dark), load failures are an `Alert` with a retry action, and field errors stay inline.
+- Browser writes go through `updateRows()` or ask for the row back with `.select()`, since RLS filtering returns zero rows rather than an error. Server calls go through `callApi()`.
+- Comments say what a non-obvious block does in one line; audit ids (`N-18`) stay inline.
+- Code that gates on role uses the resolved `role`, not `user.role`, because owners can view the portal as another role.
 
 ## Gotchas
 
-- `App.js` starts with `/* eslint-disable */`; other files are linted, and `CI=true npm run build` fails on warnings there.
-- `npm start` does not serve `/api/*`. Use `node tests/lib/devServer.cjs` (port 3100) when a screen calls the API, or it will look broken when it is not.
+- `CI=true npm run build` fails on any lint warning.
+- `npm start` does not serve `/api/*`. Use `node tests/lib/devServer.cjs` (port 3100) when a screen calls the API.
 - Do not call third party hosts from the browser. The CSP blocks everything except Supabase.
+- On desktop the main panel (`.main`) is the scroll container, not the window. Sticky elements and scroll listeners must use it.
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
