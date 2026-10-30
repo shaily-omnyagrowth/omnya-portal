@@ -41,9 +41,6 @@ export default function UserManagement({ currentUser, onRefresh }) {
     <div className="content">
       <PageHeader title="Users" description="Every sign in account and its role. Deactivating signs someone out everywhere but keeps all of their records."
         actions={<button className="btn btn-primary" onClick={() => setCreate({ ...BLANK })}>Invite user</button>} />
-      {(a.counts.activeOwners ?? 0) <= 1 && !a.loading && (
-        <Alert tone="info" style={{ marginBottom: 16 }}>You're the only active owner. Make someone else an owner before you could ever be locked out.</Alert>
-      )}
       <div className="toolbar">
         <div className="chip-row">
           {[['all', 'All', a.counts.total], ['active', 'Active', a.counts.active], ['pending', 'Waiting for a role', a.counts.pending], ['deactivated', 'Deactivated', a.counts.deactivated]].map(([id, l, n]) => (
