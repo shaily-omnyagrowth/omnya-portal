@@ -5,7 +5,7 @@ const LANDING_HTML = `
     <header class="nav">
         <div class="wrap">
             <a class="mark" href="#top"><img class="ringmark"
-                    src="/landing/mark.webp"
+                    src="/landing/mark.webp" width="150" height="199"
                     alt="" aria-hidden="true">Omnya</a>
             <nav>
                 <a href="#work" class="hide-sm">Work</a>
@@ -31,7 +31,7 @@ const LANDING_HTML = `
                         <a class="btn ghost" href="#method">See the method</a>
                     </div>
                 </div>
-                <div class="ringwrap"><img id="ring"
+                <div class="ringwrap"><img id="ring" fetchpriority="high"
                         src="/landing/ring.webp"
                         alt="Omnya" width="760" height="1010"></div>
             </div>
@@ -194,7 +194,7 @@ const LANDING_HTML = `
                     </div>
                     <div class="spread">
                         <figure class="spreadfig">
-                            <img src="/landing/spread.webp"
+                            <img src="/landing/spread.webp" loading="lazy" decoding="async" width="1100" height="1391"
                                 alt="Nine posts from one account: three at 1.3M, 1.9M and 4.1M views, the next three at 1,323, 1,478 and 1,248">
                             <figcaption>One account, one creator, one format</figcaption>
                         </figure>
@@ -462,7 +462,7 @@ const LANDING_HTML = `
                 </div>
                 <div class="model">
                     <div>
-                        <h4>The shape</h4>
+                        <h3>The shape</h3>
                         <dl class="spec">
                             <div>
                                 <dt>Commercial model</dt>
@@ -495,7 +495,7 @@ const LANDING_HTML = `
                         </dl>
                     </div>
                     <div>
-                        <h4>How it starts</h4>
+                        <h3>How it starts</h3>
                         <div class="phase"><b>Before signing</b>
                             <p>We produce demo videos on your product at no cost. You see our work on your own thing
                                 before any money moves.</p>

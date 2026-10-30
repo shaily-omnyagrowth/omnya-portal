@@ -228,7 +228,7 @@ const LANDING_CSS = `
             --ground-2: #E6E6E3;
             --ink: #0B0B0C;
             --ink-soft: #55565A;
-            --ink-faint: #8A8B8F;
+            --ink-faint: #626468;
             --hairline: rgba(11, 11, 12, .15);
             --hairline-soft: rgba(11, 11, 12, .07);
             --chrome-hi: #F2F3F5;
@@ -1053,7 +1053,7 @@ const LANDING_CSS = `
         }
 
         .work .footnote {
-            color: #75787E;
+            color: #8B8E94;
             padding-inline: var(--pad);
             max-width: calc(var(--wrap) - var(--pad)*2);
             margin-inline: auto
@@ -1082,7 +1082,7 @@ const LANDING_CSS = `
             padding: 26px 0 26px 40px
         }
 
-        .model h4 {
+        .model h3 {
             font-family: var(--mono);
             font-size: 11px;
             font-weight: 500;
@@ -1552,7 +1552,7 @@ const LANDING_CSS = `
             font-weight: 500;
             letter-spacing: .13em;
             text-transform: uppercase;
-            color: #63666C;
+            color: #8B8E94;
             white-space: nowrap;
             transition: color .22s ease
         }
@@ -1674,7 +1674,7 @@ const LANDING_CSS = `
             font-weight: 500;
             letter-spacing: .12em;
             text-transform: uppercase;
-            color: #75787E;
+            color: #8B8E94;
             line-height: 1.4
         }
 

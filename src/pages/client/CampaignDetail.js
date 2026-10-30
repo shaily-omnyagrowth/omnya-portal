@@ -45,14 +45,14 @@ export default function CampaignDetail({ campaign, clientProfile, submissions, a
         <div className="min-w-0">
           <div className="flex-center gap-8 mb-4">{statusBadge(campaign.status)}<span className="fs-13 text-muted flex-center gap-4"><Icon icon={p.icon} size={14} />{campaign.format || p.name}</span></div>
           <h1 className="break-anywhere">{campaign.name}</h1>
-          <p>Started {fmtDate(campaign.start_date || campaign.created_at)} · {needed} videos planned</p>
+          <p>Started {fmtDate(campaign.start_date || campaign.created_at)} · {needed} {needed === 1 ? "video" : "videos"} planned</p>
         </div>
         {campaign.brief_url && <div className="page-actions"><a className="btn btn-secondary" href={campaign.brief_url} target="_blank" rel="noreferrer">Open the brief</a></div>}
       </header>
 
       <section className="card">
         <div className="flex-between mb-8">
-          <span className="camp-count"><strong>{subs.length}</strong> of {needed} videos delivered</span>
+          <span className="camp-count"><strong>{subs.length}</strong> of {needed} {needed === 1 ? "video" : "videos"} delivered</span>
           <span className="fs-13 fw-600 tnum">{pacing.deliveryPct}%</span>
         </div>
         <div className="progress-bar"><div className="progress-fill" style={{ width: `${Math.min(100, pacing.deliveryPct)}%`, background: pacing.deliveryPct >= 100 ? "var(--green)" : pacing.paceStatus === "behind" || pacing.paceStatus === "overdue" ? "var(--amber)" : "var(--ink)" }} /></div>

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building03Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { Archive02Icon, Building03Icon, Delete02Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
 import { describeWriteError } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
@@ -109,7 +109,7 @@ export default function ClientsPage({ isOwner, db, onRefresh, user }) {
               <tbody>
                 {page.map(c => (
                   <tr key={c.id} style={c.status === "Archived" ? { opacity: 0.6 } : undefined}>
-                    <td><button className="text-btn fw-600 truncate" style={{ textDecoration: "none", maxWidth: 260, display: "block", textAlign: "left" }} onClick={() => setViewId(c.id)}>{c.name}</button>{isOwner && c.contact_email && <span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{c.contact_name ? `${c.contact_name} · ` : ""}{c.contact_email}</span>}</td>
+                    <td><button className="text-btn fw-600 truncate" title={c.name} style={{ textDecoration: "none", maxWidth: 240, display: "block", textAlign: "left" }} onClick={() => setViewId(c.id)}>{c.name}</button>{isOwner && c.contact_email && <span className="fs-12 text-muted truncate" title={`${c.contact_name ? `${c.contact_name} · ` : ""}${c.contact_email}`} style={{ display: "block", maxWidth: 240 }}>{c.contact_name ? `${c.contact_name} · ` : ""}{c.contact_email}</span>}</td>
                     <td>{statusBadge(c.deal_type)}</td>
                     <td className="num">{c.videos_per_month ?? "--"}</td>
                     <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtMoney(c.budget)}</td>
@@ -117,10 +117,9 @@ export default function ClientsPage({ isOwner, db, onRefresh, user }) {
                     <td>{c.user_id ? <span className="badge badge-green">Linked</span> : <button className="btn btn-ghost btn-sm" onClick={() => open("link", c)}>Link account</button>}</td>
                     <td>{statusBadge(c.status)}</td>
                     <td className="num"><span className="flex gap-4" style={{ justifyContent: "flex-end" }}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => setViewId(c.id)}>Open</button>
-                      {isOwner && <button className="btn btn-ghost btn-sm" onClick={() => { setErr(""); setForm({ ...c }); }}>Edit</button>}
-                      {isOwner && (c.status === "Archived" ? <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setArchived(c, false)}>Restore</button> : <button className="btn btn-ghost btn-sm" onClick={() => open("archive", c)}>Archive</button>)}
-                      {isOwner && <button className="btn btn-ghost btn-sm" onClick={() => open("delete", c)}>Delete</button>}
+                      {isOwner ? <button className="btn btn-ghost btn-sm" onClick={() => { setErr(""); setForm({ ...c }); }}>Edit</button> : <button className="btn btn-ghost btn-sm" onClick={() => setViewId(c.id)}>Open</button>}
+                      {isOwner && (c.status === "Archived" ? <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setArchived(c, false)}>Restore</button> : <button className="btn btn-ghost btn-icon btn-sm" aria-label={`Archive ${c.name}`} onClick={() => open("archive", c)}><Icon icon={Archive02Icon} size={16} /></button>)}
+                      {isOwner && <button className="btn btn-ghost btn-icon btn-sm" aria-label={`Delete ${c.name}`} onClick={() => open("delete", c)}><Icon icon={Delete02Icon} size={16} /></button>}
                     </span></td>
                   </tr>
                 ))}

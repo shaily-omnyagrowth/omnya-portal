@@ -127,7 +127,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
                   const am = db.accountManagers.find(a => a.id === c.am_id);
                   return (
                     <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
-                      <td><span className="flex-center gap-12"><Avatar name={c.name} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 240 }}>{c.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 240 }}>{c.email}</span></span></span></td>
+                      <td><span className="flex-center gap-12"><Avatar name={c.name} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" title={c.name || "Unnamed"} style={{ display: "block", color: "var(--ink)", maxWidth: 240 }}>{c.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" title={c.email} style={{ display: "block", maxWidth: 240 }}>{c.email}</span></span></span></td>
                       <td>{am?.name || <span className="text-orange">Unassigned</span>}</td>
                       <td className="num">{c.weekly_rate ? fmtMoney(c.weekly_rate) : "--"}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{c.lastActive ? fmtRelativeTime(c.lastActive) : "Never"}</td>
@@ -155,7 +155,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
                 const archived = am.status === "Archived";
                 return (
                   <tr key={am.id} style={archived ? { opacity: 0.6 } : undefined}>
-                    <td><span className="flex-center gap-12"><Avatar name={am.name || am.email} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 260 }}>{am.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{am.email}</span></span></span></td>
+                    <td><span className="flex-center gap-12"><Avatar name={am.name || am.email} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" title={am.name || "Unnamed"} style={{ display: "block", color: "var(--ink)", maxWidth: 260 }}>{am.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" title={am.email} style={{ display: "block", maxWidth: 260 }}>{am.email}</span></span></span></td>
                     <td className="num">{assigned(am.id)}</td>
                     <td className="num">{Math.round(Number(am.commission_rate ?? 0.1) * 100)}%</td>
                     <td>{archived ? <span className="badge badge-gray" title={am.archive_reason || ""}>Archived</span> : statusBadge("Active")}</td>

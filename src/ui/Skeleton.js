@@ -14,8 +14,8 @@ export function SkeletonHeader({ actions = 1 }) {
   return (
     <div className="page-header" aria-hidden="true">
       <div style={{ flex: 1, minWidth: 0 }}>
-        <Skeleton w={220} h={30} style={{ marginBottom: 10, maxWidth: "70%" }} />
-        <Skeleton w={420} h={14} style={{ maxWidth: "90%" }} />
+        <Skeleton w={220} h={32} style={{ marginBottom: 8, maxWidth: "70%" }} />
+        <Skeleton w={420} h={18} style={{ maxWidth: "90%" }} />
       </div>
       {actions > 0 && <div className="page-actions">{Array.from({ length: actions }, (_, i) => <Skeleton key={i} w={112} h={38} r={6} />)}</div>}
     </div>
@@ -28,8 +28,8 @@ export function SkeletonStats({ count = 4 }) {
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="stat-card">
           <Skeleton w="45%" h={13} />
-          <Skeleton w="60%" h={28} style={{ marginTop: 8 }} />
-          <Skeleton w="35%" h={11} style={{ marginTop: 9 }} />
+          <Skeleton w="60%" h={32} style={{ marginTop: 10 }} />
+          <Skeleton w="35%" h={11} style={{ marginTop: 12 }} />
         </div>
       ))}
     </div>
@@ -62,7 +62,15 @@ export function SkeletonTable({ rows = 6, cols = 5 }) {
   );
 }
 
-export function SkeletonCards({ count = 6, h = 168 }) {
+export function SkeletonToolbar() {
+  return <div className="toolbar" aria-hidden="true"><Skeleton w={320} h={36} r={6} style={{ maxWidth: "100%" }} /></div>;
+}
+
+export function SkeletonList({ count = 4, h = 140 }) {
+  return <div className="flex-col gap-12" aria-hidden="true">{Array.from({ length: count }, (_, i) => <div key={i} className="card" style={{ height: h }}><Skeleton w="40%" h={16} style={{ marginBottom: 10 }} /><SkeletonText lines={2} /></div>)}</div>;
+}
+
+export function SkeletonCards({ count = 6, h = 218 }) {
   return (
     <div className="grid-auto" aria-hidden="true">
       {Array.from({ length: count }, (_, i) => (
@@ -81,10 +89,10 @@ export function PageSkeleton({ variant = "dashboard" }) {
     <div className="content" role="status" aria-label="Loading">
       <SkeletonHeader actions={variant === "detail" ? 0 : 1} />
       {variant === "dashboard" && <><SkeletonStats /><SkeletonChart /><div style={{ height: 24 }} /><SkeletonTable rows={4} /></>}
-      {variant === "table" && <><SkeletonStats count={3} /><SkeletonTable rows={8} /></>}
-      {variant === "cards" && <SkeletonCards />}
-      {variant === "list" && <SkeletonTable rows={8} cols={4} />}
-      {variant === "detail" && <div className="grid-2"><SkeletonChart h={200} /><SkeletonChart h={200} /></div>}
+      {variant === "table" && <><SkeletonToolbar /><SkeletonTable rows={10} /></>}
+      {variant === "cards" && <><SkeletonToolbar /><SkeletonCards /></>}
+      {variant === "list" && <><SkeletonToolbar /><SkeletonList /></>}
+      {variant === "detail" && <div className="flex-col gap-16"><div className="card" style={{ height: 90 }} aria-hidden="true" /><SkeletonChart h={200} /></div>}
     </div>
   );
 }

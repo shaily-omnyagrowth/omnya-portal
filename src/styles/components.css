@@ -640,8 +640,8 @@ th.num .th-sort { margin-left: auto; }
   .table-wrap td:last-child { border-bottom: 0; }
   .table-wrap td::before { content: attr(data-label); flex-shrink: 0; color: var(--ink3); font-size: var(--fs-xs); text-align: left; }
   .table-wrap td[data-label=""]::before, .table-wrap td:first-child::before { display: none; }
-  .table-wrap td:first-child { justify-content: flex-start; text-align: left; padding-top: 10px; }
-  .table-wrap td:first-child .truncate { max-width: 72vw !important; }
+  .table-wrap td:first-child { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 2px; text-align: left; padding-top: 10px; }
+  .table-wrap td:first-child .truncate { max-width: 100% !important; white-space: normal; overflow-wrap: anywhere; }
   .table-wrap td[data-label=""] { justify-content: flex-end; }
   .table-wrap td[colspan] { justify-content: center; text-align: center; }
   .table-wrap td.num, .table-wrap th.num { text-align: right; }

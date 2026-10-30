@@ -67,7 +67,7 @@ export default function CreatorsPanel({ campaign, db, user, onRefresh }) {
           <div className="card flush" style={{ padding: "0 16px" }}>
             {applications.map(app => (
               <Person key={app.id || app.creator_id} c={db.creators.find(c => c.id === app.creator_id)}>
-                <span className="fs-12 text-muted desktop-only" style={{ alignSelf: "center" }}>{app.commitment || 1} videos</span>
+                <span className="fs-12 text-muted desktop-only" style={{ alignSelf: "center" }}>{app.commitment || 1} {(app.commitment || 1) === 1 ? "video" : "videos"}</span>
                 {app.demo_video_url && <a className="btn btn-ghost btn-sm" href={app.demo_video_url} target="_blank" rel="noreferrer">Sample<Icon icon={ArrowUpRight01Icon} size={14} /></a>}
                 <button className="btn btn-ghost btn-sm" disabled={busy === app.creator_id} onClick={() => review(app.creator_id, "Declined")}>Decline</button>
                 <button className="btn btn-primary btn-sm" disabled={busy === app.creator_id} onClick={() => review(app.creator_id, "Approved")}>Approve</button>

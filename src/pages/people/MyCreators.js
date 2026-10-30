@@ -141,7 +141,7 @@ export default function MyCreators({ user, db, onRefresh }) {
               <tbody>
                 {page.map(c => (
                   <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
-                    <td><span className="flex-center gap-12"><Avatar name={c.name} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 200 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 200 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
+                    <td><span className="flex-center gap-12"><Avatar name={c.name} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" title={c.name} style={{ display: "block", color: "var(--ink)", maxWidth: 200 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 200 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
                     <td>{c.archived_at ? <span className="badge badge-gray" title={c.archive_reason || ""}>Archived</span> : statusBadge(c.status)}</td>
                     <td className="num">{c.approved}</td>
                     <td className="num">{c.rate == null ? "--" : `${c.rate}%`}</td>
@@ -177,7 +177,7 @@ export default function MyCreators({ user, db, onRefresh }) {
             : pool.length === 0 ? <p className="fs-13 text-muted">Nobody is waiting for a manager right now.</p>
             : <div className="list-stack">{pool.map(c => (
               <div key={c.id} className="list-item">
-                <span style={{ minWidth: 0 }}><span className="fw-600 fs-13 truncate" style={{ display: "block" }}>{c.name || "Unnamed creator"}</span><span className="fs-12 text-muted">{[c.tiktok_handle && `TikTok @${c.tiktok_handle}`, c.instagram_handle && `Instagram @${c.instagram_handle}`].filter(Boolean).join(" · ") || "No handles yet"}</span></span>
+                <span style={{ minWidth: 0 }}><span className="fw-600 fs-13 truncate" title={c.name || "Unnamed creator"} style={{ display: "block" }}>{c.name || "Unnamed creator"}</span><span className="fs-12 text-muted">{[c.tiktok_handle && `TikTok @${c.tiktok_handle}`, c.instagram_handle && `Instagram @${c.instagram_handle}`].filter(Boolean).join(" · ") || "No handles yet"}</span></span>
                 <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => claim(c)}>Claim</button>
               </div>))}</div>}
         </Dialog>

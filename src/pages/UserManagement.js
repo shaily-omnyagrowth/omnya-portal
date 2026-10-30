@@ -64,8 +64,8 @@ export default function UserManagement({ currentUser, onRefresh }) {
                 return (
                   <tr key={u.id} style={off ? { opacity: 0.6 } : undefined}>
                     <td><span className="flex-center gap-12"><Avatar name={u.full_name || u.email} /><span style={{ minWidth: 0 }}>
-                      <span className="fw-600 truncate" style={{ display: 'block', color: 'var(--ink)', maxWidth: 220 }}>{u.full_name || u.email.split('@')[0]}{a.isSelf(u) && <span className="text-muted fw-500"> (you)</span>}</span>
-                      <span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 220 }}>{u.email}</span></span></span></td>
+                      <span className="fw-600 truncate" title={u.full_name || u.email} style={{ display: 'block', color: 'var(--ink)', maxWidth: 220 }}>{u.full_name || u.email.split('@')[0]}{a.isSelf(u) && <span className="text-muted fw-500"> (you)</span>}</span>
+                      <span className="fs-12 text-muted truncate" title={u.email} style={{ display: 'block', maxWidth: 220 }}>{u.email}</span></span></span></td>
                     <td><span className={`badge badge-${ROLE_TONE[u.role] || 'gray'}`}>{ROLE_LABEL[u.role] || u.role}</span>{u.role === 'pending' && u.requested_role && <div className="fs-12 text-muted mt-4">asked for {(ROLE_LABEL[u.requested_role] || u.requested_role).toLowerCase()}</div>}</td>
                     <td>{off ? <span className="badge badge-red" title={u.deactivation_reason || ''}>Deactivated</span> : <span className="badge badge-green">Active</span>}</td>
                     <td className="text-muted" style={{ whiteSpace: 'nowrap' }}>{linked ? <span data-tip={`Status: ${linked.status || 'not set'}`}>{u.linked_creator ? 'Creator profile' : u.linked_manager ? 'Manager profile' : 'Brand'}</span> : '--'}</td>
