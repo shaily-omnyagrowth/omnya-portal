@@ -199,6 +199,13 @@ async function upsertSocialAccount(supabase, fields) {
     .from('creator_social_accounts')
     .upsert(row, { onConflict: 'user_id,platform' });
 
+  // Keep the creator's displayed handle in step with the connected account.
+  const handleColumn = { tiktok: 'tiktok_handle', instagram: 'instagram_handle' }[platform];
+  if (!error && handleColumn && row.username) {
+    const { error: handleError } = await supabase.from('creators').update({ [handleColumn]: row.username }).eq('user_id', fields.userId);
+    if (handleError) console.warn(`[socialAccounts] ${handleColumn} not updated:`, handleError.message);
+  }
+
   return { error, platform };
 }
 

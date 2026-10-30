@@ -7,8 +7,6 @@ import PageHeader from "../ui/PageHeader";
 import { roleLabel } from "../app/nav";
 import Avatar from "../ui/Avatar";
 
-const clean = (h) => h.trim().replace(/^@+/, "");
-
 function Section({ title, desc, children, onSubmit, busy, dirty, err }) {
   return (
     <form className="settings-section" onSubmit={onSubmit} noValidate>
@@ -24,12 +22,11 @@ function Section({ title, desc, children, onSubmit, busy, dirty, err }) {
   );
 }
 
-export default function Settings({ user, db, setUser, onRefresh, onNavigate }) {
+export default function Settings({ user, db, setUser, onRefresh }) {
   const role = user?.role === "account_manager" ? "am" : user?.role;
   const creator = role === "creator" ? (db?.creators || []).find(c => c.user_id === user.id) : null;
 
   const [name, setName] = useState(user?.full_name || "");
-  const [handles, setHandles] = useState({ tiktok: creator?.tiktok_handle || "", instagram: creator?.instagram_handle || "" });
   const [pw, setPw] = useState({ next: "", confirm: "" });
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState({});
@@ -47,18 +44,6 @@ export default function Settings({ user, db, setUser, onRefresh, onNavigate }) {
     setBusy("");
     setUser?.(prev => ({ ...prev, full_name: full }));
     toast.success("Profile saved");
-    onRefresh?.();
-  };
-
-  const saveHandles = async (e) => {
-    e.preventDefault();
-    setBusy("handles"); setErr({});
-    const patch = { tiktok_handle: clean(handles.tiktok) || null, instagram_handle: clean(handles.instagram) || null };
-    const { data, error } = await supabase.from("creators").update(patch).eq("id", creator.id).select("id");
-    setBusy("");
-    if (error || !data?.length) return fail("handles", error ? describeWriteError(error) : "Your handles weren't saved. You may not have permission to edit this creator profile.");
-    setHandles({ tiktok: patch.tiktok_handle || "", instagram: patch.instagram_handle || "" });
-    toast.success("Handles saved");
     onRefresh?.();
   };
 
@@ -93,16 +78,6 @@ export default function Settings({ user, db, setUser, onRefresh, onNavigate }) {
         <div className="form-group"><label className="form-label" htmlFor="st-email">Email</label><input id="st-email" className="form-input" value={user?.email || ""} disabled /><span className="form-hint">To change the email you sign in with, contact hello@omnyagrowth.com.</span></div>
       </Section>
 
-      {creator && (
-        <Section title="Creator profile" desc="The handles your account manager uses to find your posts." onSubmit={saveHandles} busy={busy === "handles"}
-          dirty={clean(handles.tiktok) !== (creator.tiktok_handle || "") || clean(handles.instagram) !== (creator.instagram_handle || "")} err={err.handles}>
-          <div className="form-row">
-            <div className="form-group"><label className="form-label" htmlFor="st-tt">TikTok handle</label><input id="st-tt" className="form-input" placeholder="@yourname" value={handles.tiktok} onChange={e => setHandles({ ...handles, tiktok: e.target.value })} autoCapitalize="none" spellCheck={false} /></div>
-            <div className="form-group"><label className="form-label" htmlFor="st-ig">Instagram handle</label><input id="st-ig" className="form-input" placeholder="@yourname" value={handles.instagram} onChange={e => setHandles({ ...handles, instagram: e.target.value })} autoCapitalize="none" spellCheck={false} /></div>
-          </div>
-          <p className="fs-13 text-muted mb-16">Payout details live on <button type="button" className="text-btn" onClick={() => onNavigate?.("payout-manager")}>Payments</button>, and connected accounts on <button type="button" className="text-btn" onClick={() => onNavigate?.("social-connections")}>Social channels</button>.</p>
-        </Section>
-      )}
 
       <Section title="Password" desc="You stay signed in on this device after changing it." onSubmit={savePassword} busy={busy === "password"} dirty={!!pw.next} err={err.password}>
         <input type="email" autoComplete="username" value={user?.email || ""} readOnly hidden />

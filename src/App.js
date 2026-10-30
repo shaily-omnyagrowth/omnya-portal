@@ -19,7 +19,6 @@ import Spinner from "./ui/Spinner";
 
 const Landing = React.lazy(() => import("./pages/Landing"));
 const SharedCampaignReport = React.lazy(() => import("./pages/SharedCampaignReport"));
-const SQLSetupModal = React.lazy(() => import("./pages/owner/SQLSetupModal"));
 
 const pageFromUrl = () => (new URLSearchParams(window.location.search).get("page") || "").toLowerCase();
 
@@ -63,7 +62,6 @@ function Frame({ children, footer = false }) {
 export default function App() {
   const path = window.location.pathname.toLowerCase().replace(/\/+$/, "") || "/";
   const [page, setPage] = useState(() => pageFromUrl() || localStorage.getItem("last_page") || "dashboard");
-  const [showSQL, setShowSQL] = useState(false);
   const resetPage = useCallback(() => setPage("dashboard"), []);
 
   const session = useSession({ resetPage });
@@ -129,11 +127,10 @@ export default function App() {
   };
 
   const renderPage = () => {
-    if (ws.error && !showSQL) {
+    if (ws.error) {
       return (
         <div className="content">
           <ErrorMsg msg={ws.error} onRetry={ws.loadDB} />
-          {role === "owner" && <button className="btn btn-secondary btn-sm mt-12" onClick={() => setShowSQL(true)}>View database setup SQL</button>}
         </div>
       );
     }
@@ -165,7 +162,6 @@ export default function App() {
       >
         {renderPage()}
       </Shell>
-      {showSQL && role === "owner" && <React.Suspense fallback={null}><SQLSetupModal onClose={() => setShowSQL(false)} /></React.Suspense>}
     </>
   );
 }

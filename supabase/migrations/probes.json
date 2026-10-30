@@ -22,5 +22,10 @@
     "label": "Rate limits stored in Postgres",
     "kind": "function",
     "signature": "public.rate_limit_hit(text,integer)"
+  },
+  "20261030160000_single_owner.sql": {
+    "label": "Only approved emails can be owners",
+    "kind": "function",
+    "signature": "public.guard_owner_role()"
   }
 }

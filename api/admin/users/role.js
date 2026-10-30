@@ -133,6 +133,7 @@ module.exports = async (req, res) => {
     });
   } catch (err) {
     console.error('[admin/users/role] Error:', err.message);
+    if (err.code === '42501') return Errors.forbidden(res, 'Only an approved owner email can have the owner role.');
     return Errors.internal(res, err.message);
   }
 };
