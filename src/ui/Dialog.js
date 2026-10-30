@@ -8,11 +8,11 @@ export default function Dialog({ open = true, onClose, title, description, child
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
+    if (open && !d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
+    if (!open && d.open) { if (d.close) d.close(); else d.removeAttribute("open"); }
   }, [open]);
 
-  useEffect(() => () => { if (ref.current?.open) ref.current.close(); }, []);
+  useEffect(() => () => { const d = ref.current; if (d?.open && d.close) d.close(); }, []);
 
   const close = () => { if (dismissable) onClose?.(); };
 

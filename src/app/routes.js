@@ -77,7 +77,7 @@ export function routeFor(role, page, ctx) {
       revenue: [P.RevenueAnalytics, { ...common, isOwner: true }, "table"],
       "creator-performance": [P.CreatorPerformance, { ...common, isOwner: true }, "table"],
       "payout-manager": [P.PayoutManager, {}, "table"],
-      team: [P.TeamPerformance, { db, onRefresh: loadDB }, "table"],
+      team: [P.TeamPerformance, { db, onRefresh: loadDB, onNavigate: setPage }, "table"],
       "pending-users": [P.PendingUsers, { onRefresh: loadDB }, "list"],
       "user-management": [P.UserManagement, { currentUser: user, onRefresh: loadDB }, "table"],
       audit: [P.AuditHistory, {}, "list"],

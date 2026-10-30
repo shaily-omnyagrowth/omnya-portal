@@ -1,496 +1,220 @@
 import { useMemo, useState } from "react";
+import { Search01Icon } from "@hugeicons/core-free-icons";
+import { gooeyToast as toast } from "goey-toast";
 import { callApi } from "../../lib/api";
 import { updateRows } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
-import { fmtRelativeTime, statusBadge } from "../../utils";
+import Alert from "../../ui/Alert";
+import Dialog from "../../ui/Dialog";
+import Icon from "../../ui/Icon";
+import PageHeader from "../../ui/PageHeader";
+import Tabs from "../../ui/Tabs";
+import { fmtMoney, fmtRelativeTime, getInitials, statusBadge } from "../../utils";
 
-// CREATORS MANAGE - OWNER VIEW TO MANAGE ALL CREATORS & AMs
-// ============================================================
+const PAYMENT_METHODS = ["PayPal", "Venmo", "Zelle", "Bank Transfer", "Cash App", "Crypto"];
+const FILTERS = [["all", "All"], ["active", "Active"], ["paused", "Paused"], ["archived", "Archived"]];
+
+function ArchiveDialog({ title, body, busy, onClose, onConfirm }) {
+  const [reason, setReason] = useState("");
+  return (
+    <Dialog size="sm" title={title} description={body} onClose={onClose}
+      actions={<><button className="btn btn-secondary" onClick={onClose}>Cancel</button><button className="btn btn-danger" disabled={busy || !reason.trim()} onClick={() => onConfirm(reason.trim())}>{busy ? "Archiving…" : "Archive"}</button></>}>
+      <div className="form-group"><label className="form-label" htmlFor="archive-reason">Reason</label><input id="archive-reason" className="form-input" value={reason} onChange={e => setReason(e.target.value)} placeholder="Left the agency" autoFocus /></div>
+      <p className="fs-12 text-muted">To stop them signing in as well, deactivate their account in Users.</p>
+    </Dialog>
+  );
+}
+
 export default function CreatorsManage({ db, onRefresh, user }) {
   const [tab, setTab] = useState("creators");
   const [editCreator, setEditCreator] = useState(null);
   const [editAM, setEditAM] = useState(null);
-  const [saving, setSaving] = useState(false);
-  // §6.1 "Manage creators, Account Managers and clients". Account Managers
-  // could previously only be edited — never created, never removed. Creating
-  // one goes through /api/admin/users/create because it needs an auth account
-  // as well as an account_managers row; without both, the manager exists in
-  // the assignment dropdown but cannot sign in.
-  const [showCreateAM, setShowCreateAM] = useState(false);
-  const [amForm, setAmForm] = useState({ email: "", fullName: "" });
-  const [amBusy, setAmBusy] = useState(false);
-  const [amMsg, setAmMsg] = useState({ type: "", text: "" });
-  const [archiveAMTarget, setArchiveAMTarget] = useState(null);
-  const [archiveAMReason, setArchiveAMReason] = useState("");
-  const [archiveCreatorTarget, setArchiveCreatorTarget] = useState(null);
-  const [archiveCreatorReason, setArchiveCreatorReason] = useState("");
-  const [creatorMsg, setCreatorMsg] = useState({ type: "", text: "" });
+  const [newAM, setNewAM] = useState(null);
+  const [archiveTarget, setArchiveTarget] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("active");
+  const [sort, setSort] = useState("lastActive");
 
-  const createAM = async () => {
-    setAmBusy(true);
-    setAmMsg({ type: "", text: "" });
-    try {
-      const data = await callApi("/api/admin/users/create", {
-        body: {
-          email: amForm.email.trim(),
-          fullName: amForm.fullName.trim(),
-          role: "am",
-          sendInvite: true,
-        },
-      });
-      setAmMsg({ type: "success", text: data.message });
-      setAmForm({ email: "", fullName: "" });
-      setShowCreateAM(false);
-      await onRefresh();
-    } catch (err) {
-      setAmMsg({ type: "error", text: err.message });
-    } finally {
-      setAmBusy(false);
-    }
+  const creators = useMemo(() => db.creators.map(c => {
+    const times = db.submissions.filter(s => s.creator_id === c.id).map(s => new Date(s.created_at || s.approved_date).getTime()).filter(t => !isNaN(t));
+    return { ...c, lastActive: times.length ? Math.max(...times) : null };
+  }), [db.creators, db.submissions]);
+  const match = (c, f) => f === "all" || (f === "active" && !c.archived_at && c.status === "Active") || (f === "paused" && !c.archived_at && c.status === "Paused") || (f === "archived" && !!c.archived_at);
+  const shown = creators.filter(c => match(c, filter) && (!search.trim() || `${c.name} ${c.email} ${c.tiktok_handle || ""} ${c.instagram_handle || ""}`.toLowerCase().includes(search.toLowerCase())))
+    .sort((a, b) => sort === "name" ? (a.name || "").localeCompare(b.name || "") : sort === "rate" ? Number(b.weekly_rate || 0) - Number(a.weekly_rate || 0) : (b.lastActive || 0) - (a.lastActive || 0));
+
+  const done = (msg) => { toast.success(msg); setErr(""); onRefresh(); };
+
+  // Archive, not delete: assignments and history keep their references (§7.2, 20260825000000).
+  const setArchived = async (kind, row, archived, reason = "") => {
+    setBusy(true);
+    const stamp = archived ? { archived_at: new Date().toISOString(), archived_by: user?.id || null, archive_reason: reason } : { archived_at: null, archived_by: null, archive_reason: null };
+    const patch = kind === "am" ? { status: archived ? "Archived" : "Active", ...stamp } : stamp;
+    const { data, error } = await supabase.from(kind === "am" ? "account_managers" : "creators").update(patch).eq("id", row.id).select("id");
+    setBusy(false);
+    if (error || !data?.length) return toast.error(`${row.name || row.email} wasn't ${archived ? "archived" : "restored"}`, { description: error ? error.message : "You may not have permission." });
+    setArchiveTarget(null);
+    done(`${row.name || row.email} ${archived ? "archived" : "restored"}`);
   };
 
-  // Archive, not delete: creators point at their AM through am_id, and
-  // removing the row would orphan every one of those assignments (§7.2 —
-  // "Removal/deactivation must preserve historical references").
-  //
-  // archived_at is independent of status: status keeps governing day-to-day
-  // (Active/Paused/Offboarded), archived_at is the sole soft-delete signal —
-  // see 20260825000000_creator_submission_archival.sql.
-  const setCreatorArchived = async (creator, archived, reason) => {
-    setSaving(true);
-    setCreatorMsg({ type: "", text: "" });
-
-    const patch = archived
-      ? {
-          archived_at: new Date().toISOString(),
-          archived_by: user?.id || null,
-          archive_reason: (reason || "").trim(),
-        }
-      : { archived_at: null, archived_by: null, archive_reason: null };
-
-    const { data, error } = await supabase
-      .from("creators").update(patch).eq("id", creator.id).select("id");
-
-    if (error || !data || data.length === 0) {
-      setCreatorMsg({
-        type: "error",
-        text: error ? `Could not save: ${error.message}`
-                    : "That creator was not updated — you may not have permission.",
-      });
-      setSaving(false);
-      return;
-    }
-
-    setArchiveCreatorTarget(null);
-    setArchiveCreatorReason("");
-    await onRefresh();
-    setSaving(false);
+  const saveCreator = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    const c = editCreator;
+    const error = await updateRows("creators", {
+      name: c.name, tiktok_handle: c.tiktok_handle, instagram_handle: c.instagram_handle, weekly_rate: Number(c.weekly_rate || 0),
+      videos_per_week: Number(c.videos_per_week || 0), payment_method: c.payment_method, payment_handle: c.payment_handle, status: c.status, am_id: c.am_id || null,
+    }, { id: c.id });
+    setBusy(false);
+    if (error) return setErr(error);
+    setEditCreator(null); done(`${c.name} saved`);
   };
 
-  const setAMArchived = async (am, archived, reason) => {
-    setSaving(true);
-    setAmMsg({ type: "", text: "" });
-
-    const patch = archived
-      ? {
-          status: "Archived",
-          archived_at: new Date().toISOString(),
-          archived_by: user?.id || null,
-          archive_reason: (reason || "").trim(),
-        }
-      : { status: "Active", archived_at: null, archived_by: null, archive_reason: null };
-
-    const { data, error } = await supabase
-      .from("account_managers").update(patch).eq("id", am.id).select("id");
-
-    if (error || !data || data.length === 0) {
-      setAmMsg({
-        type: "error",
-        text: error ? `Could not save: ${error.message}`
-                    : "That manager was not updated — you may not have permission.",
-      });
-      setSaving(false);
-      return;
-    }
-
-    setArchiveAMTarget(null);
-    setArchiveAMReason("");
-    await onRefresh();
-    setSaving(false);
-  };
-
-  // Both of these closed their modal whatever happened. commission_rate in
-  // particular is a figure the owner comes back to change, and a refused write
-  // looked exactly like a saved one until the next reload undid it.
-  const saveCreator = async () => {
-    setSaving(true);
-    setCreatorMsg({ type: "", text: "" });
-    const err = await updateRows("creators", {
-      name: editCreator.name,
-      tiktok_handle: editCreator.tiktok_handle,
-      instagram_handle: editCreator.instagram_handle,
-      weekly_rate: Number(editCreator.weekly_rate||0),
-      videos_per_week: Number(editCreator.videos_per_week||0),
-      payment_method: editCreator.payment_method,
-      payment_handle: editCreator.payment_handle,
-      status: editCreator.status,
-      am_id: editCreator.am_id||null,
-    }, { id: editCreator.id });
-    if (err) { setCreatorMsg({ type: "error", text: `Could not save ${editCreator.name}: ${err}` }); setSaving(false); return; }
-    await onRefresh();
-    setEditCreator(null);
-    setSaving(false);
-  };
-
-  const saveAM = async () => {
+  const saveAM = async (e) => {
+    e.preventDefault();
     const rate = Number(editAM.commission_rate);
-    if (!Number.isFinite(rate) || rate < 0 || rate > 0.5) {
-      setAmMsg({ type: "error", text: "Commission rate has to be between 0 and 0.50 (that is, 0% to 50%)." });
-      return;
-    }
-    setSaving(true);
-    setAmMsg({ type: "", text: "" });
-    const err = await updateRows("account_managers", {
-      name: editAM.name,
-      email: editAM.email,
-      commission_rate: rate,
-    }, { id: editAM.id });
-    if (err) { setAmMsg({ type: "error", text: `Could not save ${editAM.name}: ${err}` }); setSaving(false); return; }
-    await onRefresh();
-    setEditAM(null);
-    setSaving(false);
+    if (!Number.isFinite(rate) || rate < 0 || rate > 0.5) return setErr("Commission has to be between 0% and 50%.");
+    setBusy(true);
+    const error = await updateRows("account_managers", { name: editAM.name, email: editAM.email, commission_rate: rate }, { id: editAM.id });
+    setBusy(false);
+    if (error) return setErr(error);
+    setEditAM(null); done(`${editAM.name} saved`);
   };
 
-  const [creatorSearch, setCreatorSearch] = useState("");
-  const [creatorStatusFilter, setCreatorStatusFilter] = useState("all");
-  const [creatorSortBy, setCreatorSortBy] = useState("lastActive");
+  // An AM needs a sign in account and an account_managers row, so creation goes through the API.
+  const createAM = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr("");
+    try {
+      const data = await callApi("/api/admin/users/create", { body: { email: newAM.email.trim(), fullName: newAM.fullName.trim(), role: "am", sendInvite: true } });
+      setNewAM(null);
+      toast.success("Account manager invited", { description: data.message || `${newAM.email.trim()} gets an email to set a password.` });
+      onRefresh();
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  const enrichedCreators = useMemo(() => {
-    return db.creators.map(c => {
-      const subs = db.submissions.filter(s => s.creator_id === c.id);
-      const dates = subs.map(s => new Date(s.created_at || s.approved_date).getTime()).filter(t => !isNaN(t));
-      const lastActiveTime = dates.length > 0 ? Math.max(...dates) : new Date(c.created_at).getTime();
-      return {
-        ...c,
-        lastActiveTime,
-        subCount: subs.length
-      };
-    }).filter(c => {
-      if (creatorSearch.trim()) {
-        const q = creatorSearch.toLowerCase();
-        const matchName = (c.name || "").toLowerCase().includes(q);
-        const matchEmail = (c.email || "").toLowerCase().includes(q);
-        const matchHandle = (c.tiktok_handle || "").toLowerCase().includes(q) || (c.instagram_handle || "").toLowerCase().includes(q);
-        if (!matchName && !matchEmail && !matchHandle) return false;
-      }
-      if (creatorStatusFilter === "active" && (c.archived_at || c.status !== "Active")) return false;
-      if (creatorStatusFilter === "paused" && c.status !== "Paused") return false;
-      if (creatorStatusFilter === "archived" && !c.archived_at) return false;
-      return true;
-    }).sort((a, b) => {
-      if (creatorSortBy === "name") return (a.name || "").localeCompare(b.name || "");
-      if (creatorSortBy === "rate") return Number(b.weekly_rate || 0) - Number(a.weekly_rate || 0);
-      return b.lastActiveTime - a.lastActiveTime;
-    });
-  }, [db.creators, db.submissions, creatorSearch, creatorStatusFilter, creatorSortBy]);
+  const assigned = (amId) => db.creators.filter(c => c.am_id === amId).length;
 
   return (
     <div className="content">
-      <div className="flex-center gap-8 mb-16">
-        {["creators","ams"].map(t=>(
-          <button key={t} className={`btn btn-sm ${tab===t?"btn-primary":"btn-ghost"}`} onClick={()=>setTab(t)}>
-            {t==="creators"?`Creators (${db.creators.length})`:`Account Managers (${db.accountManagers.length})`}
-          </button>
-        ))}
-      </div>
+      <PageHeader title="Creators" description="Every creator and account manager, who manages whom, and their rates. New creators join by signing up; approve them under Approvals."
+        actions={tab === "ams" && <button className="btn btn-primary" onClick={() => { setErr(""); setNewAM({ email: "", fullName: "" }); }}>Invite account manager</button>} />
+      <Tabs label="People" value={tab} onChange={setTab} tabs={[{ id: "creators", label: "Creators", count: db.creators.length }, { id: "ams", label: "Account managers", count: db.accountManagers.length }]} />
 
-      <div style={{ padding: '16px', background: 'var(--bg2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', marginBottom: '24px' }}>
-        <div className="flex-between">
-          <div style={{ fontSize: '13px', color: 'var(--ink2)' }}>
-            <strong>How to add users:</strong> Have your Creators or Account Managers create an account using this portal's URL. Once they sign up, they will appear in the <strong>Team / Roles</strong> tab where you can officially assign their status.
+      {tab === "creators" ? (
+        <>
+          <div className="toolbar">
+            <div className="chip-row">{FILTERS.map(([id, l]) => <button key={id} className="chip" aria-pressed={filter === id} onClick={() => setFilter(id)}>{l} <span className="text-muted">{creators.filter(c => match(c, id)).length}</span></button>)}</div>
+            <label className="toolbar-search" style={{ maxWidth: 300 }}><Icon icon={Search01Icon} size={16} /><span className="sr-only">Search creators</span><input className="form-input" type="search" placeholder="Search name, email or handle" value={search} onChange={e => setSearch(e.target.value)} /></label>
+            <label className="toolbar-field" style={{ marginLeft: "auto" }}><span className="sr-only">Sort</span><select className="select" value={sort} onChange={e => setSort(e.target.value)}><option value="lastActive">Recently active</option><option value="name">Name</option><option value="rate">Highest rate</option></select></label>
           </div>
-        </div>
-      </div>
-
-      {tab==="creators"&&(
-        <div className="premium-card" style={{ padding: 0 }}>
-          {/* Creators Filter Bar */}
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {[
-                ['all', `All (${db.creators.length})`],
-                ['active', 'Active'],
-                ['paused', 'Paused'],
-                ['archived', 'Archived']
-              ].map(([st, label]) => (
-                <button
-                  key={st}
-                  className={`btn btn-sm ${creatorStatusFilter === st ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ padding: '4px 10px', fontSize: 12 }}
-                  onClick={() => setCreatorStatusFilter(st)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <select
-                className="select"
-                value={creatorSortBy}
-                onChange={e => setCreatorSortBy(e.target.value)}
-                style={{ height: 32, fontSize: 12 }}
-              >
-                <option value="lastActive">Sort: Last Active</option>
-                <option value="name">Sort: Name (A-Z)</option>
-                <option value="rate">Sort: Highest Rate</option>
-              </select>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search creator, handle..."
-                value={creatorSearch}
-                onChange={e => setCreatorSearch(e.target.value)}
-                style={{ width: 180, height: 32, fontSize: 12 }}
-              />
-            </div>
-          </div>
-
-          {creatorMsg.text&&(
-            <div style={{
-              margin: '16px 20px 0',
-              background: creatorMsg.type==="error"?"rgba(192,57,43,0.08)":"rgba(26,122,74,0.08)",
-              border:`1px solid ${creatorMsg.type==="error"?"var(--red)":"var(--green)"}`,
-              borderRadius:"var(--radius-sm)",padding:"10px 14px",
-              fontSize:13,color:creatorMsg.type==="error"?"var(--red)":"var(--green)"
-            }}>{creatorMsg.text}</div>
-          )}
           <div className="table-wrap">
-            <table className="premium-table">
-              <thead><tr><th>Name</th><th>Email</th><th>Handles</th><th>Rate</th><th>AM</th><th>Last Active</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
+            <table>
+              <thead><tr><th>Creator</th><th>Manager</th><th className="num">Weekly rate</th><th>Last active</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
-                {enrichedCreators.map(c=>{
-                  const am = db.accountManagers.find(a=>a.id===c.am_id);
-                  const archived = !!c.archived_at;
+                {shown.map(c => {
+                  const am = db.accountManagers.find(a => a.id === c.am_id);
                   return (
-                    <tr key={c.id} style={archived?{opacity:0.62}:undefined}>
-                      <td className="fw-600">{c.name||"—"}</td>
-                      <td style={{fontSize:12,color:"var(--ink3)"}}>{c.email}</td>
-                      <td style={{fontSize:12}}>{c.tiktok_handle?"@"+c.tiktok_handle:""}{c.instagram_handle?" / @"+c.instagram_handle:""}</td>
-                      <td className="text-green">{c.weekly_rate?`$${c.weekly_rate}/wk`:"—"}</td>
-                      <td style={{fontSize:12}}>{am?.name||<span style={{color:"var(--orange)"}}>Unassigned</span>}</td>
-                      <td style={{fontSize:12, color: "var(--ink3)"}}>{fmtRelativeTime(c.lastActiveTime)}</td>
-                      <td>
-                        {archived?<span className="badge badge-gray">Archived</span>:statusBadge(c.status||"Active")}
-                        {archived&&c.archive_reason&&(
-                          <div style={{fontSize:11,color:"var(--ink3)",marginTop:3,maxWidth:200}}>{c.archive_reason}</div>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                          <button className="btn btn-sm btn-ghost" onClick={()=>setEditCreator({...c})}>Edit</button>
-                          {archived
-                            ? <button className="btn btn-sm btn-green" disabled={saving} onClick={()=>setCreatorArchived(c,false)}>Restore</button>
-                            : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} disabled={saving}
-                                      onClick={()=>{setArchiveCreatorTarget(c);setArchiveCreatorReason("");}}>Archive</button>}
-                        </div>
-                      </td>
+                    <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
+                      <td><span className="flex-center gap-12"><span className="avatar">{getInitials(c.name)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 240 }}>{c.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 240 }}>{c.email}</span></span></span></td>
+                      <td>{am?.name || <span className="text-orange">Unassigned</span>}</td>
+                      <td className="num">{c.weekly_rate ? fmtMoney(c.weekly_rate) : "–"}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{c.lastActive ? fmtRelativeTime(c.lastActive) : "Never"}</td>
+                      <td>{c.archived_at ? <span className="badge badge-gray" title={c.archive_reason || ""}>Archived</span> : statusBadge(c.status || "Active")}</td>
+                      <td className="num"><span className="flex gap-4" style={{ justifyContent: "flex-end" }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => { setErr(""); setEditCreator({ ...c }); }}>Edit</button>
+                        {c.archived_at ? <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setArchived("creator", c, false)}>Restore</button>
+                          : <button className="btn btn-ghost btn-sm" onClick={() => setArchiveTarget({ kind: "creator", row: c })}>Archive</button>}
+                      </span></td>
                     </tr>
                   );
                 })}
+                {shown.length === 0 && <tr><td colSpan={6} className="text-center text-muted" style={{ padding: 32 }}>No creators match.</td></tr>}
               </tbody>
             </table>
           </div>
-          {enrichedCreators.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>🎬</div><h3 style={{fontSize:18,marginBottom:8}}>No creators match filters</h3><p style={{color:"var(--ink3)"}}>Try adjusting your search or status filter.</p></div>}
+        </>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Account manager</th><th className="num">Creators</th><th className="num">Commission</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
+            <tbody>
+              {db.accountManagers.map(am => {
+                const archived = am.status === "Archived";
+                return (
+                  <tr key={am.id} style={archived ? { opacity: 0.6 } : undefined}>
+                    <td><span className="flex-center gap-12"><span className="avatar">{getInitials(am.name || am.email)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 260 }}>{am.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{am.email}</span></span></span></td>
+                    <td className="num">{assigned(am.id)}</td>
+                    <td className="num">{Math.round(Number(am.commission_rate ?? 0.1) * 100)}%</td>
+                    <td>{archived ? <span className="badge badge-gray" title={am.archive_reason || ""}>Archived</span> : statusBadge("Active")}</td>
+                    <td className="num"><span className="flex gap-4" style={{ justifyContent: "flex-end" }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => { setErr(""); setEditAM({ ...am }); }}>Edit</button>
+                      {archived ? <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setArchived("am", am, false)}>Restore</button>
+                        : <button className="btn btn-ghost btn-sm" onClick={() => setArchiveTarget({ kind: "am", row: am })}>Archive</button>}
+                    </span></td>
+                  </tr>
+                );
+              })}
+              {db.accountManagers.length === 0 && <tr><td colSpan={5} className="text-center text-muted" style={{ padding: 32 }}>No account managers yet. Invite one to start assigning clients and creators.</td></tr>}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {tab==="ams"&&(
-        <div className="premium-card">
-          <div className="flex-between mb-16" style={{flexWrap:"wrap",gap:10}}>
-            <div style={{fontSize:12,color:"var(--ink3)"}}>
-              Archiving keeps the manager's record so assignment history stays intact.
+      {editCreator && (
+        <Dialog size="lg" title={`Edit ${editCreator.name || "creator"}`} description={editCreator.email} onClose={() => setEditCreator(null)}
+          actions={<><button className="btn btn-secondary" onClick={() => setEditCreator(null)}>Cancel</button><button type="submit" form="edit-creator" className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></>}>
+          <form id="edit-creator" onSubmit={saveCreator} noValidate>
+            <div className="form-row">
+              {[["name", "Name"], ["tiktok_handle", "TikTok handle"], ["instagram_handle", "Instagram handle"]].map(([k, l]) => <div key={k} className="form-group"><label className="form-label" htmlFor={`ec-${k}`}>{l}</label><input id={`ec-${k}`} className="form-input" value={editCreator[k] || ""} onChange={e => setEditCreator({ ...editCreator, [k]: e.target.value })} /></div>)}
+              <div className="form-group"><label className="form-label" htmlFor="ec-rate">Weekly rate (USD)</label><input id="ec-rate" className="form-input" type="number" inputMode="decimal" value={editCreator.weekly_rate || ""} onChange={e => setEditCreator({ ...editCreator, weekly_rate: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-vpw">Videos per week</label><input id="ec-vpw" className="form-input" type="number" inputMode="numeric" value={editCreator.videos_per_week || ""} onChange={e => setEditCreator({ ...editCreator, videos_per_week: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-am">Account manager</label><select id="ec-am" className="select" value={editCreator.am_id || ""} onChange={e => setEditCreator({ ...editCreator, am_id: e.target.value })}><option value="">Unassigned</option>{db.accountManagers.filter(a => a.status !== "Archived").map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-pm">Payment method</label><select id="ec-pm" className="select" value={editCreator.payment_method || ""} onChange={e => setEditCreator({ ...editCreator, payment_method: e.target.value })}><option value="">Not set</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-ph">Payment handle or email</label><input id="ec-ph" className="form-input" value={editCreator.payment_handle || ""} onChange={e => setEditCreator({ ...editCreator, payment_handle: e.target.value })} /></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-status">Status</label><select id="ec-status" className="select" value={editCreator.status || "Active"} onChange={e => setEditCreator({ ...editCreator, status: e.target.value })}>{["Active", "Paused", "Offboarded"].map(s => <option key={s}>{s}</option>)}</select></div>
             </div>
-            <button className="btn btn-sm btn-primary" onClick={()=>{setShowCreateAM(true);setAmMsg({type:"",text:""});}}>+ Add Account Manager</button>
-          </div>
-
-          {amMsg.text&&(
-            <div style={{
-              background: amMsg.type==="error"?"rgba(192,57,43,0.08)":"rgba(26,122,74,0.08)",
-              border:`1px solid ${amMsg.type==="error"?"var(--red)":"var(--green)"}`,
-              borderRadius:"var(--radius-sm)",padding:"10px 14px",marginBottom:14,
-              fontSize:13,color:amMsg.type==="error"?"var(--red)":"var(--green)"
-            }}>{amMsg.text}</div>
-          )}
-
-          <div className="table-wrap">
-            <table className="premium-table">
-              <thead><tr><th>Name</th><th>Email</th><th>Creators</th><th>Status</th><th style={{textAlign:"right"}}>Actions</th></tr></thead>
-              <tbody>
-                {db.accountManagers.map(am=>{
-                  const count = db.creators.filter(c=>c.am_id===am.id).length;
-                  const archived = am.status === "Archived";
-                  return (
-                    <tr key={am.id} style={archived?{opacity:0.62}:undefined}>
-                      <td className="fw-600">{am.name||"—"}</td>
-                      <td style={{fontSize:12,color:"var(--ink3)"}}>{am.email}</td>
-                      <td>{count} creators</td>
-                      <td>
-                        <span className={`badge ${archived?"badge-gray":"badge-green"}`}>{archived?"Archived":"Active"}</span>
-                        {archived&&am.archive_reason&&(
-                          <div style={{fontSize:11,color:"var(--ink3)",marginTop:3,maxWidth:200}}>{am.archive_reason}</div>
-                        )}
-                      </td>
-                      <td>
-                        <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                          <button className="btn btn-sm btn-ghost" onClick={()=>setEditAM({...am})}>Edit</button>
-                          {archived
-                            ? <button className="btn btn-sm btn-green" disabled={saving} onClick={()=>setAMArchived(am,false)}>Restore</button>
-                            : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} disabled={saving}
-                                      onClick={()=>{setArchiveAMTarget(am);setArchiveAMReason("");}}>Archive</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {db.accountManagers.length===0&&<div className="empty" style={{padding:48}}><div className="empty-icon text-muted" style={{fontSize:40,marginBottom:16}}>👥</div><h3 style={{fontSize:18,marginBottom:8}}>No team members yet</h3><p style={{color:"var(--ink3)"}}>Add one above, or invite them using your portal URL.</p></div>}
-        </div>
+            {err && <Alert tone="error">{err}</Alert>}
+          </form>
+        </Dialog>
       )}
 
-      {/* Create Account Manager */}
-      {showCreateAM&&(
-        <div className="modal-overlay" onClick={()=>setShowCreateAM(false)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Add Account Manager</div>
-            <div className="modal-sub">
-              Creates their sign-in account and their manager record together, then
-              emails an invitation so they set their own password.
-            </div>
-            <div className="form-group">
-              <label className="form-label">Email <span style={{color:"var(--red)"}}>*</span></label>
-              <input className="form-input" type="email" placeholder="manager@example.com"
-                     value={amForm.email} onChange={e=>setAmForm({...amForm,email:e.target.value})}/>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Full name</label>
-              <input className="form-input" placeholder="Optional"
-                     value={amForm.fullName} onChange={e=>setAmForm({...amForm,fullName:e.target.value})}/>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setShowCreateAM(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={createAM} disabled={amBusy||!amForm.email.trim()}>
-                {amBusy?"Creating…":"Create & Invite"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {editAM && (
+        <Dialog title={`Edit ${editAM.name || "account manager"}`} onClose={() => setEditAM(null)}
+          actions={<><button className="btn btn-secondary" onClick={() => setEditAM(null)}>Cancel</button><button type="submit" form="edit-am" className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></>}>
+          <form id="edit-am" onSubmit={saveAM} noValidate>
+            <div className="form-group"><label className="form-label" htmlFor="ea-name">Name</label><input id="ea-name" className="form-input" value={editAM.name || ""} onChange={e => setEditAM({ ...editAM, name: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label" htmlFor="ea-email">Email</label><input id="ea-email" className="form-input" type="email" value={editAM.email || ""} onChange={e => setEditAM({ ...editAM, email: e.target.value })} /></div>
+            <div className="form-group"><label className="form-label" htmlFor="ea-rate">Commission</label><select id="ea-rate" className="select" value={editAM.commission_rate || 0.10} onChange={e => setEditAM({ ...editAM, commission_rate: Number(e.target.value) })}>{[0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25].map(r => <option key={r} value={r}>{Math.round(r * 100)}%{r === 0.10 ? " (default)" : ""}</option>)}</select><span className="form-hint">Charged on their clients' budgets unless a campaign overrides it.</span></div>
+            {err && <Alert tone="error">{err}</Alert>}
+          </form>
+        </Dialog>
       )}
 
-      {/* Archive Account Manager */}
-      {archiveAMTarget&&(
-        <div className="modal-overlay" onClick={()=>setArchiveAMTarget(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Archive {archiveAMTarget.name||archiveAMTarget.email}?</div>
-            <div className="modal-sub">
-              {db.creators.filter(c=>c.am_id===archiveAMTarget.id).length > 0
-                ? `${db.creators.filter(c=>c.am_id===archiveAMTarget.id).length} creator(s) are still assigned to them. Those assignments are preserved — reassign the creators separately if someone else should take over.`
-                : "No creators are currently assigned to them."}
-            </div>
-            <div className="form-group">
-              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
-              <input className="form-input" placeholder="e.g. Left the agency"
-                     value={archiveAMReason} onChange={e=>setArchiveAMReason(e.target.value)}/>
-            </div>
-            <div style={{fontSize:11,color:"var(--ink3)",marginBottom:12}}>
-              To also stop them signing in, deactivate their user account in User Management.
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setArchiveAMTarget(null)}>Cancel</button>
-              <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
-                      onClick={()=>setAMArchived(archiveAMTarget,true,archiveAMReason)}
-                      disabled={saving||!archiveAMReason.trim()}>
-                {saving?"Archiving…":"Archive"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {newAM && (
+        <Dialog title="Invite an account manager" description="Creates their sign in and manager record together, then emails them a link to set a password." onClose={() => setNewAM(null)}
+          actions={<><button className="btn btn-secondary" onClick={() => setNewAM(null)}>Cancel</button><button type="submit" form="new-am" className="btn btn-primary" disabled={busy || !newAM.email.trim()}>{busy ? "Inviting…" : "Send invite"}</button></>}>
+          <form id="new-am" onSubmit={createAM} noValidate>
+            <div className="form-group"><label className="form-label" htmlFor="na-email">Email</label><input id="na-email" className="form-input" type="email" inputMode="email" value={newAM.email} onChange={e => setNewAM({ ...newAM, email: e.target.value })} autoFocus /></div>
+            <div className="form-group"><label className="form-label" htmlFor="na-name">Full name <span className="text-muted" style={{ fontWeight: 400 }}>(optional)</span></label><input id="na-name" className="form-input" value={newAM.fullName} onChange={e => setNewAM({ ...newAM, fullName: e.target.value })} /></div>
+            {err && <Alert tone="error">{err}</Alert>}
+          </form>
+        </Dialog>
       )}
 
-      {/* Archive Creator */}
-      {archiveCreatorTarget&&(
-        <div className="modal-overlay" onClick={()=>setArchiveCreatorTarget(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Archive {archiveCreatorTarget.name||archiveCreatorTarget.email}?</div>
-            <div className="modal-sub">
-              Their submissions, campaign history and earnings are kept and stay linked. You can restore them at any time.
-            </div>
-            <div className="form-group">
-              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
-              <input className="form-input" placeholder="e.g. No longer active"
-                     value={archiveCreatorReason} onChange={e=>setArchiveCreatorReason(e.target.value)}/>
-            </div>
-            <div style={{fontSize:11,color:"var(--ink3)",marginBottom:12}}>
-              To also stop them signing in, deactivate their user account in User Management.
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setArchiveCreatorTarget(null)}>Cancel</button>
-              <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
-                      onClick={()=>setCreatorArchived(archiveCreatorTarget,true,archiveCreatorReason)}
-                      disabled={saving||!archiveCreatorReason.trim()}>
-                {saving?"Archiving…":"Archive"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editCreator&&(
-        <div className="modal-overlay" onClick={()=>setEditCreator(null)}>
-          <div className="modal" style={{maxWidth:500}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Edit Creator</div>
-            <div className="modal-sub">{editCreator.email}</div>
-            <div className="form-group"><label className="form-label">Display Name</label><input className="form-input" value={editCreator.name||""} onChange={e=>setEditCreator({...editCreator,name:e.target.value})}/></div>
-            <div className="grid-2">
-              <div className="form-group"><label className="form-label">TikTok Handle</label><input className="form-input" placeholder="@handle" value={editCreator.tiktok_handle||""} onChange={e=>setEditCreator({...editCreator,tiktok_handle:e.target.value.replace("@","")})}/></div>
-              <div className="form-group"><label className="form-label">Instagram Handle</label><input className="form-input" placeholder="@handle" value={editCreator.instagram_handle||""} onChange={e=>setEditCreator({...editCreator,instagram_handle:e.target.value.replace("@","")})}/></div>
-              <div className="form-group"><label className="form-label">Weekly Rate ($)</label><input className="form-input" type="number" value={editCreator.weekly_rate||""} onChange={e=>setEditCreator({...editCreator,weekly_rate:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Videos/Week</label><input className="form-input" type="number" value={editCreator.videos_per_week||""} onChange={e=>setEditCreator({...editCreator,videos_per_week:e.target.value})}/></div>
-              <div className="form-group"><label className="form-label">Payment Method</label><select className="select" value={editCreator.payment_method||""} onChange={e=>setEditCreator({...editCreator,payment_method:e.target.value})}><option value="">Select...</option>{["PayPal","Venmo","Zelle","Bank Transfer","Cash App","Crypto"].map(m=><option key={m}>{m}</option>)}</select></div>
-              <div className="form-group"><label className="form-label">Payment Handle/Email</label><input className="form-input" placeholder="e.g. @venmo or email" value={editCreator.payment_handle||""} onChange={e=>setEditCreator({...editCreator,payment_handle:e.target.value})}/></div>
-            </div>
-            <div className="form-group"><label className="form-label">Assign to Account Manager</label><select className="select" value={editCreator.am_id||""} onChange={e=>setEditCreator({...editCreator,am_id:e.target.value})}><option value="">No AM assigned</option>{db.accountManagers.map(am=><option key={am.id} value={am.id}>{am.name}</option>)}</select></div>
-            <div className="form-group"><label className="form-label">Status</label><select className="select" value={editCreator.status||"Active"} onChange={e=>setEditCreator({...editCreator,status:e.target.value})}>{["Active","Paused","Offboarded"].map(s=><option key={s}>{s}</option>)}</select></div>
-            {creatorMsg.type==="error"&&creatorMsg.text&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{creatorMsg.text}</div>}
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditCreator(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveCreator} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editAM&&(
-        <div className="modal-overlay" onClick={()=>setEditAM(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Edit Account Manager</div>
-            <div className="form-group"><label className="form-label">Name</label><input className="form-input" value={editAM.name||""} onChange={e=>setEditAM({...editAM,name:e.target.value})}/></div>
-            <div className="form-group"><label className="form-label">Email</label><input className="form-input" value={editAM.email||""} onChange={e=>setEditAM({...editAM,email:e.target.value})}/></div>
-            <div className="form-group">
-              <label className="form-label">Commission Rate</label>
-              <select className="select" value={editAM.commission_rate||0.10} onChange={e=>setEditAM({...editAM,commission_rate:Number(e.target.value)})}>
-                {[0.05,0.08,0.10,0.12,0.15,0.18,0.20,0.25].map(r=><option key={r} value={r}>{r*100}%{r===0.10?" (default)":""}</option>)}
-              </select>
-            </div>
-            {amMsg.type==="error"&&amMsg.text&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{amMsg.text}</div>}
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setEditAM(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveAM} disabled={saving}>{saving?"Saving...":"Save Changes"}</button>
-            </div>
-          </div>
-        </div>
+      {archiveTarget && (
+        <ArchiveDialog busy={busy} onClose={() => setArchiveTarget(null)}
+          title={`Archive ${archiveTarget.row.name || archiveTarget.row.email}?`}
+          body={archiveTarget.kind === "am"
+            ? (assigned(archiveTarget.row.id) ? `${assigned(archiveTarget.row.id)} creators are still assigned to them. Those links are kept; reassign the creators if someone else should take over.` : "No creators are assigned to them.")
+            : "Their submissions, campaigns and earnings stay linked. You can restore them any time."}
+          onConfirm={(reason) => setArchived(archiveTarget.kind, archiveTarget.row, true, reason)} />
       )}
     </div>
   );

@@ -1,298 +1,167 @@
 import { useState } from "react";
+import { Building03Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { gooeyToast as toast } from "goey-toast";
+import { describeWriteError } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
-import ErrorMsg from "../../ui/ErrorMsg";
+import Alert from "../../ui/Alert";
+import Dialog from "../../ui/Dialog";
+import EmptyState from "../../ui/EmptyState";
+import Icon from "../../ui/Icon";
+import PageHeader from "../../ui/PageHeader";
 import { fmtMoney, statusBadge } from "../../utils";
 import ClientForm from "./ClientForm";
 import ClientProfile from "./ClientProfile";
 
+const EMPTY = { name: "", deal_type: "Monthly Retainer", videos_per_month: 20, budget: 0, status: "Active", contact_name: "", contact_email: "", contact_phone: "", contract_notes: "", contract_url: "", drive_link: "" };
+
 export default function ClientsPage({ isOwner, db, onRefresh, user }) {
-  const [showCreate, setShowCreate] = useState(false);
-  const [editClient, setEditClient] = useState(null);
-  const [viewClient, setViewClient] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
-  const [linkingClient, setLinkingClient] = useState(null); // { id, name }
-  const [linkEmail, setLinkEmail] = useState("");
-  const [linkMsg, setLinkMsg] = useState({ type: "", text: "" });
-  const [linkBusy, setLinkBusy] = useState(false);
+  const [form, setForm] = useState(null);
+  const [viewId, setViewId] = useState(null);
+  const [link, setLink] = useState(null);
   const [archiveTarget, setArchiveTarget] = useState(null);
-  const [archiveReason, setArchiveReason] = useState("");
-  const [archiveErr, setArchiveErr] = useState("");
-  const [archiveBusy, setArchiveBusy] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState("");
-  const [deleteErr, setDeleteErr] = useState("");
-  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
-  // Permanent, unlike archive. The database is the real guard here:
-  // campaigns.client_id has no ON DELETE clause, so Postgres refuses (23503)
-  // for any client that has campaigns — nothing cascades and nothing is
-  // orphaned. Owner-only, and audited before the row goes.
-  const deleteClient = async () => {
-    setDeleteBusy(true);
-    setDeleteErr("");
-    const { error } = await supabase.from("clients").delete().eq("id", deleteTarget.id);
-    if (error) {
-      const isLinked = error.code === "23503" || /foreign key/i.test(error.message || "");
-      setDeleteErr(isLinked
-        ? `${deleteTarget.name} still has campaigns linked to it, so it can't be deleted. Archive it instead — that keeps the history and can be undone.`
-        : `Could not delete: ${error.message}`);
-      setDeleteBusy(false);
-      return;
-    }
-    setDeleteTarget(null);
-    setDeleteConfirm("");
-    await onRefresh();
-    setDeleteBusy(false);
+  const archivedCount = db.clients.filter(c => c.status === "Archived").length;
+  const rows = db.clients.filter(c => (showArchived || c.status !== "Archived") && (!search.trim() || `${c.name} ${c.contact_name || ""}`.toLowerCase().includes(search.toLowerCase())))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const viewClient = viewId && db.clients.find(c => c.id === viewId);
+  const open = (kind, c) => { setErr(""); setText(""); kind === "link" ? setLink(c) : kind === "archive" ? setArchiveTarget(c) : setDeleteTarget(c); };
+
+  const saveClient = async () => {
+    if (!form.name?.trim()) return setErr("Add the client's name.");
+    setBusy(true); setErr("");
+    const row = { ...form, name: form.name.trim(), videos_per_month: Number(form.videos_per_month), budget: Number(form.budget) };
+    if (!form.id && !isOwner) { const mine = db.accountManagers.find(a => a.email === user?.email); if (mine) row.am_id = mine.id; }
+    const { error } = form.id ? await supabase.from("clients").update(row).eq("id", form.id) : await supabase.from("clients").insert(row);
+    setBusy(false);
+    if (error) return setErr(describeWriteError(error));
+    toast.success(form.id ? `${row.name} saved` : `${row.name} added`);
+    setForm(null); onRefresh();
   };
 
-  // Archive, not delete: a client anchors campaigns, submissions and payment
-  // history, so removing it here means the reversible archive/restore in
-  // ClientProfile — this is the same flow, just reachable from the row
-  // directly instead of only after opening the client's profile.
-  const setClientArchived = async (client, archived, reason) => {
-    if (archived && !(reason || "").trim()) {
-      setArchiveErr("Give a reason — it is what the audit entry will say.");
-      return;
-    }
-    setArchiveBusy(true);
-    setArchiveErr("");
-    const patch = archived
-      ? { status: "Archived", archived_at: new Date().toISOString(), archived_by: user?.id || null, archive_reason: (reason || "").trim() }
-      : { status: "Active", archived_at: null, archived_by: null, archive_reason: null };
-    const { data, error } = await supabase.from("clients").update(patch).eq("id", client.id).select("id");
-    if (error || !data || data.length === 0) {
-      setArchiveErr(error ? `Could not save: ${error.message}` : "That client was not updated — you may not have permission.");
-      setArchiveBusy(false);
-      return;
-    }
-    setArchiveTarget(null);
-    setArchiveReason("");
-    await onRefresh();
-    setArchiveBusy(false);
-  };
-
-  const handleLinkAccount = async () => {
-    if (!linkEmail.trim()) return;
-    setLinkBusy(true); setLinkMsg({ type: "", text: "" });
+  const linkAccount = async (e) => {
+    e.preventDefault();
+    if (!text.trim()) return;
+    setBusy(true); setErr("");
     try {
-      // Look up user_profiles by email to get the user's id.
-      const { data: profile, error: lookupErr } = await supabase
-        .from("user_profiles")
-        .select("id, full_name, role")
-        .eq("email", linkEmail.trim().toLowerCase())
-        .maybeSingle();
-      if (lookupErr) throw lookupErr;
-      if (!profile) throw new Error(`No account found for ${linkEmail.trim()}. Ask the client to sign up first.`);
-      if (profile.role !== "client") throw new Error(`That account has role "${profile.role}", not "client". The user must sign up as Client / Brand Partner.`);
-
-      const { error: updateErr } = await supabase
-        .from("clients")
-        .update({ user_id: profile.id })
-        .eq("id", linkingClient.id)
-        .is("user_id", null);
-      if (updateErr) throw updateErr;
-
-      setLinkMsg({ type: "success", text: `Linked! ${profile.full_name || linkEmail} can now log in to the brand portal.` });
-      await onRefresh();
-      setTimeout(() => { setLinkingClient(null); setLinkEmail(""); setLinkMsg({ type: "", text: "" }); }, 2000);
-    } catch (e) {
-      setLinkMsg({ type: "error", text: e.message });
+      const { data: profile, error } = await supabase.from("user_profiles").select("id, full_name, role").eq("email", text.trim().toLowerCase()).maybeSingle();
+      if (error) throw error;
+      if (!profile) throw new Error(`No account uses ${text.trim()}. Ask the client to sign up as a brand first.`);
+      if (profile.role !== "client") throw new Error(`That account is set up as ${profile.role}, not a brand. They need to sign up as a brand.`);
+      const { error: upErr } = await supabase.from("clients").update({ user_id: profile.id }).eq("id", link.id).is("user_id", null);
+      if (upErr) throw upErr;
+      toast.success("Portal account linked", { description: `${profile.full_name || text.trim()} can sign in to the brand portal now.` });
+      setLink(null); onRefresh();
+    } catch (e2) {
+      setErr(e2.message);
     } finally {
-      setLinkBusy(false);
+      setBusy(false);
     }
   };
-  const emptyForm = {name:"",deal_type:"Monthly Retainer",videos_per_month:20,budget:0,status:"Active",contact_name:"",contact_email:"",contact_phone:"",contract_notes:"",contract_url:"",drive_link:""};
-  const [form, setForm] = useState(emptyForm);
 
-  const create = async () => {
-    if (!form.name) { setErr("Client name is required"); return; }
-    setSaving(true);
-    
-    // Auto-assign AM if user is an AM
-    let finalForm = { ...form };
-    if (!isOwner && user) {
-      const myAM = db.accountManagers.find(am => am.email === user.email);
-      if (myAM) {
-        finalForm.am_id = myAM.id;
-      }
-    }
-
-    const { error } = await supabase.from("clients").insert({...finalForm,videos_per_month:Number(finalForm.videos_per_month),budget:Number(finalForm.budget)});
-    if (error) { setErr(error.message); setSaving(false); return; }
-    await onRefresh(); setShowCreate(false); setSaving(false);
-    setForm(emptyForm);
+  // Archive keeps campaigns, submissions and payments linked; it can be undone.
+  const setArchived = async (c, archived) => {
+    if (archived && !text.trim()) return setErr("Add a reason. It's what the audit log will show.");
+    setBusy(true); setErr("");
+    const patch = archived ? { status: "Archived", archived_at: new Date().toISOString(), archived_by: user?.id || null, archive_reason: text.trim() } : { status: "Active", archived_at: null, archived_by: null, archive_reason: null };
+    const { data, error } = await supabase.from("clients").update(patch).eq("id", c.id).select("id");
+    setBusy(false);
+    if (error || !data?.length) return archived ? setErr(error ? error.message : "That client wasn't updated. You may not have permission.") : toast.error("Not restored", { description: error?.message });
+    toast.success(archived ? `${c.name} archived` : `${c.name} restored`);
+    setArchiveTarget(null); onRefresh();
   };
 
-  const save = async () => {
-    setSaving(true);
-    const { error } = await supabase.from("clients").update({...editClient,videos_per_month:Number(editClient.videos_per_month),budget:Number(editClient.budget)}).eq("id", editClient.id);
-    if (error) { setErr(error.message); setSaving(false); return; }
-    await onRefresh(); setEditClient(null); setSaving(false);
+  // campaigns.client_id has no ON DELETE, so Postgres refuses (23503) for a client with campaigns.
+  const remove = async () => {
+    setBusy(true); setErr("");
+    const { error } = await supabase.from("clients").delete().eq("id", deleteTarget.id);
+    setBusy(false);
+    if (error) return setErr(error.code === "23503" || /foreign key/i.test(error.message || "") ? `${deleteTarget.name} still has campaigns, so it can't be deleted. Archive it instead.` : error.message);
+    toast(`${deleteTarget.name} deleted`);
+    setDeleteTarget(null); onRefresh();
   };
+
+  const linkedCampaigns = deleteTarget ? db.campaigns.filter(c => c.client_id === deleteTarget.id).length : 0;
 
   return (
     <div className="content">
-      <div className="flex-between mb-16">
-        {isOwner&&<span className="owner-badge">👑 Owner View — All client data visible</span>}
-        {isOwner&&<button className="btn btn-primary btn-sm" onClick={()=>setShowCreate(true)}>+ Add Client</button>}
-      </div>
-      <div className="premium-card">
-        <div className="table-wrap">
-          <table className="premium-table">
-            <thead>
-              <tr>
-                <th>Client</th><th>Deal</th><th>Videos/Mo</th><th>Status</th>
-                {isOwner?<><th>Budget</th><th>Contact</th><th>Email</th></>:<th>Monthly Value</th>}
-                <th>AM</th><th>Portal</th><th>Drive</th>
-                {isOwner&&<th style={{textAlign:"right"}}>Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {db.clients.map(c=>(
-                <tr key={c.id} style={c.status==="Archived"?{opacity:0.62}:undefined}>
-                  <td className="fw-600" style={{cursor:"pointer",color:"var(--blue)"}} onClick={()=>setViewClient(c)}>{c.name}</td>
-                  <td>{statusBadge(c.deal_type)}</td>
-                  <td>{c.videos_per_month}</td>
-                  <td>{statusBadge(c.status)}</td>
-                  {isOwner?<>
-                    <td className="text-green fw-600">{fmtMoney(c.budget)}</td>
-                    <td>{c.contact_name||"—"}</td>
-                    <td style={{fontSize:12}}>{c.contact_email||"—"}</td>
-                  </>:<td className="fw-600" style={{color:"var(--green)"}}>{fmtMoney(c.budget)}</td>}
-                  <td style={{fontSize:12}}>{db.accountManagers.find(a=>a.id===c.am_id)?.name||"—"}</td>
-                  <td style={{fontSize:12}}>
-                    {c.user_id
-                      ? <span className="badge badge-green" style={{fontSize:10}}>✓ Active</span>
-                      : <button className="btn btn-sm btn-ghost" style={{fontSize:11,padding:"3px 8px"}} onClick={()=>{setLinkingClient({id:c.id,name:c.name});setLinkEmail("");setLinkMsg({type:"",text:""});}}>🔗 Link</button>}
-                  </td>
-                  <td>{c.drive_link?<a href={c.drive_link} target="_blank" rel="noreferrer" className="link">📁 Drive</a>:"—"}</td>
-                  {isOwner&&<td>
-                    <div style={{display:"flex",gap:6,justifyContent:"flex-end",flexWrap:"wrap"}}>
-                      <button className="btn btn-sm btn-ghost" onClick={()=>{setErr("");setEditClient({...c});}}>Edit</button>
-                      {c.status==="Archived"
-                        ? <button className="btn btn-sm btn-green" disabled={archiveBusy} onClick={()=>setClientArchived(c,false)}>Restore</button>
-                        : <button className="btn btn-sm btn-ghost" style={{color:"var(--orange)"}} disabled={archiveBusy}
-                                  onClick={()=>{setArchiveTarget(c);setArchiveReason("");setArchiveErr("");}}>🗄 Archive</button>}
-                      <button className="btn btn-sm btn-ghost" style={{color:"var(--red)"}} disabled={deleteBusy}
-                              onClick={()=>{setDeleteTarget(c);setDeleteConfirm("");setDeleteErr("");}}>Delete</button>
-                    </div>
-                  </td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {!isOwner&&<div style={{marginTop:12,fontSize:12,color:"var(--ink3)",background:"var(--bg2)",border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 14px"}}>🔒 Contact details visible to owner only.</div>}
-      {showCreate&&<ClientForm data={form} setData={setForm} onSave={create} onCancel={()=>setShowCreate(false)} title="Add Client" db={db} err={err} saving={saving}/>}
-      {editClient&&<ClientForm data={editClient} setData={setEditClient} onSave={save} onCancel={()=>setEditClient(null)} title="Edit Client" db={db} err={err} saving={saving}/>}
-      {viewClient&&<ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={()=>setViewClient(null)} isOwner={isOwner} user={user}/>}
-      {linkingClient&&(
-        <div className="modal-overlay" onClick={()=>setLinkingClient(null)}>
-          <div className="modal" style={{maxWidth:460}} onClick={e=>e.stopPropagation()}>
-            <div className="flex-between mb-16">
-              <div>
-                <div className="modal-title" style={{marginBottom:2}}>Link Portal Account</div>
-                <div style={{fontSize:12,color:"var(--ink3)"}}>{linkingClient.name}</div>
-              </div>
-              <button className="btn btn-sm btn-ghost" onClick={()=>setLinkingClient(null)}>✕</button>
-            </div>
-            <p style={{fontSize:13,color:"var(--ink3)",marginBottom:20,lineHeight:1.6}}>
-              Enter the email the client used when signing up as <strong>Client / Brand Partner</strong>. Their portal will be linked to this record immediately.
-            </p>
-            <div className="form-group">
-              <label className="form-label">Client's account email</label>
-              <input
-                className="form-input"
-                type="email"
-                placeholder="client@brand.com"
-                value={linkEmail}
-                onChange={e=>setLinkEmail(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&handleLinkAccount()}
-                autoFocus
-              />
-            </div>
-            {linkMsg.text&&(
-              <div style={{fontSize:13,marginBottom:12,padding:"8px 12px",borderRadius:"var(--radius-sm)",background:linkMsg.type==="success"?"rgba(26,122,74,0.08)":"rgba(192,57,43,0.08)",color:linkMsg.type==="success"?"var(--green)":"var(--red)"}}>
-                {linkMsg.text}
-              </div>
-            )}
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setLinkingClient(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleLinkAccount} disabled={linkBusy||!linkEmail.trim()}>
-                {linkBusy?"Linking…":"Link Account"}
-              </button>
-            </div>
+      <PageHeader title="Clients" description={isOwner ? "Every brand on the platform: budgets, account managers and portal access." : "The brands you look after. Contact details are visible to owners only."}
+        actions={<button className="btn btn-primary" onClick={() => { setErr(""); setForm({ ...EMPTY }); }}>Add client</button>} />
+
+      {db.clients.length === 0 ? (
+        <div className="card"><EmptyState icon={Building03Icon} title="No clients yet" action={<button className="btn btn-primary btn-sm" onClick={() => setForm({ ...EMPTY })}>Add a client</button>}>Add a brand to start creating campaigns for it.</EmptyState></div>
+      ) : (
+        <>
+          <div className="toolbar">
+            <label className="toolbar-search" style={{ maxWidth: 320 }}><Icon icon={Search01Icon} size={16} /><span className="sr-only">Search clients</span><input className="form-input" type="search" placeholder="Search clients" value={search} onChange={e => setSearch(e.target.value)} /></label>
+            {archivedCount > 0 && <label className="check" style={{ marginLeft: "auto" }}><input type="checkbox" checked={showArchived} onChange={e => setShowArchived(e.target.checked)} /><span>Show archived ({archivedCount})</span></label>}
           </div>
-        </div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Client</th><th>Deal</th><th className="num">Videos a month</th><th className="num">Budget</th><th>Manager</th><th>Portal</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
+              <tbody>
+                {rows.map(c => (
+                  <tr key={c.id} style={c.status === "Archived" ? { opacity: 0.6 } : undefined}>
+                    <td><button className="text-btn fw-600 truncate" style={{ textDecoration: "none", maxWidth: 260, display: "block", textAlign: "left" }} onClick={() => setViewId(c.id)}>{c.name}</button>{isOwner && c.contact_email && <span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{c.contact_name ? `${c.contact_name} · ` : ""}{c.contact_email}</span>}</td>
+                    <td>{statusBadge(c.deal_type)}</td>
+                    <td className="num">{c.videos_per_month ?? "–"}</td>
+                    <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtMoney(c.budget)}</td>
+                    <td>{db.accountManagers.find(a => a.id === c.am_id)?.name || <span className="text-muted">Unassigned</span>}</td>
+                    <td>{c.user_id ? <span className="badge badge-green">Linked</span> : <button className="btn btn-ghost btn-sm" onClick={() => open("link", c)}>Link account</button>}</td>
+                    <td>{statusBadge(c.status)}</td>
+                    <td className="num"><span className="flex gap-4" style={{ justifyContent: "flex-end" }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setViewId(c.id)}>Open</button>
+                      {isOwner && <button className="btn btn-ghost btn-sm" onClick={() => { setErr(""); setForm({ ...c }); }}>Edit</button>}
+                      {isOwner && (c.status === "Archived" ? <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setArchived(c, false)}>Restore</button> : <button className="btn btn-ghost btn-sm" onClick={() => open("archive", c)}>Archive</button>)}
+                      {isOwner && <button className="btn btn-ghost btn-sm" onClick={() => open("delete", c)}>Delete</button>}
+                    </span></td>
+                  </tr>
+                ))}
+                {rows.length === 0 && <tr><td colSpan={8} className="text-center text-muted" style={{ padding: 32 }}>No clients match your search.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
-      {archiveTarget&&(
-        <div className="modal-overlay" onClick={()=>setArchiveTarget(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title">Archive {archiveTarget.name}?</div>
-            <div className="modal-sub">Their campaigns, submissions and financial history are kept and stay linked. You can restore them at any time.</div>
-            {archiveErr&&<ErrorMsg msg={archiveErr}/>}
-            <div className="form-group">
-              <label className="form-label">Reason <span style={{color:"var(--red)"}}>*</span></label>
-              <input className="form-input" placeholder="e.g. Contract ended August 2026"
-                     value={archiveReason} onChange={e=>setArchiveReason(e.target.value)}/>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setArchiveTarget(null)}>Cancel</button>
-              <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
-                      onClick={()=>setClientArchived(archiveTarget,true,archiveReason)}
-                      disabled={archiveBusy||!archiveReason.trim()}>
-                {archiveBusy?"Archiving…":"Archive Client"}
-              </button>
-            </div>
-          </div>
-        </div>
+
+      {form && <ClientForm data={form} setData={setForm} onSave={saveClient} onCancel={() => setForm(null)} title={form.id ? `Edit ${form.name}` : "Add a client"} db={db} err={err} saving={busy} />}
+      {viewClient && <ClientProfile client={viewClient} db={db} onRefresh={onRefresh} onClose={() => setViewId(null)} isOwner={isOwner} user={user} onLink={(c) => { setViewId(null); open("link", c); }} />}
+
+      {link && (
+        <Dialog size="sm" title="Link a portal account" description={`Connect ${link.name} to the brand account they signed up with.`} onClose={() => setLink(null)}
+          actions={<><button className="btn btn-secondary" onClick={() => setLink(null)}>Cancel</button><button type="submit" form="link-form" className="btn btn-primary" disabled={busy || !text.trim()}>{busy ? "Linking…" : "Link account"}</button></>}>
+          <form id="link-form" onSubmit={linkAccount}>
+            <div className="form-group"><label className="form-label" htmlFor="link-email">Their sign in email</label><input id="link-email" className="form-input" type="email" inputMode="email" value={text} onChange={e => setText(e.target.value)} placeholder="name@brand.com" autoFocus /></div>
+            {err && <Alert tone="error">{err}</Alert>}
+          </form>
+        </Dialog>
       )}
-      {deleteTarget&&(()=>{
-        const linked = db.campaigns.filter(c=>c.client_id===deleteTarget.id).length;
-        return (
-        <div className="modal-overlay" onClick={()=>setDeleteTarget(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-title" style={{color:"var(--red)"}}>Delete {deleteTarget.name}?</div>
-            <div className="modal-sub">
-              This is permanent — unlike Archive, it cannot be undone and the client's
-              record will not be recoverable.
-            </div>
-            {linked>0?(
-              <div style={{background:"rgba(192,57,43,0.08)",border:"1px solid var(--red)",borderRadius:"var(--radius-sm)",padding:"10px 14px",margin:"12px 0",fontSize:13,color:"var(--red)"}}>
-                {linked} campaign{linked===1?" is":"s are"} still linked to this client, so it cannot be deleted.
-                Archive it instead — that keeps the history and can be undone.
-              </div>
-            ):(
-              <>
-                {deleteErr&&<ErrorMsg msg={deleteErr}/>}
-                <div className="form-group">
-                  <label className="form-label">
-                    Type <strong>{deleteTarget.name.trim()}</strong> to confirm
-                  </label>
-                  <input className="form-input" placeholder={deleteTarget.name.trim()}
-                         value={deleteConfirm} onChange={e=>setDeleteConfirm(e.target.value)}/>
-                </div>
-              </>
-            )}
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={()=>setDeleteTarget(null)}>Cancel</button>
-              {linked>0
-                ? <button className="btn" style={{background:"var(--orange)",color:"#fff"}}
-                          onClick={()=>{const t=deleteTarget;setDeleteTarget(null);setArchiveTarget(t);setArchiveReason("");setArchiveErr("");}}>
-                    🗄 Archive Instead
-                  </button>
-                : <button className="btn" style={{background:"var(--red)",color:"#fff"}}
-                          onClick={deleteClient}
-                          disabled={deleteBusy||deleteConfirm.trim()!==deleteTarget.name.trim()}>
-                    {deleteBusy?"Deleting…":"Delete Permanently"}
-                  </button>}
-            </div>
-          </div>
-        </div>
-        );
-      })()}
+
+      {archiveTarget && (
+        <Dialog size="sm" title={`Archive ${archiveTarget.name}?`} description="Campaigns, submissions and money history stay linked. You can restore the client any time." onClose={() => setArchiveTarget(null)}
+          actions={<><button className="btn btn-secondary" onClick={() => setArchiveTarget(null)}>Cancel</button><button className="btn btn-danger" disabled={busy || !text.trim()} onClick={() => setArchived(archiveTarget, true)}>{busy ? "Archiving…" : "Archive"}</button></>}>
+          <div className="form-group"><label className="form-label" htmlFor="ca-reason">Reason</label><input id="ca-reason" className="form-input" value={text} onChange={e => setText(e.target.value)} placeholder="The contract ended in August" autoFocus /></div>
+          {err && <Alert tone="error">{err}</Alert>}
+        </Dialog>
+      )}
+
+      {deleteTarget && (
+        <Dialog size="sm" title={`Delete ${deleteTarget.name}?`} description="This can't be undone. Archive instead if you might need the record later." onClose={() => setDeleteTarget(null)}
+          actions={<><button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
+            {linkedCampaigns > 0
+              ? <button className="btn btn-primary" onClick={() => { const t = deleteTarget; setDeleteTarget(null); open("archive", t); }}>Archive instead</button>
+              : <button className="btn btn-danger" disabled={busy || text.trim() !== deleteTarget.name.trim()} onClick={remove}>{busy ? "Deleting…" : "Delete permanently"}</button>}</>}>
+          {linkedCampaigns > 0 ? <Alert tone="warning">{linkedCampaigns} {linkedCampaigns === 1 ? "campaign is" : "campaigns are"} linked to this client, so it can't be deleted. Archiving keeps them and can be undone.</Alert> : (
+            <div className="form-group"><label className="form-label" htmlFor="cd-confirm">Type <strong>{deleteTarget.name.trim()}</strong> to confirm</label><input id="cd-confirm" className="form-input" value={text} onChange={e => setText(e.target.value)} autoFocus /></div>
+          )}
+          {err && <Alert tone="error">{err}</Alert>}
+        </Dialog>
+      )}
     </div>
   );
 }

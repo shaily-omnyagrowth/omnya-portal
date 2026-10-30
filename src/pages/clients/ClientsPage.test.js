@@ -14,7 +14,7 @@ test('admin can type a full client name into the Add Client modal', () => {
     <ClientsPage isOwner={true} db={db} onRefresh={async () => {}} user={{ email: 'admin@test.com' }} />
   );
 
-  userEvent.click(screen.getByText('+ Add Client'));
+  userEvent.click(screen.getByText('Add client'));
 
   const nameInput = screen.getByPlaceholderText('e.g. Eden Health');
   userEvent.type(nameInput, 'Eden Health');

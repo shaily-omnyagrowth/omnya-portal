@@ -1,122 +1,91 @@
 import { useEffect, useState } from "react";
+import { UserAdd01Icon } from "@hugeicons/core-free-icons";
+import { gooeyToast as toast } from "goey-toast";
 import { sendEmail } from "../../lib/api";
 import { supabase } from "../../supabaseClient";
-import Spinner from "../../ui/Spinner";
+import confirm from "../../ui/confirm";
+import EmptyState from "../../ui/EmptyState";
+import PageHeader from "../../ui/PageHeader";
+import { SkeletonTable } from "../../ui/Skeleton";
+import { fmtRelativeTime } from "../../utils";
+
+const ROLES = [["creator", "Creator"], ["am", "Account manager"], ["client", "Brand"]];
+const roleName = (r) => (ROLES.find(([k]) => k === r || (r === "account_manager" && k === "am")) || [null, "Not specified"])[1];
 
 export default function PendingUsers({ onRefresh }) {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState(null);
   const [saving, setSaving] = useState(null);
-  const [names, setNames] = useState({});
+  const [draft, setDraft] = useState({});
 
-  const loadPending = async () => {
-    setLoading(true);
-    const { data } = await supabase.from("user_profiles").select("*").eq("role", "pending");
+  const load = async () => {
+    const { data, error } = await supabase.from("user_profiles").select("*").eq("role", "pending").order("created_at", { ascending: true });
+    if (error) toast.error("Couldn't load sign ups", { description: error.message });
     setUsers(data || []);
-    const n = {};
-    (data||[]).forEach(u => { n[u.id] = u.full_name || u.email.split("@")[0]; });
-    setNames(n);
-    setLoading(false);
+    setDraft(Object.fromEntries((data || []).map(u => [u.id, { name: u.full_name || u.email.split("@")[0], role: u.requested_role === "account_manager" ? "am" : u.requested_role || "creator" }])));
   };
+  useEffect(() => { load(); }, []);
 
-  useEffect(() => { loadPending(); }, []);
-
-  const assignRole = async (userId, email, role) => {
-    setSaving(userId);
+  // The role is written last: if creating the creator/AM/client record fails, the person stays pending.
+  const approve = async (u) => {
+    const { name, role } = draft[u.id];
+    const displayName = name.trim() || u.email.split("@")[0];
+    setSaving(u.id);
     try {
-      const displayName = names[userId] || email.split("@")[0];
-
-      // The role row is written LAST. It used to go first, so when the creators
-      // / account_managers / clients upsert below failed, the person was left
-      // holding the role with no record behind it: gone from this queue, absent
-      // from Manage Creators, and greeted with "Creator profile not found".
-      // In this order a failure leaves them pending, with the error on screen.
-      if (role === "am" || role === "account_manager") {
-        const { error: amError } = await supabase.from("account_managers").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "email" });
-        if(amError) throw amError;
-      }
-      if (role === "creator") {
-        const { error: cError } = await supabase.from("creators").upsert({ user_id: userId, email, name: displayName, status: "Active" }, { onConflict: "email" });
-        if(cError) throw cError;
-      }
-      if (role === "client") {
-        const { error: clError } = await supabase.from("clients").upsert({ user_id: userId, contact_email: email, name: displayName, status: "Active" }, { onConflict: "user_id" });
-        if(clError) throw clError;
-      }
-
-      const { data: promoted, error: upError } = await supabase
-        .from("user_profiles").update({ role, full_name: displayName }).eq("id", userId).select("id");
-      if (upError) throw upError;
-      if (!promoted || promoted.length === 0) throw new Error("The role was not saved. You may not have permission to approve users.");
-
-      // Email: welcome the newly approved user
-      sendEmail("user_approved", {
-        userEmail: email,
-        displayName,
-        role,
-      });
-
-      loadPending();
-      if (typeof onRefresh === "function") {
-        await onRefresh();
-      }
-    } catch(err) {
-      console.error("Failed to assign role:", err);
-      alert("Error assigning role: " + err.message);
+      if (role === "am") { const { error } = await supabase.from("account_managers").upsert({ user_id: u.id, email: u.email, name: displayName, status: "Active" }, { onConflict: "email" }); if (error) throw error; }
+      if (role === "creator") { const { error } = await supabase.from("creators").upsert({ user_id: u.id, email: u.email, name: displayName, status: "Active" }, { onConflict: "email" }); if (error) throw error; }
+      if (role === "client") { const { error } = await supabase.from("clients").upsert({ user_id: u.id, contact_email: u.email, name: displayName, status: "Active" }, { onConflict: "user_id" }); if (error) throw error; }
+      const { data, error } = await supabase.from("user_profiles").update({ role, full_name: displayName }).eq("id", u.id).select("id");
+      if (error) throw error;
+      if (!data?.length) throw new Error("The role wasn't saved. You may not have permission to approve accounts.");
+      sendEmail("user_approved", { userEmail: u.email, displayName, role });
+      toast.success(`${displayName} approved as ${roleName(role).toLowerCase()}`, { description: "They can sign in now. We've emailed them." });
+      setUsers(list => list.filter(x => x.id !== u.id));
+      onRefresh?.();
+    } catch (err) {
+      toast.error(`${displayName} wasn't approved`, { description: err.message });
     } finally {
       setSaving(null);
     }
   };
 
-  const denyUser = async (userId) => {
-    setSaving(userId);
-    await supabase.from("user_profiles").update({ role: "denied" }).eq("id", userId);
+  const deny = async (u) => {
+    const ok = await confirm({ title: `Deny ${u.email}?`, body: "They won't be able to use the portal. You can give them a role later from Users.", confirmLabel: "Deny access", tone: "danger" });
+    if (!ok) return;
+    setSaving(u.id);
+    const { error } = await supabase.from("user_profiles").update({ role: "denied" }).eq("id", u.id);
     setSaving(null);
-    loadPending();
+    if (error) return toast.error("Not saved", { description: error.message });
+    toast("Access denied", { description: u.email });
+    setUsers(list => list.filter(x => x.id !== u.id));
   };
-
-  if (loading) return <Spinner />;
 
   return (
     <div className="content">
-      <div className="card mb-16" style={{background:"var(--bg2)"}}>
-        <div style={{fontSize:13,color:"var(--ink3)"}}>
-          New signups waiting for role assignment. Enter their name, then click Creator, AM or Client to give them access. They'll be able to log in immediately.
-        </div>
-      </div>
-      {users.length === 0 ? (
-        <div className="empty"><div className="empty-icon">✅</div><h3>No pending users</h3><p>Everyone has been assigned a role</p></div>
+      <PageHeader title="Approvals" description="New sign ups can't use the portal until you give them a role. Check the name and role they asked for, then approve." />
+      {users === null ? <SkeletonTable rows={4} cols={4} /> : users.length === 0 ? (
+        <div className="card"><EmptyState icon={UserAdd01Icon} title="No one is waiting">New sign ups appear here, and in the sidebar count, as soon as they register.</EmptyState></div>
       ) : (
-        users.map(u => (
-          <div key={u.id} className="card mb-12">
-            <div className="flex-between" style={{flexWrap:"wrap",gap:12}}>
-              <div style={{flex:1,minWidth:200}}>
-                <div style={{fontWeight:600,marginBottom:4}}>{u.email}{u.requested_role&&<span style={{marginLeft:8,fontSize:11,padding:"2px 8px",borderRadius:20,background:u.requested_role==="am"?"var(--blue)":u.requested_role==="client"?"var(--orange)":"var(--green)",color:"#fff",fontWeight:500}}>{u.requested_role==="am"?"Account Manager":u.requested_role==="client"?"Client / Brand Partner":"Creator"}</span>}</div>
-                <input
-                  className="form-input"
-                  style={{marginTop:6,fontSize:13}}
-                  placeholder="Enter their name..."
-                  value={names[u.id]||""}
-                  onChange={e=>setNames({...names,[u.id]:e.target.value})}
-                />
+        <div className="card flush">
+          {users.map(u => {
+            const d = draft[u.id] || {};
+            return (
+              <div key={u.id} className="approve-row">
+                <div className="flex-1" style={{ minWidth: 0 }}>
+                  <div className="fw-600 fs-14 truncate">{u.email}</div>
+                  <div className="fs-12 text-muted">Asked to join as {roleName(u.requested_role).toLowerCase()} · signed up {fmtRelativeTime(u.created_at).toLowerCase()}</div>
+                </div>
+                <input className="form-input" aria-label={`Name for ${u.email}`} value={d.name || ""} onChange={e => setDraft({ ...draft, [u.id]: { ...d, name: e.target.value } })} placeholder="Full name" />
+                <select className="select" aria-label={`Role for ${u.email}`} value={d.role} onChange={e => setDraft({ ...draft, [u.id]: { ...d, role: e.target.value } })}>
+                  {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                <span className="flex gap-8">
+                  <button className="btn btn-ghost btn-sm" disabled={saving === u.id} onClick={() => deny(u)}>Deny</button>
+                  <button className="btn btn-primary btn-sm" disabled={saving === u.id} onClick={() => approve(u)}>{saving === u.id ? "Approving…" : "Approve"}</button>
+                </span>
               </div>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <button className="btn btn-sm" style={{background:"var(--green)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "creator")}>
-                  {saving===u.id?"...":"✓ Creator"}
-                </button>
-                <button className="btn btn-sm" style={{background:"var(--blue)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "am")}>
-                  {saving===u.id?"...":"✓ AM"}
-                </button>
-                <button className="btn btn-sm" style={{background:"var(--orange)",color:"#fff"}} disabled={saving===u.id} onClick={()=>assignRole(u.id, u.email, "client")}>
-                  {saving===u.id?"...":"✓ Client"}
-                </button>
-                <button className="btn btn-sm" style={{background:"var(--red)",color:"#fff"}} disabled={saving===u.id} onClick={()=>denyUser(u.id)}>
-                  {saving===u.id?"...":"✗ Deny"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ))
+            );
+          })}
+        </div>
       )}
     </div>
   );

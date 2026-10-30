@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ArrowRight01Icon, Cancel01Icon, Menu01Icon, ViewIcon } from "@hugeicons/core-free-icons";
 import Icon from "../ui/Icon";
+import watchTables from "../ui/tableLabels";
 import { navsFor, roleLabel, titleFor } from "./nav";
 import Sidebar from "./Sidebar";
 
@@ -25,6 +26,8 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
     window.scrollTo(0, 0);
     mainRef.current?.focus({ preventScroll: true });
   }, [page]);
+
+  useEffect(() => watchTables(), []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4);
