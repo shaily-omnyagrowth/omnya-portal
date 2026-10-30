@@ -1,6 +1,6 @@
 # Database migrations
 
-This folder is the source of truth for the production schema. Every schema change is a new `YYYYMMDDHHMMSS_short_name.sql` file here. The root `*.sql` files and `SETUP_FROM_SCRATCH.sql` are historical.
+This folder is the source of truth for the production schema. Every schema change is a new `YYYYMMDDHHMMSS_short_name.sql` file here. The root `*.sql` files and `SETUP.sql` are historical.
 
 ## The only way to apply to production: `npm run db:migrate`
 

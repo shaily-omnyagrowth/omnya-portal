@@ -76,22 +76,22 @@ const SUPERSEDED = path.join(MIG, '..', 'superseded');
 // twelve core tables — user_profiles, creators, clients, campaigns,
 // submissions, account_managers, payments, payout_batches, payout_line_items,
 // creator_tokens, video_analytics, messages — are created ONLY by
-// supabase/SETUP_FROM_SCRATCH.sql. No migration creates them; several ALTER
+// supabase/SETUP.sql. No migration creates them; several ALTER
 // them on the first line.
 //
 // So there is no path from an empty database to a working schema using
 // supabase/migrations/ alone. A new environment — staging, a Supabase branch,
 // a fresh dev database — cannot be built from the migration chain. That is a
 // gap against the scope spec's migration-procedure requirement, and it is why
-// this file loads SETUP_FROM_SCRATCH first rather than the test fixture.
-const BASE = path.join(MIG, '..', 'SETUP_FROM_SCRATCH.sql');
+// this file loads SETUP first rather than the test fixture.
+const BASE = path.join(MIG, '..', 'SETUP.sql');
 
 // Exactly what a Supabase project has before ANY project SQL runs: the auth
 // schema, auth.users, auth.uid(), and the three roles PostgREST uses.
 //
 // Deliberately NOT fixture_schema.sql. That file pre-creates public tables with
 // minimal shapes for the other suites, and every definition in
-// SETUP_FROM_SCRATCH.sql is `CREATE TABLE IF NOT EXISTS` — so the fixture's
+// SETUP.sql is `CREATE TABLE IF NOT EXISTS` — so the fixture's
 // four-column payout_batches silently won that race and the script then failed
 // on a column its own definition declares. The test was fighting itself.
 //
@@ -120,7 +120,7 @@ async function fresh() {
   const db = await PGlite.create();
   await db.exec(BOOTSTRAP);
   if (!fs.existsSync(BASE)) {
-    throw new Error('SETUP_FROM_SCRATCH.sql is missing — nothing can build the base schema.');
+    throw new Error('SETUP.sql is missing — nothing can build the base schema.');
   }
   await db.exec(fs.readFileSync(BASE, 'utf8'));
   return db;

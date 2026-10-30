@@ -42,7 +42,7 @@ const as = (id) => `select set_config('request.jwt.claim.sub', '${id}', false);`
 
   const db = await PGlite.create();
   await db.exec(BOOT);
-  await db.exec(read(path.join(MIG, '..', 'SETUP_FROM_SCRATCH.sql')));
+  await db.exec(read(path.join(MIG, '..', 'SETUP.sql')));
   for (const f of [...ORDER, ...later]) await db.exec(read(path.join(MIG, f)));
   await db.exec(`
     insert into auth.users(id, email) values ('${USER}','u@x.com'), ('${OWNER}','o@x.com') on conflict do nothing;

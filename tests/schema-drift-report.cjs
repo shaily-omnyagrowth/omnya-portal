@@ -2,7 +2,7 @@
 //
 // READ ONLY. What can the repository build, versus what production actually has?
 //
-// Builds the schema from supabase/SETUP_FROM_SCRATCH.sql in an in-memory
+// Builds the schema from supabase/SETUP.sql in an in-memory
 // PostgreSQL, then compares it column-by-column against the live database.
 //
 // Every difference is F-12 drift: a column production carries that no file in
@@ -28,7 +28,7 @@ try {
 }
 
 const ROOT = path.join(__dirname, '..');
-const BASE = path.join(ROOT, 'supabase', 'SETUP_FROM_SCRATCH.sql');
+const BASE = path.join(ROOT, 'supabase', 'SETUP.sql');
 
 const BOOTSTRAP = `
   CREATE SCHEMA IF NOT EXISTS auth;
@@ -57,13 +57,13 @@ const BOOTSTRAP = `
   try {
     await db.exec(fs.readFileSync(BASE, 'utf8'));
   } catch (e) {
-    console.log('  SETUP_FROM_SCRATCH.sql FAILED to run:');
+    console.log('  SETUP.sql FAILED to run:');
     console.log('    ' + String(e.message).split('\n')[0].slice(0, 140));
     console.log('\n  Nothing below is meaningful until it runs. Fix that first.\n');
     await db.close();
     process.exit(1);
   }
-  console.log('  SETUP_FROM_SCRATCH.sql ran cleanly');
+  console.log('  SETUP.sql ran cleanly');
 
   // Then every migration, in runbook order, as far as the chain gets.
   //

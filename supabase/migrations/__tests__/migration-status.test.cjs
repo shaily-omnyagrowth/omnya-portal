@@ -221,7 +221,7 @@ const one = async (db, sql, params) => (await db.query(sql, params)).rows[0];
   // project would show the file as drift and baseline would record it
   // unapplied). A probe that is missing after the whole chain is a wrong
   // object name, and would leave its file pending forever.
-  console.log('\n  --- probes.json against SETUP_FROM_SCRATCH + every migration ---');
+  console.log('\n  --- probes.json against SETUP + every migration ---');
   const chainSrc = read(path.join(S, 'full-chain.test.cjs'));
   const BOOT = chainSrc.match(/const BOOTSTRAP = `([\s\S]*?)`;/)[1];
   // The runbook order, then every later file in filename order.
@@ -230,8 +230,8 @@ const one = async (db, sql, params) => (await db.query(sql, params)).rows[0];
   const chain = [...ORDER.filter((f) => files.includes(f)), ...files.filter((f) => !ORDER.includes(f))];
   const realPayload = JSON.stringify(probes.probePayload());
 
-  const setupSql = read(path.join(MIG, '..', 'SETUP_FROM_SCRATCH.sql'));
-  // SETUP_FROM_SCRATCH embeds some migrations verbatim and names them in its
+  const setupSql = read(path.join(MIG, '..', 'SETUP.sql'));
+  // SETUP embeds some migrations verbatim and names them in its
   // header. On a database built from it those files really did run, so their
   // probes reading present there is the truth (baseline records them).
   const embedded = new Set([...setupSql.slice(0, 3000).matchAll(/\((\d{14}_[a-z0-9_]+\.sql)\)/g)].map((x) => x[1]));

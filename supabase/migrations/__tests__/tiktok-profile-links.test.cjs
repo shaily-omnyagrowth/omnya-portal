@@ -2,7 +2,7 @@
 //
 // Behaviour test for 20261023000000_tiktok_profile_links.sql (spec 0002).
 //
-// Built on the real chain (SETUP_FROM_SCRATCH, then every migration in the
+// Built on the real chain (SETUP, then every migration in the
 // order full-chain.test.cjs uses), so the policies, grants and the safe view
 // this migration extends are the production ones, not stand-ins.
 //
@@ -116,7 +116,7 @@ async function build() {
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO anon, authenticated, service_role;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
   `);
-  await db.exec(read(path.join(MIG, '..', 'SETUP_FROM_SCRATCH.sql')));
+  await db.exec(read(path.join(MIG, '..', 'SETUP.sql')));
   for (const f of [...ORDER, ...later]) {
     const p = path.join(MIG, f);
     if (fs.existsSync(p)) await db.exec(read(p));

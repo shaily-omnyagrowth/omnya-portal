@@ -61,7 +61,7 @@ async function productionLike() {
     .filter((f) => !LAST_TWO.includes(f));
   const db = await PGlite.create();
   await db.exec(BOOT);
-  await db.exec(fs.readFileSync(path.join(MIG, '..', 'SETUP_FROM_SCRATCH.sql'), 'utf8'));
+  await db.exec(fs.readFileSync(path.join(MIG, '..', 'SETUP.sql'), 'utf8'));
   for (const f of chain) await db.exec(fs.readFileSync(path.join(MIG, f), 'utf8'));
   return db;
 }

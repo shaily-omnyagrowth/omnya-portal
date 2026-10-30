@@ -48,7 +48,7 @@ async function fresh() {
   // fixture_schema.sql is a minimal stand-in and predates this migration. Two
   // columns the audit triggers read exist in production but not in it:
   //
-  //   payments.amount_owed   from the original SETUP_FROM_SCRATCH schema; the
+  //   payments.amount_owed   from the original SETUP schema; the
   //                          fixture only carries the newer `amount`, and the
   //                          void trigger coalesces across both because live
   //                          rows populate one or the other.

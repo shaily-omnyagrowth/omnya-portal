@@ -3,7 +3,7 @@
 // READ ONLY. Prints the real Postgres type of each column in a live table,
 // read from PostgREST's OpenAPI document.
 //
-// Exists because reconciling supabase/SETUP_FROM_SCRATCH.sql with production
+// Exists because reconciling supabase/SETUP.sql with production
 // means writing ALTER TABLE ... ADD COLUMN with the RIGHT type. Guessing from
 // a column's name is how `is_sales_sourced` becomes text and `due_date`
 // becomes timestamptz, and a type mismatch between the repo's schema and

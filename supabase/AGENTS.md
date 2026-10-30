@@ -12,7 +12,7 @@ The source of truth for the database schema, RLS policies and `SECURITY DEFINER`
 | `migrations/APPLY_<date>.md` | Step by step apply notes for a migration batch |
 | `migrations/__tests__/*.test.cjs` | Run migrations against real Postgres in memory (PGlite) on `fixture_schema.sql` |
 | `rollbacks/*.rollback.sql` | Manual rollbacks, never applied by a routine command |
-| `SETUP_FROM_SCRATCH.sql` | Bootstrap for a fresh project |
+| `SETUP.sql` | Bootstrap for a fresh project |
 
 ## Commands
 
@@ -32,7 +32,7 @@ npx supabase db push                                  # applies EVERY file in mi
 
 - Never put a rollback file in `migrations/`. `.rollback.sql` sorts before `.sql`, so `db push` runs it first. That nearly reverted production security on 2026-09-04.
 - PGlite connects as a superuser, which bypasses RLS. Tests must measure as `authenticated` and assert RLS is live first.
-- When the app reports a missing column, check whether the migration is applied (e.g. `node scripts/check-migration-20260918.cjs`) before debugging code.
+- When the app reports a missing column, check whether the migration is applied (`npm run db:migrate -- --status`) before debugging code.
 
 ## Agent skills
 

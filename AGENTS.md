@@ -51,7 +51,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title.md`.
 - `vercel.json` uses `cleanUrls`, so rewrite destinations must not end in `.html` or deep links 404. `tests/vercel-rewrites.test.cjs` guards this.
 - Preview deployments sit behind Vercel SSO, so automated checks against them get a login page.
 - The CSP in `vercel.json` only allows `connect-src` to Supabase. Any new browser side third party call must go through `api/`.
-- `supabase/migrations/` is the schema source of truth. `supabase/SETUP_FROM_SCRATCH.sql` bundles the old pre-migration SQL for bootstrapping a fresh project.
+- `supabase/migrations/` is the schema source of truth. `supabase/SETUP.sql` bundles the old pre-migration SQL for bootstrapping a fresh project.
 - `docs/reports/` holds dated snapshots (audits, summaries), not current truth. Operational guides live in `docs/guides/`.
 
 ## Agent skills

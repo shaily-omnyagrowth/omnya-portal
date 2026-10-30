@@ -44,7 +44,7 @@ f161a99  security: remove hardcoded Supabase keys, require env vars, document ro
 
 ## 2. Database
 
-All applied via `supabase/SETUP_FROM_SCRATCH.sql` against a fresh Supabase project (one paste in SQL Editor → Run).
+All applied via `supabase/SETUP.sql` against a fresh Supabase project (one paste in SQL Editor → Run).
 
 ### New tables
 | Table | Purpose |
@@ -184,7 +184,7 @@ All return `{ ok: true, data: { authorizationUrl } }`. The frontend then `window
 
 | Action | Status |
 |---|---|
-| Apply full database schema cleanly to a new Supabase project | ✅ `SETUP_FROM_SCRATCH.sql` |
+| Apply full database schema cleanly to a new Supabase project | ✅ `SETUP.sql` |
 | Sign creators up + owner approves via portal UI | ✅ |
 | Run portal locally with secure env vars (no leaked-key fallback) | ✅ |
 | Test OAuth flows | ✅ via `vercel dev` + provider tester lists |
@@ -200,7 +200,7 @@ All return `{ ok: true, data: { authorizationUrl } }`. The frontend then `window
 
 ## Deployment dependencies (what you must do externally)
 
-1. **Apply `SETUP_FROM_SCRATCH.sql`** in Supabase SQL Editor (target project: whichever your `.env` points at).
+1. **Apply `SETUP.sql`** in Supabase SQL Editor (target project: whichever your `.env` points at).
 2. **Set env vars** in `.env` (local) AND Vercel project (deployed):
    - Supabase: `REACT_APP_SUPABASE_URL`, `REACT_APP_SUPABASE_ANON_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
    - Base: `APP_BASE_URL`
