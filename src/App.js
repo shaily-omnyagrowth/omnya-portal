@@ -95,7 +95,8 @@ export default function App() {
     if (page !== "dashboard" && !navs[role].some(n => n.id === page)) setPage("dashboard");
   }, [user, page, role]);
 
-  const navigate = useCallback((id) => setPage(id), []);
+  const { loadDB } = ws;
+  const navigate = useCallback((id) => { setPage(id); if (id === "review-queue") loadDB(); }, [loadDB]);
 
   const searchParams = new URLSearchParams(window.location.search);
   const isPublicShare = path === "/share/campaign" || path.startsWith("/share/") || searchParams.has("share_token");
