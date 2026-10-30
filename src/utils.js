@@ -1,6 +1,6 @@
 import { Facebook01Icon, InstagramIcon, TiktokIcon, Video01Icon, YoutubeIcon } from "@hugeicons/core-free-icons";
 
-export const EMPTY = "–";
+export const EMPTY = "--";
 
 export const getInitials = (name) => (name || "?").trim().split(/\s+/).map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?";
 export const getAvatarColor = () => "";
@@ -8,9 +8,11 @@ export const getAvatarColor = () => "";
 export const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: new Date(d).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined }) : EMPTY;
 export const fmtDateTime = (d) => d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : EMPTY;
 
-export const fmtMoney = (n, { cents = false } = {}) => n != null && !Number.isNaN(Number(n))
-  ? Number(n).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 })
-  : EMPTY;
+export const fmtMoney = (n, { cents = false } = {}) => {
+  if (n == null || Number.isNaN(Number(n))) return EMPTY;
+  const v = Number(n), whole = !cents && Number.isInteger(Math.round(v * 100) / 100);
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: 2 });
+};
 
 export const fmtNum = (n) => n != null && !Number.isNaN(Number(n)) ? Number(n).toLocaleString("en-US") : EMPTY;
 

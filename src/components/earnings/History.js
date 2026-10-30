@@ -14,8 +14,8 @@ export function EarningsTable({ rows, campaigns }) {
             <tr key={r.id}>
               <td style={{ whiteSpace: "nowrap" }}>{fmtDate(r.created_at)}</td>
               <td style={{ whiteSpace: "nowrap" }}>{earningType(r.earning_type)}{r.views_counted && tierLabel(r.views_counted) ? <span className="fs-12 text-muted"> · {tierLabel(r.views_counted)}</span> : null}</td>
-              <td><span className="truncate" style={{ display: "block", maxWidth: 220 }}>{campaigns.find(c => c.id === r.campaign_id)?.name || r.description || "–"}</span></td>
-              <td className="num">{r.views_counted ? fmtNum(r.views_counted) : "–"}</td>
+              <td><span className="truncate" style={{ display: "block", maxWidth: 220 }}>{campaigns.find(c => c.id === r.campaign_id)?.name || r.description || "--"}</span></td>
+              <td className="num">{r.views_counted ? fmtNum(r.views_counted) : "--"}</td>
               <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtMoney(r.amount, { cents: true })}</td>
               <td>{statusBadge(r.status)}</td>
             </tr>
@@ -39,7 +39,7 @@ export function WithdrawalsTable({ rows }) {
               <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtMoney(w.amount, { cents: true })}</td>
               <td>{methodLabel(w.payment_method)}</td>
               <td>{statusBadge(w.status)}</td>
-              <td className="text-muted"><span className="truncate" style={{ display: "block", maxWidth: 260 }}>{w.status === "rejected" && w.rejection_reason ? w.rejection_reason : w.payment_destination_summary || "–"}</span></td>
+              <td className="text-muted"><span className="truncate" style={{ display: "block", maxWidth: 260 }}>{w.status === "rejected" && w.rejection_reason ? w.rejection_reason : w.payment_destination_summary || "--"}</span></td>
             </tr>
           ))}
         </tbody>

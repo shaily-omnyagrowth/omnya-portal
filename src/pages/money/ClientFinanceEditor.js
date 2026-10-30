@@ -1,21 +1,10 @@
 import { useState } from "react";
+import { gooeyToast as toast } from "goey-toast";
 import { updateRows } from "../../lib/db";
+import Alert from "../../ui/Alert";
+import Dialog from "../../ui/Dialog";
+import Select from "../../ui/Select";
 
-// Owner-only editor behind the "Edit" button on each Revenue Analytics row.
-//
-// Every figure on that row is derived from four stored numbers, and this is
-// where each of them can be corrected after the fact:
-//
-//   Revenue          clients.budget
-//   Creator cost     campaigns.pay_per_video   (x approved videos)
-//   Sales comm.      campaigns.is_sales_sourced + sales_commission_rate
-//   Manager comm.    campaigns.manager_commission_rate, else the manager's own
-//                    account_managers.commission_rate
-//
-// Only rows that actually changed are written, each through updateRows(), and
-// the first failure stops the save and is shown — nothing here reports success
-// it did not have. The database enforces the same rules independently: only
-// the owner may change a rate, and only 10/20/30% are valid sales rates.
 export default function ClientFinanceEditor({ row, onClose, onSaved }) {
   const { client, clientAM, clientCampaigns } = row;
   const [budget, setBudget] = useState(String(client.budget ?? 0));
@@ -71,73 +60,62 @@ export default function ClientFinanceEditor({ row, onClose, onSaved }) {
       if (e) return fail(c.name, e);
     }
 
+    toast.success(`${client.name} updated`);
     await onSaved();
     setSaving(false);
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{maxWidth:640}} onClick={e=>e.stopPropagation()}>
-        <div className="modal-title">Edit figures — {client.name}</div>
-        <div className="modal-sub">These are the stored numbers every column on this row is calculated from.</div>
-
-        <div className="grid-2" style={{gap:12}}>
-          <div className="form-group">
-            <label className="form-label">Monthly budget / revenue ($)</label>
-            <input className="form-input" type="number" min="0" value={budget} onChange={e=>setBudget(e.target.value)}/>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Manager's default commission (%)</label>
-            <input className="form-input" type="number" min="0" max="50" value={amRate} disabled={!clientAM} onChange={e=>setAmRate(e.target.value)}/>
-            <div className="form-hint">
-              {clientAM ? `Applies to every client managed by ${clientAM.name}, unless a campaign overrides it below.` : "No account manager is assigned to this client."}
-            </div>
-          </div>
+    <Dialog size="lg" title={`Edit ${client.name}`} description="The stored numbers this row is calculated from." onClose={onClose}
+      actions={<><button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button></>}>
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label" htmlFor="fe-budget">Monthly revenue ($)</label>
+          <input id="fe-budget" className="form-input" type="number" inputMode="decimal" min="0" value={budget} onChange={e => setBudget(e.target.value)} />
         </div>
-
-        <div style={{fontSize:13,fontWeight:600,margin:"8px 0"}}>Campaigns ({camps.length})</div>
-        {camps.length===0&&<div style={{fontSize:13,color:"var(--ink3)",marginBottom:12}}>This client has no campaigns yet.</div>}
-        <div style={{display:"flex",flexDirection:"column",gap:10,maxHeight:320,overflowY:"auto",marginBottom:12}}>
-          {camps.map(c=>(
-            <div key={c.id} style={{border:"1px solid var(--border2)",borderRadius:"var(--radius-sm)",padding:"10px 12px"}}>
-              <div style={{fontWeight:600,fontSize:13,marginBottom:8}}>{c.name}</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(150px, 1fr))",gap:10,alignItems:"end"}}>
-                <div>
-                  <label className="form-label" style={{fontSize:10}}>Pay per video ($)</label>
-                  <input className="form-input" type="number" min="0" value={c.pay_per_video} onChange={e=>setCamp(c.id,{pay_per_video:e.target.value})}/>
-                </div>
-                <div>
-                  <label className="form-label" style={{fontSize:10}}>Sales commission</label>
-                  <select className="select" value={c.is_sales_sourced?String(c.sales_commission_rate):"none"}
-                          onChange={e=>e.target.value==="none"
-                            ? setCamp(c.id,{is_sales_sourced:false})
-                            : setCamp(c.id,{is_sales_sourced:true,sales_commission_rate:Number(e.target.value)})}>
-                    <option value="none">Not sales sourced</option>
-                    <option value="0.1">10%</option>
-                    <option value="0.2">20%</option>
-                    <option value="0.3">30%</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="form-label" style={{fontSize:10}}>Manager commission</label>
-                  <select className="select" value={c.manager_commission_rate} onChange={e=>setCamp(c.id,{manager_commission_rate:e.target.value})}>
-                    <option value="">Manager's default</option>
-                    <option value="0.1">10%</option>
-                    <option value="0.15">15%</option>
-                    <option value="0.2">20%</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {err&&<div style={{color:"var(--red)",fontSize:13,marginBottom:12}} role="alert">{err}</div>}
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving…":"Save changes"}</button>
+        <div className="form-group">
+          <label className="form-label" htmlFor="fe-am">Manager's default commission (%)</label>
+          <input id="fe-am" className="form-input" type="number" inputMode="decimal" min="0" max="50" value={amRate} disabled={!clientAM} onChange={e => setAmRate(e.target.value)} />
+          <div className="form-hint">{clientAM ? `Applies to every client ${clientAM.name} manages, unless a campaign below overrides it.` : "No account manager is assigned to this client."}</div>
         </div>
       </div>
-    </div>
+
+      <h3 className="card-title" style={{ marginTop: 8 }}>Campaigns</h3>
+      {camps.length === 0 && <p className="fs-13 text-muted">This client has no campaigns yet.</p>}
+      <div className="list-stack gap-12">
+        {camps.map(c => (
+          <fieldset key={c.id} className="card" style={{ padding: 14, margin: 0 }}>
+            <legend className="sr-only">{c.name}</legend>
+            <div className="fw-600 truncate mb-8" style={{ color: "var(--ink)" }}>{c.name}</div>
+            <div className="form-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" htmlFor={`fe-pay-${c.id}`}>Pay per video ($)</label>
+                <input id={`fe-pay-${c.id}`} className="form-input" type="number" inputMode="decimal" min="0" value={c.pay_per_video} onChange={e => setCamp(c.id, { pay_per_video: e.target.value })} />
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" htmlFor={`fe-sales-${c.id}`}>Sales commission</label>
+                <Select id={`fe-sales-${c.id}`} className="select" value={c.is_sales_sourced ? String(c.sales_commission_rate) : "none"}
+                  onChange={e => e.target.value === "none" ? setCamp(c.id, { is_sales_sourced: false }) : setCamp(c.id, { is_sales_sourced: true, sales_commission_rate: Number(e.target.value) })}>
+                  <option value="none">Not sales sourced</option>
+                  <option value="0.1">10%</option>
+                  <option value="0.2">20%</option>
+                  <option value="0.3">30%</option>
+                </Select>
+              </div>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" htmlFor={`fe-mgr-${c.id}`}>Manager commission</label>
+                <Select id={`fe-mgr-${c.id}`} className="select" value={c.manager_commission_rate} onChange={e => setCamp(c.id, { manager_commission_rate: e.target.value })}>
+                  <option value="">Manager's default</option>
+                  <option value="0.1">10%</option>
+                  <option value="0.15">15%</option>
+                  <option value="0.2">20%</option>
+                </Select>
+              </div>
+            </div>
+          </fieldset>
+        ))}
+      </div>
+      {err && <Alert tone="error" style={{ marginTop: 12 }}>{err}</Alert>}
+    </Dialog>
   );
 }

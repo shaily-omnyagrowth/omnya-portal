@@ -27,8 +27,8 @@ export function errMessage(json, fallback) {
 }
 
 export const EARNING_TYPES = { base_video_pay: "Base pay", performance_bonus: "Performance bonus", bonus: "Bonus", bonus_payment: "Bonus", weekly_rate: "Weekly rate", referral: "Referral", adjustment: "Adjustment", other: "Other" };
-export const earningType = (t) => (t ? EARNING_TYPES[t] || t.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase()) : "–");
-export const methodLabel = (m) => ({ bank_transfer: "Bank transfer", zelle: "Zelle", stripe: "Stripe" }[m] || m || "–");
+export const earningType = (t) => (t ? EARNING_TYPES[t] || t.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase()) : "--");
+export const methodLabel = (m) => ({ bank_transfer: "Bank transfer", zelle: "Zelle", stripe: "Stripe" }[m] || m || "--");
 
 export function payoutDestination(creator) {
   if (!creator) return "No payout method on file";

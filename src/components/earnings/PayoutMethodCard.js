@@ -85,7 +85,7 @@ export default function PayoutMethodCard({ creator, onSaved, openSignal }) {
   const [label, tone] = STATUS[status] || STATUS.missing;
 
   return (
-    <section className="card" id="payout-method">
+    <section className="card payout-card" id="payout-method">
       <div className="card-head">
         <div style={{ minWidth: 0 }}>
           <h2 className="card-title">Payout method</h2>
@@ -94,9 +94,12 @@ export default function PayoutMethodCard({ creator, onSaved, openSignal }) {
         <span className={`badge badge-${tone}`}><span className="dot" />{label}</span>
       </div>
       {!open ? (
-        <button className="btn btn-secondary btn-sm" onClick={() => setOpen(true)}>
-          {has ? "Change payout method" : "Set up payouts"}
-        </button>
+        <div className="payout-idle">
+          <p className="fs-13 text-muted">{has ? "Changes are checked by your account manager before the next payout." : "Add a bank account, Zelle or Stripe. You need one before you can withdraw."}</p>
+          <button className={`btn ${has ? "btn-secondary" : "btn-primary"} btn-full`} onClick={() => setOpen(true)}>
+            {has ? "Change payout method" : "Set up payouts"}
+          </button>
+        </div>
       ) : (
         <form onSubmit={save} noValidate className="fade-in">
           <div className="form-group">
