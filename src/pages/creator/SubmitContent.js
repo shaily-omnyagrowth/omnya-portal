@@ -11,6 +11,7 @@ import Segmented from "../../ui/Segmented";
 import { DropZone, HowItWorks, VerifiedVideo } from "./submit/parts";
 import { authedPost, linkPlatform, useConnectedPlatforms, useVerifyLink } from "./submit/useVerifyLink";
 import Select from "../../ui/Select";
+import { campaignPlatform } from "../../utils";
 
 const PLATFORMS = ["TikTok", "Instagram", "YouTube", "Facebook"];
 const BLANK = { campaign_id: "", type: "Concept", concept_link: "", posted_link: "", platform: "TikTok", comment: "" };
@@ -73,6 +74,9 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
     );
   }
 
+  const lockedPlatform = campaignPlatform(db.campaigns.find(c => c.id === form.campaign_id));
+  const platform = lockedPlatform || form.platform;
+
   const uploadToStorage = async (fileObj, campaignId) => {
     const campaign = db.campaigns.find(c => c.id === campaignId);
     const fileName = `${creator?.name}_${campaign?.name}_${new Date().toISOString().split("T")[0]}_${fileObj.name}`.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -92,7 +96,9 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
     if (!form.campaign_id) return setErr("Choose the campaign this is for.");
     if (uploadMode === "file" && !file) return setErr("Add the video file, or switch to pasting a link.");
     if (uploadMode === "link" && !form.concept_link.trim()) return setErr("Paste the video link.");
-    if (form.type === "Final" && !isConnected(form.platform)) return setErr(`Connect ${form.platform} on the Social channels page first, so views can be verified.`);
+    const linked = form.type === "Final" && uploadMode === "link" ? linkPlatform(form.concept_link) : null;
+    if (lockedPlatform && linked && linked !== lockedPlatform) return setErr(`This campaign is for ${lockedPlatform} videos. Paste the link to your ${lockedPlatform} post.`);
+    if (form.type === "Final" && !isConnected(platform)) return setErr(`Connect ${platform} on the Social channels page first, so views can be verified.`);
     setSubmitting(true); setErr(""); setUploadProgress(0);
 
     let fileLink = form.concept_link.trim();
@@ -103,14 +109,14 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
 
     let verified = verifiedVideo;
     if (form.type === "Final" && uploadMode === "link" && !verified) {
-      verified = await verify(fileLink, form.platform);
+      verified = await verify(fileLink, platform);
       if (!verified) { setSubmitting(false); return; }
     }
 
     const postedUrl = form.type === "Final" && uploadMode === "link" ? (verified?.url || fileLink) : (form.posted_link || null);
     const { data: inserted, error } = await supabase.from("submissions").insert({
       creator_id: creator.id, campaign_id: form.campaign_id, submission_type: form.type, concept_link: fileLink,
-      status: "Submitted", posted_link: postedUrl, posted_url: postedUrl, platform: form.platform, payment_status: "Unpaid",
+      status: "Submitted", posted_link: postedUrl, posted_url: postedUrl, platform, payment_status: "Unpaid",
       notes: isOverride ? `[Filed by ${user.email} on the creator's behalf] ${form.comment || ""}`.trim() : (form.comment || null),
     }).select().single();
     if (error) { setErr(describeWriteError(error)); setSubmitting(false); setUploadProgress(0); return; }
@@ -118,13 +124,13 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
     // Stamp verified metrics server side, or ask for a first analytics sync.
     if (inserted?.id && (postedUrl || (form.type === "Final" && uploadMode === "link"))) {
       const path = form.type === "Final" && uploadMode === "link" ? "/api/social/verify-video-link" : "/api/analytics/manual-sync";
-      const body = path.includes("verify") ? { submissionId: inserted.id, url: postedUrl, platform: form.platform } : { submissionId: inserted.id };
+      const body = path.includes("verify") ? { submissionId: inserted.id, url: postedUrl, platform } : { submissionId: inserted.id };
       authedPost(path, body).catch(() => {});
     }
 
     const campaign = db.campaigns.find(c => c.id === form.campaign_id);
     const am = db.accountManagers.find(a => a.id === db.clients.find(c => c.id === campaign?.client_id)?.am_id);
-    if (am?.email) sendEmail("new_submission", { amEmail: am.email, creatorName: creator.name, campaignName: campaign?.name || "Unknown campaign", submissionType: form.type, platform: form.platform, notes: form.comment });
+    if (am?.email) sendEmail("new_submission", { amEmail: am.email, creatorName: creator.name, campaignName: campaign?.name || "Unknown campaign", submissionType: form.type, platform, notes: form.comment });
 
     setFile(null); setUploadProgress(0); setSubmitting(false);
     setForm({ ...BLANK, campaign_id: myJobs[0]?.id || "" });
@@ -187,14 +193,14 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <div className="form-row mt-16">
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" htmlFor="platform">Platform</label>
-                  <Select id="platform" className="select" value={form.platform} onChange={e => { set({ platform: e.target.value }); resetVerify(); }}>
+                  <Select id="platform" className="select" value={platform} disabled={!!lockedPlatform} onChange={e => { set({ platform: e.target.value }); resetVerify(); }}>
                     {PLATFORMS.map(p => <option key={p}>{p}</option>)}
                   </Select>
-                  {!isConnected(form.platform) && <span className="form-error">Connect {form.platform} on Social channels to submit {form.platform} videos.</span>}
+                  {!isConnected(platform) && <span className="form-error">Connect {platform} on Social channels to submit {platform} videos.</span>}
                 </div>
                 {uploadMode === "link" && (
                   <div className="form-group" style={{ marginBottom: 0, justifyContent: "flex-end" }}>
-                    <button type="button" className="btn btn-secondary" onClick={() => verify(form.concept_link, form.platform)} disabled={verifying || !form.concept_link || !isConnected(form.platform)}>
+                    <button type="button" className="btn btn-secondary" onClick={() => verify(form.concept_link, platform)} disabled={verifying || !form.concept_link || !isConnected(platform)}>
                       {verifying ? "Checking…" : verifiedVideo ? "Checked" : "Check it's mine"}
                     </button>
                   </div>

@@ -95,6 +95,16 @@ module.exports = async (req, res) => {
     }
   }
 
+  // The video must be on the platform the campaign is for.
+  if (sub && sub.campaign_id) {
+    const { data: campaign } = await supabase.from('campaigns').select('format').eq('id', sub.campaign_id).maybeSingle();
+    const wanted = ['tiktok', 'instagram', 'youtube', 'facebook'].find((k) => String(campaign?.format || '').toLowerCase().includes(k));
+    const got = detectPlatformFromUrl(rawUrl);
+    if (wanted && got && got !== wanted) {
+      return Errors.unprocessable(res, `This campaign is for ${PLATFORM_LABELS[wanted]} videos.`, { code: 'wrong_platform' });
+    }
+  }
+
   const ownerUserId = role === 'creator' ? ctx.user.id : (target && target.user_id) || null;
 
   // 2. Only through the creator's connected login on that platform

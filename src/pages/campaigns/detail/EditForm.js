@@ -3,9 +3,10 @@ import { gooeyToast as toast } from "goey-toast";
 import { updateRows } from "../../../lib/db";
 import Alert from "../../../ui/Alert";
 import Select from "../../../ui/Select";
+import { CAMPAIGN_PLATFORMS, campaignPlatform } from "../../../utils";
 
 const toForm = (c) => ({
-  name: c.name || "", description: c.description || "", format: c.format || "TikTok", videos_needed: c.videos_needed || 10,
+  name: c.name || "", description: c.description || "", format: campaignPlatform(c) || "TikTok", videos_needed: c.videos_needed || 10,
   pay_per_video: c.pay_per_video || 10, deadline: c.deadline || "", status: c.status || "Open",
   is_sales_sourced: Boolean(c.is_sales_sourced), sales_commission_rate: Number(c.sales_commission_rate ?? 0.30),
   manager_commission_rate: c.manager_commission_rate == null ? null : Number(c.manager_commission_rate), show_client_cpm: Boolean(c.show_client_cpm),
@@ -42,7 +43,7 @@ export default function EditForm({ campaign, isOwner, amDefaultRate, onCancel, o
       <div className="form-group"><label className="form-label" htmlFor="e-name">Name</label><input id="e-name" className="form-input" value={form.name} onChange={e => set({ name: e.target.value })} /></div>
       <div className="form-group"><label className="form-label" htmlFor="e-brief">Brief</label><textarea id="e-brief" className="textarea" rows={5} value={form.description} onChange={e => set({ description: e.target.value })} /></div>
       <div className="form-row">
-        <div className="form-group"><label className="form-label" htmlFor="e-format">Format</label><Select id="e-format" className="select" value={form.format} onChange={e => set({ format: e.target.value })}>{["TikTok", "IG Reel", "FB Reel", "YouTube Short"].map(f => <option key={f}>{f}</option>)}</Select></div>
+        <div className="form-group"><label className="form-label" htmlFor="e-format">Platform</label><Select id="e-format" className="select" value={form.format} onChange={e => set({ format: e.target.value })}>{CAMPAIGN_PLATFORMS.map(f => <option key={f}>{f}</option>)}</Select></div>
         <div className="form-group"><label className="form-label" htmlFor="e-status">Status</label><Select id="e-status" className="select" value={form.status} onChange={e => set({ status: e.target.value })}>{["Open", "In Progress", "Completed", "Paused"].map(s => <option key={s}>{s}</option>)}</Select></div>
         <div className="form-group"><label className="form-label" htmlFor="e-videos">Videos needed</label><input id="e-videos" className="form-input" type="number" inputMode="numeric" value={form.videos_needed} onChange={e => set({ videos_needed: e.target.value })} /></div>
         <div className="form-group"><label className="form-label" htmlFor="e-pay">Pay per video (USD)</label><input id="e-pay" className="form-input" type="number" inputMode="decimal" value={form.pay_per_video} onChange={e => set({ pay_per_video: e.target.value })} /></div>

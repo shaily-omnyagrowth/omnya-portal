@@ -5,6 +5,7 @@ import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
 import Dialog from "../../ui/Dialog";
 import Select from "../../ui/Select";
+import { CAMPAIGN_PLATFORMS } from "../../utils";
 
 const BLANK = {
   name: "", client_id: "", description: "", format: "TikTok", videos_needed: 10, pay_per_video: 10, deadline: "", status: "Open",
@@ -40,7 +41,7 @@ export default function NewCampaignDialog({ clients, isOwner, onClose, onCreated
   };
 
   return (
-    <Dialog size="lg" title="New campaign" description="Creators see the name, brief, format and pay when they browse jobs." onClose={onClose}
+    <Dialog size="lg" title="New campaign" description="Creators see the name, brief, platform and pay when they browse jobs." onClose={onClose}
       actions={<><button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button><button type="submit" form="new-campaign" className="btn btn-primary" disabled={saving}>{saving ? "Creating…" : "Create campaign"}</button></>}>
       <form id="new-campaign" onSubmit={create} noValidate>
         <div className="form-row">
@@ -54,7 +55,7 @@ export default function NewCampaignDialog({ clients, isOwner, onClose, onCreated
         </div>
         <div className="form-group"><label className="form-label" htmlFor="c-brief">Brief</label><textarea id="c-brief" className="textarea" rows={4} value={form.description} onChange={e => set({ description: e.target.value })} placeholder="What to make, talking points, the call to action and anything to avoid." /></div>
         <div className="form-row">
-          <div className="form-group"><label className="form-label" htmlFor="c-format">Format</label><Select id="c-format" className="select" value={form.format} onChange={e => set({ format: e.target.value })}>{["TikTok", "IG Reel", "FB Reel", "YouTube Short"].map(f => <option key={f}>{f}</option>)}</Select></div>
+          <div className="form-group"><label className="form-label" htmlFor="c-format">Platform</label><Select id="c-format" className="select" value={form.format} onChange={e => set({ format: e.target.value })}>{CAMPAIGN_PLATFORMS.map(f => <option key={f}>{f}</option>)}</Select></div>
           <div className="form-group"><label className="form-label" htmlFor="c-deadline">Deadline</label><input id="c-deadline" className="form-input" type="date" value={form.deadline} onChange={e => set({ deadline: e.target.value })} /></div>
           <div className="form-group"><label className="form-label" htmlFor="c-videos">Videos needed</label><input id="c-videos" className="form-input" type="number" inputMode="numeric" min="1" value={form.videos_needed} onChange={e => set({ videos_needed: e.target.value })} /></div>
           <div className="form-group"><label className="form-label" htmlFor="c-pay">Pay per video (USD)</label><input id="c-pay" className="form-input" type="number" inputMode="decimal" min="0" value={form.pay_per_video} onChange={e => set({ pay_per_video: e.target.value })} /></div>

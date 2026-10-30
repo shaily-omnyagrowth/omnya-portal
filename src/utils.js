@@ -94,6 +94,13 @@ export const platformMeta = (platform = "") => {
   return { ...m, key: k, bg: "var(--bg2)", text: "var(--ink)", border: "var(--border)" };
 };
 
+export const CAMPAIGN_PLATFORMS = ["TikTok", "Instagram", "YouTube", "Facebook"];
+// The platform a campaign is for, by its brand name, or null for an old free-text format.
+export const campaignPlatform = (campaign) => {
+  const k = platformKey(campaign?.format || "");
+  return k ? PLATFORMS[k].name : null;
+};
+
 // Platform names in their brand casing; other formats as typed.
 export const formatLabel = (format) => {
   if (!format) return "";

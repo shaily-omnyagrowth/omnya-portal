@@ -9,7 +9,7 @@ export default function CampaignsTable({ campaigns, db, approvedFor, onOpen, onS
     <>
     <div className="table-wrap">
       <table>
-        <thead><tr><th>Campaign</th><th>Client</th><th>Format</th><th>Delivery</th><th>Pace</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th>Campaign</th><th>Client</th><th>Platform</th><th>Delivery</th><th>Pace</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>
           {rows.map(c => {
             const client = db.clients.find(cl => cl.id === c.client_id);
