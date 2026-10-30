@@ -72,10 +72,15 @@ export default function CreatorConnections({ currentUser }) {
   // localStorage event, with polling /api/social/connections as the backstop.
   const connectStartedAt = useRef(0);
   const popupRef = useRef(null);
+  const handledResult = useRef(null);
 
   const finishConnect = useCallback((result) => {
     if (!result || result.type !== 'oauth_result') return;
     if (result.at && connectStartedAt.current && result.at < connectStartedAt.current - 1000) return;
+    // The channel, storage and polling can all report the same attempt; handle it once.
+    const key = `${result.platform}:${result.status}:${connectStartedAt.current || result.at}`;
+    if (handledResult.current === key) return;
+    handledResult.current = key;
     try { window.localStorage.removeItem(OAUTH_STORAGE_KEY); } catch (_) { /* private mode */ }
     popupRef.current = null;
     setBusy(null);
