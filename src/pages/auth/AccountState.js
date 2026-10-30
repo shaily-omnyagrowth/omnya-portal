@@ -1,7 +1,7 @@
 const COPY = {
   pending: {
     title: "Your account is waiting for approval",
-    body: "An Omnya admin will review your account shortly. We'll email you when it's ready, and this page updates on its own.",
+    body: "An Omnya admin will review your account shortly. We'll email you when it's ready.",
   },
   denied: {
     title: "This account doesn't have access",
