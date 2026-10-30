@@ -1,45 +1,6 @@
-import { SUPABASE_URL, supabase } from "../supabaseClient";
+import { supabase } from "../supabaseClient";
 
-export const checkSupabaseHealth = async () => {
-  // The anon key is public by design (it ships in the bundle), but it was
-  // referenced here as the undefined `SUPABASE_KEY`, so both probes threw and
-  // the health check always reported a failure.
-  const SUPABASE_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
-  const diagnostic = {
-    url: SUPABASE_URL,
-    origin: window.location.origin,
-    apiHealth: "Testing...",
-    authHealth: "Testing...",
-    details: ""
-  };
-  
-  try {
-    const apiStart = Date.now();
-    const apiRes = await fetch(`${SUPABASE_URL}/rest/v1/`, { 
-      method: 'HEAD',
-      headers: { 'apikey': SUPABASE_KEY }
-    });
-    diagnostic.apiHealth = apiRes.ok ? `OK (${Date.now() - apiStart}ms)` : `Error: ${apiRes.status}`;
-  } catch (e) {
-    diagnostic.apiHealth = `Failed: ${e.message}`;
-  }
-
-  try {
-    const authStart = Date.now();
-    const authRes = await fetch(`${SUPABASE_URL}/auth/v1/health`, {
-      headers: { 'apikey': SUPABASE_KEY }
-    });
-    diagnostic.authHealth = authRes.ok ? `OK (${Date.now() - authStart}ms)` : `Error: ${authRes.status}`;
-  } catch (e) {
-    diagnostic.authHealth = `Failed: ${e.message}`;
-  }
-
-  return diagnostic;
-};
-
-// EMAIL HELPER — fire-and-forget via /api/send-email
-// Never throws; silently skips if key not configured.
-// ============================================================
+// Fire-and-forget email through /api/send-email; never throws.
 export const sendEmail = (type, data) => {
   supabase.auth.getSession().then(({ data: { session } }) => {
     const headers = { "Content-Type": "application/json" };

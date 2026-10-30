@@ -1,45 +1,104 @@
-import { getAvatarColor, getInitials } from "../utils";
-import { LOGO_MARK_URI } from "./brand";
+import { useEffect, useRef, useState } from "react";
+import { JusticeScale01Icon, Logout03Icon, Tick02Icon, UnfoldMoreIcon, ViewIcon } from "@hugeicons/core-free-icons";
+import { getInitials } from "../utils";
+import Icon from "../ui/Icon";
 import { navsFor, roleLabel } from "./nav";
 
-export default function Sidebar({ user, role, caps, page, setPage, reviewPendingCount, usersPendingCount, onLogout, mobileMenuOpen, setMobileMenuOpen }) {
-  // role is computed by App.js with the email-promotion shortcut + 'pending' fallback.
-  // We don't recompute here; the source of truth lives one level up. (Used to be
-  // a local `(user?.role || "creator")` which raced on cold load and rendered an
-  // empty sidebar until the next React update.)
+const VIEW_AS = [["", "Owner"], ["am", "Account manager"], ["creator", "Creator"], ["client", "Brand"]];
+
+export function NavLink({ id, active, onNavigate, className = "", children, ...rest }) {
   return (
-    <div className={`sidebar ${mobileMenuOpen ? 'open' : ''}`}>
-      <div className="sidebar-header">
-        <div className="sidebar-logo">
-          <img src={LOGO_MARK_URI} alt="Omnya" style={{height:36,width:"auto"}} />
-          <div>
-            <div className="sidebar-logo-text">Omnya</div>
-            <div className="sidebar-role">{roleLabel[role]}</div>
-          </div>
+    <a
+      href={`/?page=${id}`}
+      className={className}
+      aria-current={active ? "page" : undefined}
+      onClick={e => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+        e.preventDefault();
+        onNavigate(id);
+      }}
+      {...rest}
+    >
+      {children}
+    </a>
+  );
+}
+
+function AccountMenu({ user, isOwner, overrideRole, onViewAs, onNavigate, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = e => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const onKey = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  const name = user.full_name || user.email?.split("@")[0] || "Account";
+  const pick = fn => () => { setOpen(false); fn(); };
+
+  return (
+    <div className="sidebar-footer" ref={ref}>
+      {open && (
+        <div className="menu" role="menu">
+          {isOwner && <>
+            <div className="menu-label">View the portal as</div>
+            {VIEW_AS.map(([value, label]) => (
+              <button key={label} role="menuitemradio" aria-checked={(overrideRole || "") === value} className="menu-item" onClick={pick(() => onViewAs(value || null))}>
+                <Icon icon={(overrideRole || "") === value ? Tick02Icon : ViewIcon} size={16} style={{ opacity: (overrideRole || "") === value ? 1 : 0.6 }} />
+                {label}
+              </button>
+            ))}
+            <div className="menu-sep" />
+          </>}
+          <button role="menuitem" className="menu-item" onClick={pick(() => onNavigate("legal"))}>
+            <Icon icon={JusticeScale01Icon} size={16} /> Legal center
+          </button>
+          <button role="menuitem" className="menu-item danger" onClick={pick(onLogout)}>
+            <Icon icon={Logout03Icon} size={16} /> Sign out
+          </button>
         </div>
-      </div>
-      <div className="sidebar-nav">
-        <div className="nav-section">
-          {navsFor(role, caps).map(item => (
-            <div key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>{setPage(item.id); setMobileMenuOpen(false);}}>
-              <span className="icon">{item.icon}</span>
-              <span>{item.label}</span>
-              {item.id === "review-queue" && reviewPendingCount > 0 && <span className="nav-badge">{reviewPendingCount}</span>}
-              {item.id === "pending-users" && usersPendingCount > 0 && <span className="nav-badge">{usersPendingCount}</span>}
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="sidebar-footer">
-        <div className="user-chip">
-          <div className={`user-avatar ${getAvatarColor(user.full_name||user.email)}`}>{getInitials(user.full_name||user.email)}</div>
-          <div className="user-info">
-            <div className="user-name">{user.full_name||"User"}</div>
-            <div className="user-email">{user.email}</div>
-          </div>
-        </div>
-        <button className="logout-btn" onClick={onLogout}>Sign out →</button>
-      </div>
+      )}
+      <button className="user-chip" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+        <span className="user-avatar">{getInitials(name)}</span>
+        <span className="user-info">
+          <span className="user-name" style={{ display: "block" }}>{name}</span>
+          <span className="user-email" style={{ display: "block" }}>{user.email}</span>
+        </span>
+        <Icon icon={UnfoldMoreIcon} size={16} style={{ color: "var(--ink4)" }} />
+      </button>
     </div>
+  );
+}
+
+export default function Sidebar({ user, role, baseRole, caps, page, onNavigate, counts, overrideRole, onViewAs, onLogout }) {
+  return (
+    <aside className="sidebar" aria-label="Main navigation">
+      <div className="sidebar-header">
+        <NavLink id="dashboard" className="sidebar-logo" onNavigate={onNavigate} aria-label="Omnya overview">
+          <img src="/brand/mark.png" alt="" width="22" height="29" />
+          <span className="sidebar-logo-text">Omnya</span>
+        </NavLink>
+        <span className="sidebar-role">{roleLabel[role]}</span>
+      </div>
+      <nav className="sidebar-nav">
+        {navsFor(role, caps).map((group, gi) => (
+          <div className="nav-section" key={group.label || gi}>
+            {group.label && <div className="nav-section-label">{group.label}</div>}
+            {group.items.map(item => (
+              <NavLink key={item.id} id={item.id} active={page === item.id} onNavigate={onNavigate} className={`nav-item ${page === item.id ? "active" : ""}`}>
+                <Icon icon={item.icon} size={18} />
+                <span className="label">{item.label}</span>
+                {counts[item.id] > 0 && <span className="nav-badge" aria-label={`${counts[item.id]} waiting`}>{counts[item.id] > 99 ? "99+" : counts[item.id]}</span>}
+              </NavLink>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <AccountMenu user={user} isOwner={baseRole === "owner"} overrideRole={overrideRole} onViewAs={onViewAs} onNavigate={onNavigate} onLogout={onLogout} />
+    </aside>
   );
 }
