@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft01Icon, Building03Icon, Mail01Icon, UserGroupIcon, Video01Icon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Building03Icon, Mail01Icon, Video01Icon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
 import { sendEmail } from "../../lib/api";
 import { supabase } from "../../supabaseClient";
@@ -9,7 +9,6 @@ import Icon from "../../ui/Icon";
 const ROLES = [
   { id: "creator", label: "Creator", icon: Video01Icon },
   { id: "client", label: "Brand", icon: Building03Icon },
-  { id: "am", label: "Account manager", icon: UserGroupIcon },
 ];
 
 const friendly = (message = "") => {
@@ -160,7 +159,7 @@ export default function Login({ onLogin }) {
               <Alert tone="info" style={{ marginBottom: 20 }}>
                 {requestedRole === "client"
                   ? "Your brand portal opens as soon as you confirm your email."
-                  : "After you confirm, an admin reviews your account and assigns your role. We'll email you when it's ready."}
+                  : "After you confirm, an admin reviews your account. We'll email you when it's ready."}
               </Alert>
               <button className="btn btn-primary btn-full" onClick={resend} disabled={loading}>{loading ? "Sending…" : "Resend the link"}</button>
               <button className="btn btn-ghost btn-full mt-8" onClick={() => go("login")}>
