@@ -1,71 +1,96 @@
-import React from 'react';
+import { Facebook01Icon, InstagramIcon, TiktokIcon, Video01Icon, YoutubeIcon } from "@hugeicons/core-free-icons";
 
-/**
- * Shared utility functions for Omnya Portal
- */
+export const EMPTY = "–";
 
-export const avatarColors = ["av-blue","av-green","av-gold","av-orange","av-red"];
+export const getInitials = (name) => (name || "?").trim().split(/\s+/).map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?";
+export const getAvatarColor = () => "";
 
-export const getAvatarColor = (name) => avatarColors[(name||"?").charCodeAt(0) % avatarColors.length];
+export const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: new Date(d).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined }) : EMPTY;
+export const fmtDateTime = (d) => d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : EMPTY;
 
-export const getInitials = (name) => (name||"?").split(" ").map(n=>n[0]).join("").toUpperCase().slice(0,2);
+export const fmtMoney = (n, { cents = false } = {}) => n != null && !Number.isNaN(Number(n))
+  ? Number(n).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: 2 })
+  : EMPTY;
 
-export const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—";
-export const fmtDateTime = (d) => d ? new Date(d).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "—";
-
-export const fmtMoney = (n) => n != null ? `$${Number(n).toLocaleString()}` : "—";
-
-export const fmtNum = (n) => n != null ? Number(n).toLocaleString() : "—";
-
-export const statusBadge = (status) => {
-  const map = {Active:"badge-green",Paused:"badge-gray",Offboarded:"badge-red",Open:"badge-blue","In Progress":"badge-orange",Completed:"badge-green",Cancelled:"badge-red",Pending:"badge-orange",Approved:"badge-green",Denied:"badge-red","Revisions Needed":"badge-gold",Current:"badge-green",Overdue:"badge-red",Paid:"badge-green",Unpaid:"badge-orange",Trial:"badge-gold","Monthly Retainer":"badge-blue","One-Off":"badge-gray"};
-  return <span className={`badge ${map[status]||"badge-gray"}`}>{status}</span>;
-};
-
-export const scoreColor = (s) => s >= 90 ? "#1A7A4A" : s >= 70 ? "#9A7A00" : s >= 50 ? "#C25A00" : "#C0392B";
+export const fmtNum = (n) => n != null && !Number.isNaN(Number(n)) ? Number(n).toLocaleString("en-US") : EMPTY;
 
 export const fmtCompactNum = (n) => {
-  if (n == null || Number.isNaN(Number(n))) return "—";
+  if (n == null || Number.isNaN(Number(n))) return EMPTY;
   const num = Number(n);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (num >= 1_000) return (num / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-  return num.toLocaleString();
+  const abs = Math.abs(num);
+  if (abs >= 1_000_000_000) return (num / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
+  if (abs >= 1_000_000) return (num / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  if (abs >= 10_000) return Math.round(num / 1_000) + "K";
+  if (abs >= 1_000) return (num / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+  return Math.round(num).toLocaleString("en-US");
 };
+
+export const fmtPct = (n, digits = 1) => n == null || Number.isNaN(Number(n)) ? EMPTY : `${Number(n).toFixed(digits)}%`;
 
 export const fmtRelativeTime = (d) => {
   if (!d) return "Never";
   const date = new Date(d);
-  if (Number.isNaN(date.getTime())) return "—";
-  const now = new Date();
-  const diffSec = Math.floor((now - date) / 1000);
+  if (Number.isNaN(date.getTime())) return EMPTY;
+  const diffSec = Math.floor((Date.now() - date) / 1000);
   if (diffSec < 60) return "Just now";
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  if (diffDays < 60) return "1 mo ago";
-  return `${Math.floor(diffDays / 30)} mos ago`;
+  const min = Math.floor(diffSec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  if (days < 60) return "1 mo ago";
+  if (days < 365) return `${Math.floor(days / 30)} mo ago`;
+  return fmtDate(d);
 };
 
+// One status vocabulary for every badge in the portal.
+const TONES = {
+  Active: "green", Approved: "green", Completed: "green", Current: "green", Paid: "green", paid: "green",
+  "Published/Tracked": "green", Connected: "green", approved: "green", eligible: "green",
+  Open: "blue", Submitted: "blue", Applied: "blue", "Monthly Retainer": "blue", Retainer: "blue", batched: "blue",
+  "In Progress": "orange", "Under Review": "orange", Pending: "orange", pending: "orange", "Revision Requested": "orange",
+  "Revisions Needed": "orange", Unpaid: "orange", Trial: "orange", needs_review: "orange", locked: "orange", withdrawal_requested: "orange",
+  verified: "green", submitted: "orange", missing: "red", rejected: "red",
+  Offboarded: "red", Cancelled: "red", Denied: "red", Declined: "red", Rejected: "red", Overdue: "red", forfeited: "red", cancelled: "red",
+  Paused: "gray", Draft: "gray", Archived: "gray", "One-Off": "gray",
+};
+const LABELS = {
+  "Published/Tracked": "Published", "Revision Requested": "Changes requested", "Under Review": "In review",
+  needs_review: "Needs review", withdrawal_requested: "Withdrawal requested", "Monthly Retainer": "Retainer", "One-Off": "One off",
+};
+export const statusTone = (status) => TONES[status] || "gray";
+export const statusLabel = (status) => {
+  if (!status) return "Unknown";
+  const l = LABELS[status] || String(status).replace(/_/g, " ");
+  return l.charAt(0).toUpperCase() + l.slice(1).toLowerCase().replace(/\btiktok\b/, "TikTok");
+};
+export const statusBadge = (status) => (
+  <span className={`badge badge-${statusTone(status)}`}><span className="dot" />{statusLabel(status)}</span>
+);
+
+export const scoreColor = (s) => s >= 90 ? "var(--green)" : s >= 70 ? "var(--ink)" : s >= 50 ? "var(--amber)" : "var(--red)";
+
+const PLATFORMS = {
+  tiktok: { name: "TikTok", icon: TiktokIcon, color: "#0b0b0c" },
+  instagram: { name: "Instagram", icon: InstagramIcon, color: "#c13584" },
+  youtube: { name: "YouTube", icon: YoutubeIcon, color: "#d9201f" },
+  facebook: { name: "Facebook", icon: Facebook01Icon, color: "#1877f2" },
+};
+export const platformKey = (platform = "") => {
+  const p = String(platform || "").toLowerCase();
+  if (p.includes("tiktok")) return "tiktok";
+  if (p.includes("instagram") || p === "ig") return "instagram";
+  if (p.includes("youtube") || p === "yt") return "youtube";
+  if (p.includes("facebook") || p === "fb") return "facebook";
+  return null;
+};
 export const platformMeta = (platform = "") => {
-  const p = (platform || "").toLowerCase();
-  if (p.includes("tiktok")) {
-    return { name: "TikTok", icon: "🎵", color: "#000000", bg: "#f1f1f2", text: "#000", border: "#e0e0e2" };
-  }
-  if (p.includes("instagram") || p.includes("ig")) {
-    return { name: "Instagram", icon: "📸", color: "#E1306C", bg: "#fdf2f6", text: "#C13584", border: "#fbcfe8" };
-  }
-  if (p.includes("youtube") || p.includes("yt")) {
-    return { name: "YouTube", icon: "▶️", color: "#FF0000", bg: "#fef2f2", text: "#dc2626", border: "#fecaca" };
-  }
-  if (p.includes("facebook") || p.includes("fb")) {
-    return { name: "Facebook", icon: "👥", color: "#1877F2", bg: "#eff6ff", text: "#1d4ed8", border: "#bfdbfe" };
-  }
-  return { name: platform || "Post", icon: "🎬", color: "#4f46e5", bg: "#eef2ff", text: "#4338ca", border: "#c7d2fe" };
+  const k = platformKey(platform);
+  const m = k ? PLATFORMS[k] : { name: platform ? String(platform) : "Post", icon: Video01Icon, color: "var(--ink2)" };
+  return { ...m, key: k, bg: "var(--bg2)", text: "var(--ink)", border: "var(--border)" };
 };
 
 export const calcPacing = ({ startDate, deadline, videosNeeded = 10, approvedCount = 0 }) => {
@@ -79,58 +104,43 @@ export const calcPacing = ({ startDate, deadline, videosNeeded = 10, approvedCou
   let daysRemaining = null;
   let totalDays = null;
   let elapsedDays = null;
-
   if (end) {
-    const diffTime = end.getTime() - now.getTime();
-    daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-    elapsedDays = Math.max(0, Math.ceil((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    const day = 1000 * 60 * 60 * 24;
+    daysRemaining = Math.ceil((end.getTime() - now.getTime()) / day);
+    totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / day));
+    elapsedDays = Math.max(0, Math.ceil((now.getTime() - start.getTime()) / day));
   }
 
   const totalWeeks = totalDays ? Math.max(1, Math.ceil(totalDays / 7)) : 4;
   const currentWeek = elapsedDays !== null ? Math.min(totalWeeks, Math.max(1, Math.ceil(elapsedDays / 7))) : 1;
-
   const expectedPace = Math.min(needed, Math.round((currentWeek / totalWeeks) * needed));
-  let paceStatus = "on_track";
-  let paceLabel = "On Track";
-  let paceBadge = "badge-green";
 
-  if (delivered >= needed) {
-    paceStatus = "completed";
-    paceLabel = "Completed";
-    paceBadge = "badge-green";
-  } else if (daysRemaining !== null && daysRemaining < 0) {
-    paceStatus = "overdue";
-    paceLabel = `Overdue by ${Math.abs(daysRemaining)}d`;
-    paceBadge = "badge-red";
-  } else if (delivered < expectedPace - 1) {
-    paceStatus = "behind";
-    paceLabel = "Behind Pace";
-    paceBadge = "badge-orange";
-  } else if (delivered > expectedPace) {
-    paceStatus = "ahead";
-    paceLabel = "Ahead of Pace";
-    paceBadge = "badge-blue";
-  }
+  let paceStatus = "on_track", paceLabel = "On track", paceBadge = "badge-green";
+  if (delivered >= needed) { paceStatus = "completed"; paceLabel = "Delivered"; paceBadge = "badge-green"; }
+  else if (daysRemaining !== null && daysRemaining < 0) { paceStatus = "overdue"; paceLabel = `Overdue by ${Math.abs(daysRemaining)}d`; paceBadge = "badge-red"; }
+  else if (delivered < expectedPace - 1) { paceStatus = "behind"; paceLabel = "Behind pace"; paceBadge = "badge-orange"; }
+  else if (delivered > expectedPace) { paceStatus = "ahead"; paceLabel = "Ahead of pace"; paceBadge = "badge-blue"; }
 
-  return {
-    deliveryPct,
-    daysRemaining,
-    totalWeeks,
-    currentWeek,
-    expectedPace,
-    paceStatus,
-    paceLabel,
-    paceBadge,
-    isExpired: daysRemaining !== null && daysRemaining < 0
-  };
+  return { deliveryPct, daysRemaining, totalWeeks, currentWeek, expectedPace, paceStatus, paceLabel, paceBadge, isExpired: daysRemaining !== null && daysRemaining < 0 };
+};
+
+export const daysLeftLabel = (deadline) => {
+  if (!deadline) return "No deadline";
+  const d = Math.ceil((new Date(deadline) - new Date()) / 86400000);
+  if (d < 0) return `${Math.abs(d)}d overdue`;
+  if (d === 0) return "Due today";
+  return `${d}d left`;
 };
 
 export const isBreakoutVideo = (views, creatorAvgViews) => {
   const v = Number(views) || 0;
   const avg = Number(creatorAvgViews) || 0;
-  if (v >= 100_000) return true;
-  if (avg > 1000 && v >= avg * 2.5) return true;
-  return false;
+  return v >= 100_000 || (avg > 1000 && v >= avg * 2.5);
 };
 
+// Best available view count for a submission: synced analytics first, then the latest checkpoint.
+export const viewsOf = (sub, analytics) =>
+  Number(analytics?.views || sub?.views_1m || sub?.views_2w || sub?.views_1w || sub?.views_72h || sub?.views_24h || sub?.views || 0);
+
+export const engagementRate = ({ views, likes = 0, comments = 0, shares = 0 }) =>
+  views > 0 ? ((Number(likes) + Number(comments) + Number(shares)) / views) * 100 : 0;
