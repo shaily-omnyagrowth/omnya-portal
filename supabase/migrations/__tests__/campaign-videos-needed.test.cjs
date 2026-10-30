@@ -58,15 +58,33 @@ const R = (ok, label, detail) => {
   R(second === null, 'its creator can resend', second);
   R(await spots(fix) === 0, 'the resent video does not take a second spot', String(await spots(fix)));
 
+  const replaced = await db.query(`select status, archived_at from public.submissions where id = $1`, [first]);
+  R(replaced.rows[0].status === 'Archived' && replaced.rows[0].archived_at, 'resending clears the old revision', replaced.rows[0].status);
+
+  const many = await campaign(0);
+  const r1 = await submit(many), r2 = await submit(many);
+  await setStatus(r1, 'Revision Requested');
+  await setStatus(r2, 'Revision Requested');
+  await submit(many);
+  const open = await db.query(`select id from public.submissions where campaign_id = $1 and status = 'Revision Requested'`, [many]);
+  R(open.rows.length === 1 && open.rows[0].id === r2, 'one new video replaces one revision, oldest first');
+
+  const mixed = await campaign(0);
+  const m1 = await submit(mixed);
+  await setStatus(m1, 'Revision Requested');
+  await submit(mixed, 'Concept');
+  const after = await db.query(`select status from public.submissions where id = $1`, [m1]);
+  R(after.rows[0].status === 'Archived', 'a new concept clears a final revision too', after.rows[0].status);
+
   const c2 = await campaign(1);
   const blocked = await submit(c2);
   await setStatus(blocked, 'Rejected');
   R(await spots(c2) === 1, 'a rejected video frees its spot');
 
-  const open = await campaign(0);
-  const o = await submit(open);
+  const unlimited = await campaign(0);
+  const o = await submit(unlimited);
   await setStatus(o, 'Approved');
-  R(await status(open) === 'Open', 'no videos needed means no limit');
+  R(await status(unlimited) === 'Open', 'no videos needed means no limit');
 
   const archived = await campaign(1);
   const ar = await submit(archived);
@@ -74,8 +92,8 @@ const R = (ok, label, detail) => {
   await setStatus(ar, 'Approved');
   R(await status(archived) === 'Archived', 'an archived campaign stays archived');
 
-  const { rows } = await db.query(`select proname from pg_proc where proname in ('campaign_approved_videos','campaign_videos_taken','campaign_spots','enforce_videos_needed','complete_campaign_when_full') and prosecdef`);
-  R(rows.length === 5, 'the checks ignore RLS, so a creator sees the full count', String(rows.length));
+  const { rows } = await db.query(`select proname from pg_proc where proname in ('campaign_approved_videos','campaign_videos_taken','campaign_spots','enforce_videos_needed','complete_campaign_when_full','archive_replaced_revision') and prosecdef`);
+  R(rows.length === 6, 'the checks ignore RLS, so a creator sees the full count', String(rows.length));
 
   console.log(`\n  ${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);

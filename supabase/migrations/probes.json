@@ -3,5 +3,10 @@
     "kind": "trigger",
     "table": "submissions",
     "trigger": "trg_complete_campaign_when_full"
+  },
+  "20261030210000_resubmit_replaces_revision.sql": {
+    "kind": "trigger",
+    "table": "submissions",
+    "trigger": "trg_archive_replaced_revision"
   }
 }

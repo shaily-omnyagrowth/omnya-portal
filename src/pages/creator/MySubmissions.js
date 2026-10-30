@@ -17,7 +17,7 @@ const FILTERS = {
 
 export default function MySubmissions({ user, db, onNavigate }) {
   const creator = db.creators.find(c => c.user_id === user.id || c.email === user.email);
-  const subs = useMemo(() => (creator ? db.submissions.filter(s => s.creator_id === creator.id) : [])
+  const subs = useMemo(() => (creator ? db.submissions.filter(s => s.creator_id === creator.id && s.status !== "Archived") : [])
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), [creator, db.submissions]);
   const [tab, setTab] = useState(() => (subs.some(FILTERS.changes) ? "changes" : "all"));
   const shown = subs.filter(FILTERS[tab]);

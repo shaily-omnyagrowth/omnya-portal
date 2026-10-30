@@ -78,7 +78,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
 
   const platform = campaignPlatform(db.campaigns.find(c => c.id === form.campaign_id));
   const spotsLeft = spots[form.campaign_id];
-  const holdsSpot = db.submissions.some(s => s.campaign_id === form.campaign_id && s.creator_id === creator.id && s.submission_type === "Final" && s.status === "Revision Requested");
+  const holdsSpot = db.submissions.some(s => s.campaign_id === form.campaign_id && s.creator_id === creator.id && s.status === "Revision Requested");
   const full = spotsLeft === 0 && !holdsSpot;
 
   const uploadToStorage = async (fileObj, campaignId) => {
