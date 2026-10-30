@@ -118,7 +118,8 @@ export default function App() {
   if (loading && !user) return wrap(<div className="state-screen"><Spinner label="Signing you in" /></div>);
   if (session.isRecoveryMode) return wrap(<ResetPassword onComplete={() => session.setIsRecoveryMode(false)} />, true);
   if (!user) return wrap(<Login onLogin={session.handleLogin} />, true);
-  if (rawRole === "pending") return wrap(<AccountState kind="pending" onCheck={session.checkStatus} checking={session.checking} onLogout={session.handleLogout} />, true);
+  if (user.profileFailed) return wrap(<AccountState kind="error" onRetry={() => window.location.reload()} onLogout={session.handleLogout} />, true);
+  if (rawRole === "pending") return wrap(<AccountState kind="pending" onLogout={session.handleLogout} />, true);
   if (rawRole === "denied") return wrap(<AccountState kind="denied" onLogout={session.handleLogout} />, true);
 
   const { db } = ws;

@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { gooeyToast as toast } from "goey-toast";
 import { sendEmail } from "../lib/api";
 import { supabase } from "../supabaseClient";
 
 const fetchProfile = (id) => supabase.from("user_profiles").select("*").eq("id", id).maybeSingle();
 const withTimeout = (promise, ms, label) =>
   Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(label)), ms))]);
+// Null means no row; a failed read throws.
+const loadProfile = async (id, ms) => {
+  const { data, error } = await withTimeout(fetchProfile(id), ms, "Profile timeout");
+  if (error) throw error;
+  return data;
+};
 
 // Creates the pending profile a new sign up needs; INSERT so an existing role is never overwritten.
 async function createPendingProfile(authUser) {
@@ -22,7 +27,6 @@ export default function useSession({ resetPage }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
-  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -34,7 +38,7 @@ export default function useSession({ resetPage }) {
         if (error) throw error;
         if (!session || !mounted) return;
         try {
-          const { data: profile } = await withTimeout(fetchProfile(session.user.id), 4000, "Profile timeout");
+          const profile = await loadProfile(session.user.id, 4000);
           if (!mounted) return;
           if (profile) {
             setUser({ ...session.user, ...profile });
@@ -49,12 +53,13 @@ export default function useSession({ resetPage }) {
             }
             return;
           }
-          const { data: retry } = await fetchProfile(session.user.id);
+          const retry = await loadProfile(session.user.id, 4000);
           if (retry) { setUser({ ...session.user, ...retry }); return; }
           try { await createPendingProfile(session.user); } catch (e) { console.warn("Could not create the missing profile:", e.message); }
           setUser({ ...session.user, role: "pending" });
-        } catch {
-          setUser(session.user);
+        } catch (e) {
+          console.warn("Could not load the profile:", e.message);
+          setUser({ ...session.user, profileFailed: true });
         }
       } catch (e) {
         console.error("Stale session, clearing it:", e);
@@ -89,14 +94,15 @@ export default function useSession({ resetPage }) {
   const handleLogin = useCallback(async (authUser) => {
     setUser(authUser);
     try {
-      const { data: profile } = await withTimeout(fetchProfile(authUser.id), 10000, "Timeout");
+      const profile = await loadProfile(authUser.id, 10000);
       if (profile) { setUser(prev => ({ ...prev, ...profile })); return; }
       const created = await createPendingProfile(authUser);
       if (created) { setUser(prev => ({ ...prev, ...created })); return; }
-      const { data: retry } = await fetchProfile(authUser.id);
+      const retry = await loadProfile(authUser.id, 10000);
       if (retry) setUser(prev => ({ ...prev, ...retry }));
     } catch (e) {
       console.warn("Profile sync after sign in failed:", e.message);
+      setUser(prev => ({ ...prev, profileFailed: true }));
     }
   }, []);
 
@@ -121,21 +127,5 @@ export default function useSession({ resetPage }) {
     return () => clearInterval(id);
   }, [user?.id, user?.role, resetPage]);
 
-  const checkStatus = useCallback(async () => {
-    if (!user || checking) return;
-    setChecking(true);
-    try {
-      const { data: profile, error } = await fetchProfile(user.id);
-      if (error) throw error;
-      if (!profile) toast.error("We couldn't find your profile", { description: "If this keeps happening, contact hello@omnyagrowth.com." });
-      else if (profile.role === "pending") toast("Still waiting for approval", { description: "We'll email you as soon as your role is assigned." });
-      else setUser(prev => ({ ...prev, ...profile }));
-    } catch (e) {
-      toast.error("Couldn't check your status", { description: e.message });
-    } finally {
-      setChecking(false);
-    }
-  }, [user, checking]);
-
-  return { user, setUser, loading, isRecoveryMode, setIsRecoveryMode, handleLogin, handleLogout, checkStatus, checking };
+  return { user, setUser, loading, isRecoveryMode, setIsRecoveryMode, handleLogin, handleLogout };
 }
