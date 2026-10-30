@@ -83,9 +83,9 @@ const PLATFORMS = {
 export const platformKey = (platform = "") => {
   const p = String(platform || "").toLowerCase();
   if (p.includes("tiktok")) return "tiktok";
-  if (p.includes("instagram") || /\big\b/.test(p)) return "instagram";
-  if (p.includes("youtube") || /\byt\b/.test(p)) return "youtube";
-  if (p.includes("facebook") || /\bfb\b/.test(p)) return "facebook";
+  if (p.includes("instagram") || p === "ig") return "instagram";
+  if (p.includes("youtube") || p === "yt") return "youtube";
+  if (p.includes("facebook") || p === "fb") return "facebook";
   return null;
 };
 export const platformMeta = (platform = "") => {

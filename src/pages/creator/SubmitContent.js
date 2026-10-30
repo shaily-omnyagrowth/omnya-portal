@@ -73,8 +73,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
     );
   }
 
-  const lockedPlatform = campaignPlatform(db.campaigns.find(c => c.id === form.campaign_id));
-  const platform = lockedPlatform || (form.type === "Final" ? linkPlatform(form.concept_link) : null);
+  const platform = campaignPlatform(db.campaigns.find(c => c.id === form.campaign_id));
 
   const uploadToStorage = async (fileObj, campaignId) => {
     const campaign = db.campaigns.find(c => c.id === campaignId);
@@ -96,8 +95,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
     if (uploadMode === "file" && !file) return setErr("Add the video file, or switch to pasting a link.");
     if (uploadMode === "link" && !form.concept_link.trim()) return setErr("Paste the video link.");
     const linked = form.type === "Final" && uploadMode === "link" ? linkPlatform(form.concept_link) : null;
-    if (lockedPlatform && linked && linked !== lockedPlatform) return setErr(`This campaign is for ${lockedPlatform} videos. Paste the link to your ${lockedPlatform} post.`);
-    if (form.type === "Final" && !platform) return setErr("Paste a TikTok, Instagram, YouTube or Facebook link.");
+    if (linked && linked !== platform) return setErr(`This campaign is for ${platform} videos. Paste the link to your ${platform} post.`);
     if (form.type === "Final" && !isConnected(platform)) return setErr(`Connect ${platform} on the Social channels page first, so views can be verified.`);
     setSubmitting(true); setErr(""); setUploadProgress(0);
 

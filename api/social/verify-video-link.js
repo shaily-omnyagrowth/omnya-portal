@@ -17,15 +17,6 @@ const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
 const { fetchOwnVideo } = require('../_utils/socialVideo');
 const { detectPlatformFromUrl } = require('../_utils/analytics');
 
-const detectPlatformFromFormat = (format) => {
-  const f = String(format || '').toLowerCase();
-  return f.includes('tiktok') ? 'tiktok'
-    : f.includes('instagram') || /\big\b/.test(f) ? 'instagram'
-    : f.includes('youtube') || /\byt\b/.test(f) ? 'youtube'
-    : f.includes('facebook') || /\bfb\b/.test(f) ? 'facebook'
-    : null;
-};
-
 const PLATFORM_LABELS = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook' };
 
 module.exports = async (req, res) => {
@@ -107,7 +98,7 @@ module.exports = async (req, res) => {
   // The video must be on the platform the campaign is for.
   if (sub && sub.campaign_id) {
     const { data: campaign } = await supabase.from('campaigns').select('format').eq('id', sub.campaign_id).maybeSingle();
-    const wanted = detectPlatformFromFormat(campaign?.format);
+    const wanted = ['tiktok', 'instagram', 'youtube', 'facebook'].find((k) => String(campaign?.format || '').toLowerCase().includes(k));
     const got = detectPlatformFromUrl(rawUrl);
     if (wanted && got && got !== wanted) {
       return Errors.unprocessable(res, `This campaign is for ${PLATFORM_LABELS[wanted]} videos.`, { code: 'wrong_platform' });

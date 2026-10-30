@@ -57,10 +57,6 @@ async function call(url) {
   fetched = 0;
   await call('https://www.tiktok.com/@me/video/123');
   R(fetched === 1, 'an old free-text format does not block any platform');
-  campaignFormat = 'FB Reel';
-  fetched = 0;
-  r = await call('https://www.tiktok.com/@me/video/123');
-  R(r.code === 422 && /Facebook/.test(JSON.stringify(r.body)) && fetched === 0, 'an older "FB Reel" format counts as Facebook', String(r.code));
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
