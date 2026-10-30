@@ -56,7 +56,7 @@ export function routeFor(role, page, ctx) {
       submissions: [P.MySubmissions, { user, db, onNavigate: setPage }, "list"],
       "social-connections": [P.CreatorConnections, { currentUser: user }, "cards"],
       "payout-manager": [P.CreatorEarnings, { user, db }, "table"],
-      insights: [P.CreatorInsights, { user, db, onNavigate: setPage }, "detail"],
+      insights: [P.CreatorInsights, { user, db, onNavigate: setPage, onRefresh: loadDB }, "detail"],
       legal: [P.Legal, {}, "detail"],
       settings,
     },

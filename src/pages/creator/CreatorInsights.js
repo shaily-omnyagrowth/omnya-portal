@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChartBarLineIcon } from "@hugeicons/core-free-icons";
 import VideoMetricsPanel from "../../components/VideoMetricsPanel";
+import { callApi } from "../../lib/api";
 import { Sparkline } from "../../ui/charts";
 import EmptyState from "../../ui/EmptyState";
 import PageHeader from "../../ui/PageHeader";
@@ -8,9 +9,11 @@ import VideoThumb from "../../ui/VideoThumb";
 import { engagementRate, fmtCompactNum, fmtDate, fmtPct, platformMeta, viewsOf } from "../../utils";
 
 const LIVE = new Set(["Approved", "Published/Tracked"]);
+const SYNC_KEY = "insights_synced_at";
+const SYNC_EVERY_MS = 10 * 60 * 1000;
 const checkpoints = s => ["views_24h", "views_72h", "views_1w", "views_2w", "views_1m"].map(k => s[k]).filter(v => v != null).map(Number);
 
-export default function CreatorInsights({ user, db, onNavigate }) {
+export default function CreatorInsights({ user, db, onNavigate, onRefresh }) {
   const creator = db.creators.find(c => c.user_id === user.id || c.email === user.email);
   const analyticsBySub = useMemo(() => Object.fromEntries((db.analytics || []).filter(a => a.submission_id).map(a => [a.submission_id, a])), [db.analytics]);
   const videos = useMemo(() => (creator ? db.submissions.filter(s => s.creator_id === creator.id && LIVE.has(s.status)) : [])
@@ -20,6 +23,17 @@ export default function CreatorInsights({ user, db, onNavigate }) {
   const panelRef = useRef(null);
   const sub = videos.find(v => v.id === selected) || videos[0];
   const campaignName = id => db.campaigns.find(c => c.id === id)?.name;
+
+  // Pull fresh numbers on open, at most every 10 minutes.
+  const hasVideos = videos.length > 0;
+  useEffect(() => {
+    if (!hasVideos) return;
+    let last = 0;
+    try { last = Number(sessionStorage.getItem(SYNC_KEY)) || 0; } catch (_) {}
+    if (Date.now() - last < SYNC_EVERY_MS) return;
+    try { sessionStorage.setItem(SYNC_KEY, String(Date.now())); } catch (_) {}
+    callApi("/api/analytics/manual-sync", { body: {} }).then(() => onRefresh?.(), () => {});
+  }, [hasVideos, onRefresh]);
 
   if (videos.length === 0) {
     return (
