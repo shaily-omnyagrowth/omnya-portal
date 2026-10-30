@@ -22,7 +22,7 @@ rendering) is being delivered in the next iteration; this document focuses on
 | Meta       | Meta Login              | No (long-lived ~60d) | "Generic" Meta connection (`platform='meta'`). |
 | YouTube    | Google OAuth (offline)  | Yes            | `access_type=offline&prompt=consent`. |
 
-Each branded button writes a separately-labelled row in `creator_tokens`. The
+Each branded button writes a separately-labelled row in `creator_social_accounts`. The
 three Meta-backed flows share one callback (`/api/auth/meta/callback`); the
 callback figures out the correct platform label from the `oauth_states`
 record.
@@ -47,7 +47,7 @@ record.
 │              │                                            │ /api/auth/<p>/callback │                │
 │              │                                            │ (consumes oauth_state) │                │
 │              │                                            │ (exchanges code)       │                │
-│              │                                            │ (upserts creator_tokens│                │
+│              │                                            │ (upserts tokens, AES)  │                │
 │              │   5 302 → /?connected=<p>                  │                        │                │
 │              │◄───────────────────────────────────────────┤                        │                │
 └──────────────┘                                            └────────────────────────┘                │
@@ -67,8 +67,8 @@ Key properties:
    sent to TikTok on code exchange. The browser never sees the verifier.
 4. **Tokens stay server-side.** The frontend never receives
    `access_token`/`refresh_token`. The browser-readable connection state
-   comes from `/api/social/connections` (or, defensively, the
-   `creator_connection_status` view), which omits both columns.
+   comes from `/api/social/connections` (or the `creator_social_accounts_safe`
+   view), which omits every token column.
 
 ---
 
@@ -128,25 +128,13 @@ localhost for development.
 
 ## 5. Database tables
 
-Defined in `supabase/migrations/20260522000000_social_media_feature.sql`
-(plus columns added in the hardening migration).
+Defined in `supabase/SETUP.sql`.
 
-### `creator_tokens`
-The canonical token store. Keyed by `(user_id, platform)` UNIQUE.
-
-| Column | Purpose |
-|---|---|
-| `user_id`, `platform` | Composite key. `platform` ∈ {tiktok, instagram, facebook, meta, youtube}. |
-| `access_token`, `refresh_token` | OAuth credentials. **Never returned to the browser.** |
-| `token_type`, `scope` | From the provider's token response. |
-| `expires_at`, `refresh_expires_at` | TTLs for the two tokens. |
-| `platform_user_id`, `platform_username` | Provider identity (e.g. TikTok `open_id`, YouTube channel id/title). |
-| `status` | `connected` / `expired` / `revoked` / `error` / `disconnected`. |
-| `last_synced_at`, `last_error` | Updated by analytics sync. |
-| `metadata` | JSONB sidecar for provider-specific fields. |
-
-`creator_id` is kept (nullable) for compatibility with legacy callers — see
-AUDIT.md §4.8 for the schism resolution.
+### `creator_social_accounts`
+The token store, one row per `(user_id, platform)`. Access and refresh tokens are
+AES-256-GCM encrypted (`access_token_encrypted`, `refresh_token_encrypted`, key in
+`ENCRYPTION_KEY`) and never returned to the browser. `connection_status`,
+`last_synced_at` and `last_error` are updated by analytics sync.
 
 ### `oauth_states`
 Short-lived nonce store. Service-role only; deny-all RLS.
@@ -159,14 +147,12 @@ Short-lived nonce store. Service-role only; deny-all RLS.
 | `expires_at` | 10-minute TTL. |
 | `used_at` | Set on first successful consume; prevents replay. |
 
-### `creator_connection_status` (view)
-Defensive frontend projection. Same data as `creator_tokens` minus the raw
-token columns. Inherits RLS from the base table via `security_invoker=true`.
+### `creator_social_accounts_safe` (view)
+Token-free projection of `creator_social_accounts` for the browser. Inherits RLS
+from the base table via `security_invoker=true`.
 
 ### `video_analytics`
-Holds per-submission social metrics. The next iteration's analytics-sync work
-populates `user_id`, `video_url`, `watch_time_seconds`, `engagement_rate`, and
-`raw_metrics` — all added by this migration.
+Per-submission social metrics, written by analytics sync.
 
 ---
 
@@ -174,10 +160,10 @@ populates `user_id`, `video_url`, `watch_time_seconds`, `engagement_rate`, and
 
 | Table | Authenticated reads | Authenticated writes |
 |---|---|---|
-| `creator_tokens` | `user_id = auth.uid()` OR `owner` | None — server-side only |
+| `creator_social_accounts` | self, owner, payment managers, the creator's AM; token columns are not granted | self only |
 | `oauth_states` | none (deny-all) | none — server-side only |
 | `video_analytics` | owner / self / assigned-AM | None — server-side only |
-| `creator_connection_status` | inherits creator_tokens | view is read-only |
+| `creator_social_accounts_safe` | inherits creator_social_accounts | view is read-only |
 
 Service-role endpoints (`api/auth/**/*`, `api/social/connections`,
 `api/auth/disconnect`) bypass RLS but each one re-checks authorization
@@ -245,9 +231,9 @@ For owners who want to invalidate a creator's token (e.g. they're offboarding):
 have them click Disconnect, or run via SQL:
 
 ```sql
-UPDATE creator_tokens
-SET access_token = NULL, refresh_token = NULL, status = 'revoked',
-    updated_at = now()
+UPDATE creator_social_accounts
+SET access_token_encrypted = NULL, refresh_token_encrypted = NULL,
+    connection_status = 'disconnected', updated_at = now()
 WHERE user_id = '<creator-user-id>' AND platform = '<platform>';
 ```
 
@@ -413,12 +399,11 @@ Login Kit product is added to the production app.
 
 ## 11. Deployment checklist (per environment)
 
-- [ ] Apply migrations in order: `20260521000000_omnya_hardening.sql`, then
-      `20260522000000_social_media_feature.sql`.
+- [ ] The schema is in place (`supabase/SETUP.sql`, then `npm run db:migrate`).
 - [ ] Set all env vars listed in §3. `APP_BASE_URL` must match the
       environment's actual URL.
 - [ ] Register every callback URL with its respective provider (see §4).
-- [ ] Verify Supabase RLS is on for `creator_tokens`, `oauth_states`,
+- [ ] Verify Supabase RLS is on for `creator_social_accounts`, `oauth_states`,
       `video_analytics`.
 - [ ] Smoke test: sign in as a creator, click Connect for each platform, verify
       the creator card shows the connected username and Last synced shows
@@ -428,17 +413,3 @@ Login Kit product is added to the production app.
 - [ ] Smoke test: try a forged state URL (`/api/auth/tiktok/callback?code=foo&state=bar`)
       and confirm a clean redirect to `?error=tiktok_invalid_state`.
 
----
-
-## 12. Next iteration (analytics)
-
-Tracked separately:
-
-- Analytics sync rewrite against the new `creator_tokens` schema, with token
-  refresh, per-platform error reporting, and structured logging.
-- `POST /api/analytics/manual-sync` for creator-initiated refresh.
-- `src/pages/AnalyticsDashboard.js` rewrite to query the new normalized columns
-  and surface `last_error` per submission.
-- Removal of the legacy `creator_id`-based routes
-  (`api/analytics/refresh.js`, `api/analytics/fetch.js`, `api/analytics.js`,
-  `api/auth/tiktok/disconnect.js`, `api/auth/meta/disconnect.js`).

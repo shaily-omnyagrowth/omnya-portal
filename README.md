@@ -14,7 +14,7 @@ cp .env.example .env          # fill in values; see comments in the file
 npm run dev                   # SPA on :3000 and /api/* on :3100
 ```
 
-Apply the schema with `npm run db:migrate` (`-- --status` to check what's applied). A fresh Supabase project starts from `supabase/SETUP.sql`. See [supabase/migrations/README.md](supabase/migrations/README.md).
+A fresh Supabase project runs `supabase/SETUP.sql` once, then `npm run db:migrate` (`-- --status` shows what's applied). See [supabase/migrations/README.md](supabase/migrations/README.md).
 
 ## Tests
 
@@ -34,16 +34,13 @@ CI=true npm test -- --watchAll=false    # Jest
 │   ├── ui/         primitives (Dialog, Select, Avatar, Pagination, charts…)
 │   └── styles/     tokens and global CSS
 ├── supabase/
-│   ├── migrations/ schema source of truth
-│   ├── rollbacks/  one per migration, never in migrations/
-│   └── SETUP.sql   bootstrap for a fresh project
+│   ├── SETUP.sql   the whole schema, as of 2026-10-30
+│   └── migrations/ every change since, plus PGlite tests
 ├── tests/          custom Node harness
-├── scripts/        migration runner, ops scripts
+├── scripts/        migration runner
 ├── public/         static assets, legal pages, TikTok verification files
 └── docs/
-    ├── guides/     deploy, security, payments, social, design
-    ├── specs/      feature specs
-    └── reports/    dated audits and reviews (historical)
+    └── guides/     design context, social OAuth setup
 ```
 
 Contributor and agent conventions: [AGENTS.md](AGENTS.md).
