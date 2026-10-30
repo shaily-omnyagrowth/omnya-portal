@@ -15,11 +15,10 @@ import Select from "../../ui/Select";
 import Avatar from "../../ui/Avatar";
 import usePagination from "../../ui/Pagination";
 
-const EMPTY = { name: "", email: "", tiktok_handle: "", instagram_handle: "", weekly_rate: "", videos_per_week: "", status: "Active" };
+const EMPTY = { name: "", email: "", weekly_rate: "", videos_per_week: "", status: "Active" };
 const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
 const details = (f) => ({
   name: f.name.trim(), email: (f.email || "").trim().toLowerCase() || null,
-  tiktok_handle: (f.tiktok_handle || "").trim().replace(/^@/, "") || null, instagram_handle: (f.instagram_handle || "").trim().replace(/^@/, "") || null,
   weekly_rate: Number(f.weekly_rate || 0), videos_per_week: Number(f.videos_per_week || 0), status: f.status || "Active",
 });
 
@@ -29,8 +28,6 @@ export function CreatorFields({ f, setF }) {
     <div className="form-row">
       <div className="form-group"><label className="form-label" htmlFor="cf-name">Name</label><input id="cf-name" className="form-input" value={f.name || ""} onChange={e => s({ name: e.target.value })} autoFocus /></div>
       <div className="form-group"><label className="form-label" htmlFor="cf-email">Email</label><input id="cf-email" className="form-input" type="email" inputMode="email" value={f.email || ""} onChange={e => s({ email: e.target.value })} /><span className="form-hint">Links their account when they sign up with it.</span></div>
-      <div className="form-group"><label className="form-label" htmlFor="cf-tt">TikTok handle</label><input id="cf-tt" className="form-input" placeholder="@handle" value={f.tiktok_handle || ""} onChange={e => s({ tiktok_handle: e.target.value })} /></div>
-      <div className="form-group"><label className="form-label" htmlFor="cf-ig">Instagram handle</label><input id="cf-ig" className="form-input" placeholder="@handle" value={f.instagram_handle || ""} onChange={e => s({ instagram_handle: e.target.value })} /></div>
       <div className="form-group"><label className="form-label" htmlFor="cf-rate">Weekly rate (USD)</label><input id="cf-rate" className="form-input" type="number" inputMode="decimal" min="0" value={f.weekly_rate ?? ""} onChange={e => s({ weekly_rate: e.target.value })} /></div>
       <div className="form-group"><label className="form-label" htmlFor="cf-vpw">Videos per week</label><input id="cf-vpw" className="form-input" type="number" inputMode="numeric" min="0" value={f.videos_per_week ?? ""} onChange={e => s({ videos_per_week: e.target.value })} /></div>
       <div className="form-group"><label className="form-label" htmlFor="cf-status">Status</label><Select id="cf-status" className="select" value={f.status || "Active"} onChange={e => s({ status: e.target.value })}>{["Active", "Paused", "Offboarded"].map(x => <option key={x}>{x}</option>)}</Select></div>

@@ -59,7 +59,7 @@ export default function Settings({ user, db, setUser, onRefresh }) {
     toast.success("Password changed", { description: "Use it the next time you sign in." });
   };
 
-  const display = name.trim() || user?.email;
+  const display = user?.full_name || user?.email;
 
   return (
     <div className="content settings">

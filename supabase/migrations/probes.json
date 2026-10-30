@@ -27,5 +27,10 @@
     "label": "Only approved emails can be owners",
     "kind": "function",
     "signature": "public.guard_owner_role()"
+  },
+  "20261030170000_handles_from_oauth.sql": {
+    "label": "Creator handles only from connected accounts",
+    "kind": "function",
+    "signature": "public.guard_creator_handles()"
   }
 }

@@ -69,7 +69,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
     setBusy(true);
     const c = editCreator;
     const error = await updateRows("creators", {
-      name: c.name, tiktok_handle: c.tiktok_handle, instagram_handle: c.instagram_handle, weekly_rate: Number(c.weekly_rate || 0),
+      name: c.name, weekly_rate: Number(c.weekly_rate || 0),
       videos_per_week: Number(c.videos_per_week || 0), payment_method: c.payment_method, payment_handle: c.payment_handle, status: c.status, am_id: c.am_id || null,
     }, { id: c.id });
     setBusy(false);
@@ -178,7 +178,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
           actions={<><button className="btn btn-secondary" onClick={() => setEditCreator(null)}>Cancel</button><button type="submit" form="edit-creator" className="btn btn-primary" disabled={busy}>{busy ? "Saving…" : "Save changes"}</button></>}>
           <form id="edit-creator" onSubmit={saveCreator} noValidate>
             <div className="form-row">
-              {[["name", "Name"], ["tiktok_handle", "TikTok handle"], ["instagram_handle", "Instagram handle"]].map(([k, l]) => <div key={k} className="form-group"><label className="form-label" htmlFor={`ec-${k}`}>{l}</label><input id={`ec-${k}`} className="form-input" value={editCreator[k] || ""} onChange={e => setEditCreator({ ...editCreator, [k]: e.target.value })} /></div>)}
+              {[["name", "Name"]].map(([k, l]) => <div key={k} className="form-group"><label className="form-label" htmlFor={`ec-${k}`}>{l}</label><input id={`ec-${k}`} className="form-input" value={editCreator[k] || ""} onChange={e => setEditCreator({ ...editCreator, [k]: e.target.value })} /></div>)}
               <div className="form-group"><label className="form-label" htmlFor="ec-rate">Weekly rate (USD)</label><input id="ec-rate" className="form-input" type="number" inputMode="decimal" value={editCreator.weekly_rate || ""} onChange={e => setEditCreator({ ...editCreator, weekly_rate: e.target.value })} /></div>
               <div className="form-group"><label className="form-label" htmlFor="ec-vpw">Videos per week</label><input id="ec-vpw" className="form-input" type="number" inputMode="numeric" value={editCreator.videos_per_week || ""} onChange={e => setEditCreator({ ...editCreator, videos_per_week: e.target.value })} /></div>
               <div className="form-group"><label className="form-label" htmlFor="ec-am">Account manager</label><Select id="ec-am" className="select" value={editCreator.am_id || ""} onChange={e => setEditCreator({ ...editCreator, am_id: e.target.value })}><option value="">Unassigned</option>{db.accountManagers.filter(a => a.status !== "Archived").map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></div>
