@@ -135,7 +135,6 @@ export default function ReviewQueue({ db, onRefresh, user }) {
             </div>
             <div className="review-campaign truncate">{[campaign?.name, client?.name].filter(Boolean).join(" · ") || "Campaign"}</div>
             {s.notes && <p className="fs-13 mt-8" style={{ color: "var(--ink2)", whiteSpace: "pre-line" }}>“{s.notes}”</p>}
-            {tab === "revisions" && s.feedback && <div className="sub-note warn"><span className="fw-600">Your notes</span><p>{s.feedback}</p></div>}
           </div>
           <div className="text-right" style={{ flexShrink: 0 }}>
             <div className={`fs-12 flex-center gap-4 ${days >= 3 ? "text-red fw-600" : "text-muted"}`} style={{ justifyContent: "flex-end" }}>
@@ -145,6 +144,7 @@ export default function ReviewQueue({ db, onRefresh, user }) {
             {Number(s.view_count_verified) > 0 && <div className="fs-12 text-green fw-600 mt-4">{fmtCompactNum(s.view_count_verified)} verified views</div>}
           </div>
         </div>
+        {tab === "revisions" && s.feedback && <div className="sub-note warn"><span className="fw-600">Your notes</span><p>{s.feedback}</p></div>}
         <div className="review-actions">
           {link && <a href={link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">Watch video</a>}
           {tab !== "revisions" ? (

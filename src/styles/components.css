@@ -367,7 +367,7 @@ input[type="date"].form-input { min-height: 40px; }
 .review-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .review-name { font-weight: 600; color: var(--ink); }
 .review-campaign, .review-meta { font-size: var(--fs-sm); color: var(--ink3); }
-.review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.review-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
 .notif { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--divider); }
 .notif:last-child { border-bottom: 0; }
