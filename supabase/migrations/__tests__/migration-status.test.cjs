@@ -180,17 +180,15 @@ const one = async (db, sql, params) => (await db.query(sql, params)).rows[0];
   await db.close();
 
   // --- 7. the real manifest against the real chain ---------------------------
-  // A probe that is already present on the base schema proves nothing (a fresh
-  // project would show the file as drift and baseline would record it
-  // unapplied). A probe that is missing after the whole chain is a wrong
-  // object name, and would leave its file pending forever.
+  // SETUP.sql must already contain every migration. A probe missing after the
+  // whole chain is a wrong object name.
   console.log('\n  --- probes.json against SETUP + every migration ---');
   const files = probes.listMigrationFiles().filter((f) => probes.manifest[f]);
   const realPayload = JSON.stringify(probes.probePayload());
   const chainDb = await freshDb({ migrations: false });
   const before = (await chainDb.query(probes.probeSelectSql(), [realPayload])).rows;
-  const early = before.filter((r) => r.present).map((r) => r.file);
-  R(early.length === 0, 'no probe is satisfied by SETUP.sql alone', early.join(', '));
+  const notInSetup = before.filter((r) => !r.present).map((r) => r.file);
+  R(notInSetup.length === 0, 'SETUP.sql alone contains every migration', notInSetup.join(', '));
 
   let halted = null;
   for (const f of files) {

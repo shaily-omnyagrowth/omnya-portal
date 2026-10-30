@@ -23,7 +23,7 @@ npm run db:migrate -- --status                        # what production has appl
 ## Conventions
 
 - Name new files `YYYYMMDDHHMMSS_short_name.sql`, wrap the whole file in `BEGIN; … COMMIT;`, and add its `probes.json` entry.
-- Add every migration to `SETUP.sql` in the same PR. `tests/setup-sql.test.cjs` fails when a probe's object is missing from it.
+- Add every migration to `SETUP.sql` in the same PR. `migrations/__tests__/migration-status.test.cjs` fails when one is missing.
 - Write migrations to be safe to run twice (`IF NOT EXISTS`, `CREATE OR REPLACE`, drop policy before create). The PGlite tests apply them twice.
 - RLS policies go through `current_user_role()` and helpers like `is_payment_manager()`. A policy for one tenant must test the row, not just the role (finding N-10).
 - When a migration adds a column the app reads, also update the migration hint the app shows (`MIGRATION_HINT` in `src/lib/db.js`, `isSchemaMissing` in `api/`).
