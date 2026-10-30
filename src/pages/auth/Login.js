@@ -1,327 +1,237 @@
 import { useEffect, useState } from "react";
-import { LOGO_URI } from "../../app/brand";
-import { checkSupabaseHealth, sendEmail } from "../../lib/api";
+import { ArrowLeft01Icon, Building03Icon, Mail01Icon, UserGroupIcon, Video01Icon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
+import { gooeyToast as toast } from "goey-toast";
+import { sendEmail } from "../../lib/api";
 import { supabase } from "../../supabaseClient";
+import Alert from "../../ui/Alert";
+import Icon from "../../ui/Icon";
+
+const ROLES = [
+  { id: "creator", label: "Creator", icon: Video01Icon },
+  { id: "client", label: "Brand", icon: Building03Icon },
+  { id: "am", label: "Account manager", icon: UserGroupIcon },
+];
+
+const friendly = (message = "") => {
+  const m = message.toLowerCase();
+  if (m.includes("invalid login credentials")) return "That email and password don't match an account.";
+  if (m.includes("email not confirmed")) return "Confirm your email first. We sent you a link when you signed up.";
+  if (m.includes("already registered")) return "An account with this email already exists. Sign in instead.";
+  if (m.includes("rate limit") || m.includes("too many")) return "Too many attempts. Wait a minute and try again.";
+  if (m.includes("timed out") || m.includes("failed to fetch")) return "We couldn't reach the server. Check your connection and try again.";
+  return message || "Something went wrong. Try again.";
+};
+
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timed out")), ms))]);
+
+function PasswordInput({ value, onChange, autoComplete, invalid, id }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        id={id} className="form-input" type={show ? "text" : "password"} value={value} onChange={onChange}
+        autoComplete={autoComplete} required aria-invalid={invalid || undefined} style={{ paddingRight: 44 }}
+      />
+      <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => setShow(s => !s)}
+        aria-label={show ? "Hide password" : "Show password"} style={{ position: "absolute", right: 4, top: 4 }}>
+        <Icon icon={show ? ViewOffIcon : ViewIcon} size={16} />
+      </button>
+    </div>
+  );
+}
+
+function Aside() {
+  return (
+    <aside className="auth-aside" aria-hidden="true">
+      <img src="/landing/ring.webp" alt="" className="auth-aside-ring" width="760" height="1010" loading="lazy" decoding="async" />
+      <div>
+        <p className="auth-aside-quote">Creator content that is briefed, reviewed, measured and paid for in one place.</p>
+        <div className="auth-aside-meta" style={{ marginTop: 28 }}>
+          <span><strong>Verified</strong>views from connected accounts</span>
+          <span><strong>One queue</strong>for every review</span>
+          <span><strong>On time</strong>creator payouts</span>
+        </div>
+      </div>
+    </aside>
+  );
+}
 
 export default function Login({ onLogin }) {
+  const [mode, setMode] = useState(() => (window.location.pathname.toLowerCase().startsWith("/signup") ? "signup" : "login"));
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState("login"); // login | signup | forgot | verify-waiting
   const [requestedRole, setRequestedRole] = useState("creator");
+  const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // If arriving via an invite link, auto-open signup in client mode.
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("client_id")) {
-      setMode("signup");
-      setRequestedRole("client");
-    }
+    if (new URLSearchParams(window.location.search).get("client_id")) { setMode("signup"); setRequestedRole("client"); }
   }, []);
 
-  const handle = async () => {
-    if (!email && mode !== "login") { setErr("Please enter email"); return; }
-    if (mode === "login" && (!email || !password)) { setErr("Please enter email and password"); return; }
-    
-    setLoading(true); setErr("");
+  const go = (m) => { setMode(m); setErr(""); setNotice(""); };
+  const mismatch = mode === "signup" && confirmPassword && confirmPassword !== password;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr(""); setNotice("");
+    if (mode === "signup") {
+      if (!fullName.trim()) return setErr("Add your name so your account manager knows who you are.");
+      if (password.length < 8) return setErr("Use at least 8 characters for your password.");
+      if (password !== confirmPassword) return setErr("The two passwords don't match.");
+    }
+    setLoading(true);
     try {
-      if (mode === "signup") {
-        if (!fullName.trim()) { setErr("Please enter your name"); setLoading(false); return; }
-        if (password.length < 6) { setErr("Password must be at least 6 characters"); setLoading(false); return; }
-        if (password !== confirmPassword) { setErr("Passwords do not match"); setLoading(false); return; }
-        console.log("Attempting signup for:", email);
-        const { data, error } = await supabase.auth.signUp({
-          email, 
-          password, 
-          options: { 
-            data: { requested_role: requestedRole },
-            emailRedirectTo: `${window.location.origin}/`
-          } 
-        });
-        
+      if (mode === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
         if (error) throw error;
-        
-        // Auto-provision user profile & notify owner even if unconfirmed
+        setNotice(`If ${email} has an account, a reset link is on its way.`);
+        return;
+      }
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email, password,
+          options: { data: { requested_role: requestedRole }, emailRedirectTo: `${window.location.origin}/` },
+        });
+        if (error) throw error;
         if (data.user) {
           try {
-            const u = data.user;
-            const reqRole = requestedRole || "creator";
-            const initialRole = reqRole === "client" ? "client" : "pending";
-            
-            // Insert profile row immediately (RLS allows all)
+            const initialRole = requestedRole === "client" ? "client" : "pending";
             await supabase.from("user_profiles").insert({
-              id: u.id,
-              email: email,
-              full_name: fullName.trim() || email.split("@")[0],
-              role: initialRole,
-              requested_role: reqRole
+              id: data.user.id, email, full_name: fullName.trim(), role: initialRole, requested_role: requestedRole,
             });
-            
-            // Send signup email to owner
             if (initialRole === "pending") {
-              sendEmail("user_signup_waiting_approval", {
-                userEmail: email,
-                displayName: email.split("@")[0],
-                requestedRole: reqRole,
-              });
+              sendEmail("user_signup_waiting_approval", { userEmail: email, displayName: fullName.trim(), requestedRole });
             }
-
-            // Link client to user profile
             const clientId = new URLSearchParams(window.location.search).get("client_id");
-            if (clientId && reqRole === "client") {
-              await supabase
-                .from("clients")
-                .update({ user_id: u.id })
-                .eq("id", clientId)
-                .is("user_id", null);
+            if (clientId && requestedRole === "client") {
+              await supabase.from("clients").update({ user_id: data.user.id }).eq("id", clientId).is("user_id", null);
             }
           } catch (profileErr) {
-            console.warn("Non-critical profile pre-provisioning failed:", profileErr.message);
+            console.warn("Profile pre-provisioning failed:", profileErr.message);
           }
         }
-
-        if (data.user && !data.session) {
-          // Transitions to waiting for email verification screen
-          setMode("verify-waiting");
-        } else if (data.session) {
-          onLogin(data.user);
-        }
+        if (data.session) onLogin(data.user);
+        else go("verify");
         return;
       }
-
-      if (mode === "forgot") {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin,
-        });
-        if (error) throw error;
-        setErr("Password reset link sent! Check your email.");
-        return;
-      }
-
-      console.log("Attempting sign in for:", email);
-      
-      // Shorten timeout to 15s to fail faster if DB is cold
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Supabase request timed out. If the server is waking up, please wait 30 seconds and try again.")), 15000));
-      const { data, error } = await Promise.race([supabase.auth.signInWithPassword({ email, password }), timeoutPromise]);
-      
+      const { data, error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 15000);
       if (error) throw error;
-      if (!data.session) throw new Error("Could not retrieve session. Please verify your email.");
-      
-      console.log("User signed in successfully. ID:", data.user.id);
+      if (!data.session) throw new Error("Email not confirmed");
       onLogin(data.user);
-    } catch(e) { 
-      console.error("Login Error:", e);
-      setErr(`Error: ${e.message}`); 
+    } catch (e2) {
+      setErr(friendly(e2.message));
     } finally {
       setLoading(false);
     }
   };
 
-  if (mode === "verify-waiting") {
-    return (
-      <div className="login-wrap">
-        <div className="login-card" style={{textAlign:"center", padding: "36px 28px"}}>
-          <div className="login-logo" style={{marginBottom: 20}}>
-            <img src={LOGO_URI} alt="Omnya" style={{height:56,width:"auto"}} />
-          </div>
-          
-          <div style={{
-            width: 72,
-            height: 72,
-            borderRadius: "50%",
-            background: "rgba(39, 174, 96, 0.1)",
-            color: "var(--green)",
-            fontSize: 32,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 24px auto"
-          }}>
-            📧
-          </div>
+  const resend = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: `${window.location.origin}/` } });
+    setLoading(false);
+    if (error) toast.error("Couldn't resend the link", { description: friendly(error.message) });
+    else toast.success("Verification link sent", { description: `Check ${email}, including spam.` });
+  };
 
-          <div className="login-title" style={{fontSize: 22, marginBottom: 12}}>
-            Verify Your Email
-          </div>
-          
-          <p style={{fontSize: 14, color: "var(--ink2)", lineHeight: "1.6", marginBottom: 24}}>
-            We've sent a verification link to <strong style={{color:"var(--ink)"}}>{email}</strong>.<br />
-            Please click the link in that email to confirm your registration.
-          </p>
-
-          <div style={{
-            background: "var(--bg2)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "16px",
-            fontSize: 13,
-            color: "var(--ink3)",
-            lineHeight: "1.5",
-            textAlign: "left",
-            marginBottom: 24
-          }}>
-            {requestedRole === "client" ? (
-              <>✅ <strong>Account Ready Once Verified</strong><br />
-              Click the link in your email to confirm your address — your brand portal will be immediately accessible, no further approval needed.</>
-            ) : (
-              <>🔒 <strong>Admin Approval Required</strong><br />
-              Once your email is verified, your account will be set to <strong>Pending Approval</strong> and the owner will be notified to grant you access.</>
-            )}
-          </div>
-
-          {err && <div style={{fontSize:13,marginBottom:16,color:err.includes("sent")?"var(--green)":"var(--red)"}}>{err}</div>}
-
-          <div style={{display:"flex", flexDirection:"column", gap:12}}>
-            <button 
-              className="btn btn-primary" 
-              style={{width:"100%"}}
-              onClick={async () => {
-                setLoading(true); setErr("");
-                try {
-                  const { error } = await supabase.auth.resend({
-                    type: 'signup',
-                    email: email,
-                    options: {
-                      emailRedirectTo: `${window.location.origin}/`
-                    }
-                  });
-                  if (error) throw error;
-                  setErr("Verification link resent! Check your inbox.");
-                } catch (e) {
-                  setErr(`Resend failed: ${e.message}`);
-                } finally {
-                  setLoading(false);
-                }
-              }} 
-              disabled={loading}
-            >
-              {loading ? "Resending..." : "Resend Verification Email"}
-            </button>
-
-            <button 
-              className="btn btn-ghost" 
-              style={{width:"100%"}}
-              onClick={() => { setMode("login"); setErr(""); }}
-            >
-              ← Back to Sign In
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const heading = {
+    login: ["Welcome back", "Sign in to your Omnya portal."],
+    signup: requestedRole === "client" ? ["Set up your brand portal", "See delivery and results for every campaign."] : ["Create your account", "Join the Omnya creator network. An admin approves new accounts."],
+    forgot: ["Reset your password", "We'll email you a link to choose a new one."],
+    verify: ["Check your inbox", ""],
+  }[mode];
 
   return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <div className="login-logo">
-          <img src={LOGO_URI} alt="Omnya" style={{height:56,width:"auto"}} />
-        </div>
-        <div className="login-title">
-          {mode === "login" ? "Welcome back" : mode === "signup" ? (requestedRole === "client" ? "Brand Portal Access" : "Create account") : "Reset Password"}
-        </div>
-        <div className="login-sub">
-          {mode === "login" ? "Sign in to your portal" : mode === "signup" ? (requestedRole === "client" ? "Set up your brand portal account" : "Join the Omnya creator network") : "Enter your email to receive a reset link"}
-        </div>
+    <div className="auth">
+      <div className="login-wrap">
+        <div className="login-card">
+          <a href="/" className="login-logo" style={{ textDecoration: "none", color: "inherit" }}>
+            <img src="/brand/mark.png" alt="" width="24" height="32" /> Omnya
+          </a>
 
-        {mode === "signup" && (
-          <div className="field">
-            <label>{requestedRole === "client" ? "Your name / Company name" : "Your name"}</label>
-            <input value={fullName} onChange={e=>setFullName(e.target.value)} type="text" placeholder={requestedRole === "client" ? "Acme Brand" : "Jane Smith"} />
-          </div>
-        )}
-
-        <div className="field">
-          <label>Email</label>
-          <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="you@omnya.com" />
-        </div>
-
-        {mode !== "forgot" && (
-          <div className="field">
-            <div className="flex-between">
-              <label>Password</label>
-              {mode === "login" && (
-                <span 
-                  style={{fontSize:12, color:"var(--blue)", cursor:"pointer", fontWeight:500}} 
-                  onClick={() => { setMode("forgot"); setErr(""); }}
-                >
-                  Forgot password?
-                </span>
-              )}
+          {mode === "verify" ? (
+            <div className="fade-in">
+              <div className="empty-icon" style={{ marginBottom: 20 }}><Icon icon={Mail01Icon} size={20} /></div>
+              <h1 className="login-title">{heading[0]}</h1>
+              <p className="login-sub">We sent a confirmation link to <strong style={{ color: "var(--ink)" }}>{email}</strong>. Open it to finish setting up your account.</p>
+              <Alert tone="info" style={{ marginBottom: 20 }}>
+                {requestedRole === "client"
+                  ? "Your brand portal opens as soon as you confirm your email."
+                  : "After you confirm, an admin reviews your account and assigns your role. We'll email you when it's ready."}
+              </Alert>
+              <button className="btn btn-primary btn-full" onClick={resend} disabled={loading}>{loading ? "Sending…" : "Resend the link"}</button>
+              <button className="btn btn-ghost btn-full mt-8" onClick={() => go("login")}>
+                <Icon icon={ArrowLeft01Icon} size={16} /> Back to sign in
+              </button>
             </div>
-            <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
-          </div>
-        )}
-
-        {mode === "signup" && (
-          <div className="field">
-            <label>Confirm Password</label>
-            <input
-              value={confirmPassword}
-              onChange={e=>setConfirmPassword(e.target.value)}
-              type="password"
-              placeholder="••••••••"
-              onKeyDown={e=>e.key==="Enter"&&handle()}
-              style={{borderColor: confirmPassword && confirmPassword !== password ? "var(--red,#e53e3e)" : ""}}
-            />
-            {confirmPassword && confirmPassword !== password && (
-              <div style={{fontSize:12,color:"var(--red,#e53e3e)",marginTop:4}}>Passwords do not match</div>
-            )}
-          </div>
-        )}
-
-        {mode === "signup" && (
-          <div className="field">
-            <label>I am a...</label>
-            <select value={requestedRole} onChange={e=>setRequestedRole(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:"var(--radius-sm)",border:"1px solid var(--border2)",background:"var(--bg2)",color:"var(--ink)",fontSize:14,cursor:"pointer"}}>
-              <option value="creator">Creator</option>
-              <option value="client">Client / Brand Partner</option>
-              <option value="am">Account Manager</option>
-            </select>
-          </div>
-        )}
-
-        {err && <div style={{fontSize:13,marginBottom:12,color:(err.includes("Check your") || err.includes("sent"))?"var(--green)":"var(--red)"}}>{err}</div>}
-        
-        <button className="btn btn-primary btn-full" onClick={handle} disabled={loading}>
-          {loading ? "Please wait..." : mode === "login" ? "Sign In" : mode === "signup" ? "Create Account" : "Send Reset Link"}
-        </button>
-
-        <div style={{textAlign:"center",marginTop:16,fontSize:13,color:"var(--ink3)"}}>
-          {mode === "login" ? (
-            <>Don't have an account? <span style={{color:"var(--blue)",cursor:"pointer",fontWeight:600}} onClick={()=>{setMode("signup");setErr("");}}>Sign up</span></> 
           ) : (
-            <>Already have an account? <span style={{color:"var(--blue)",cursor:"pointer",fontWeight:600}} onClick={()=>{setMode("login");setErr("");}}>Sign in</span></>
+            <form onSubmit={submit} noValidate key={mode} className="fade-in">
+              <h1 className="login-title">{heading[0]}</h1>
+              <p className="login-sub">{heading[1]}</p>
+
+              {mode === "signup" && (
+                <div className="form-group">
+                  <span className="form-label" id="role-label">I'm joining as</span>
+                  <div className="role-options" role="group" aria-labelledby="role-label">
+                    {ROLES.map(r => (
+                      <button key={r.id} type="button" className="role-option" aria-pressed={requestedRole === r.id} onClick={() => setRequestedRole(r.id)}>
+                        <Icon icon={r.icon} size={18} />{r.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {mode === "signup" && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="name">{requestedRole === "client" ? "Your name or company" : "Full name"}</label>
+                  <input id="name" className="form-input" value={fullName} onChange={e => setFullName(e.target.value)} autoComplete={requestedRole === "client" ? "organization" : "name"} required />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label" htmlFor="email">Email</label>
+                <input id="email" className="form-input" type="email" inputMode="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus={mode === "login"} />
+              </div>
+
+              {mode !== "forgot" && (
+                <div className="form-group">
+                  <div className="flex-between">
+                    <label className="form-label" htmlFor="password">Password</label>
+                    {mode === "login" && <button type="button" className="text-btn fs-13" style={{ fontWeight: 500 }} onClick={() => go("forgot")}>Forgot password?</button>}
+                  </div>
+                  <PasswordInput id="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
+                  {mode === "signup" && <span className="form-hint">At least 8 characters.</span>}
+                </div>
+              )}
+
+              {mode === "signup" && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="confirm">Confirm password</label>
+                  <PasswordInput id="confirm" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} autoComplete="new-password" invalid={!!mismatch} />
+                  {mismatch && <span className="form-error">The passwords don't match yet.</span>}
+                </div>
+              )}
+
+              {err && <Alert tone="error" style={{ marginBottom: 16 }}>{err}</Alert>}
+              {notice && <Alert tone="success" style={{ marginBottom: 16 }}>{notice}</Alert>}
+
+              <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={loading || (mode === "forgot" && !!notice)}>
+                {loading ? "One moment…" : { login: "Sign in", signup: "Create account", forgot: "Send reset link" }[mode]}
+              </button>
+
+              <p className="login-foot">
+                {mode === "login" && <>New to Omnya? <button type="button" className="text-btn" onClick={() => go("signup")}>Create an account</button></>}
+                {mode === "signup" && <>Already have an account? <button type="button" className="text-btn" onClick={() => go("login")}>Sign in</button></>}
+                {mode === "forgot" && <button type="button" className="text-btn" onClick={() => go("login")}>Back to sign in</button>}
+              </p>
+            </form>
           )}
         </div>
-
-        <div style={{textAlign:"center",marginTop:24,fontSize:10,color:"var(--ink4)",opacity:0.5}}>
-          v1.0.5
-        </div>
-        <div className="demo-hints" style={{marginTop:20}}>
-          <div className="flex-between">
-            <p>Connection Status</p>
-            <button 
-              className="btn btn-ghost" 
-              style={{fontSize:10, padding:"2px 8px"}}
-              onClick={async () => {
-                setErr("Running diagnostics...");
-                const results = await checkSupabaseHealth();
-                console.log("Diagnostic results:", results);
-                setErr(`API: ${results.apiHealth} | Auth: ${results.authHealth}`);
-              }}
-            >
-              Test Connection
-            </button>
-          </div>
-          <div style={{fontSize:12,color:"var(--ink3)",lineHeight:1.7}}>
-            After signing up, an admin will assign your role (Creator / Client / Account Manager). Contact your admin to get access.
-          </div>
-        </div>
       </div>
+      <Aside />
     </div>
   );
 }
