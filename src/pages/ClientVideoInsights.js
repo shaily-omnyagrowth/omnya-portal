@@ -1,11 +1,11 @@
 import PageHeader from "../ui/PageHeader";
-import AnalyticsDashboard from "./AnalyticsDashboard";
+import VideoAnalytics from "./client/VideoAnalytics";
 
 export default function ClientVideoInsights() {
   return (
     <div className="content">
-      <PageHeader title="Video insights" description="Performance of every video delivered across your campaigns." />
-      <AnalyticsDashboard campaignId={null} />
+      <PageHeader title="Video insights" description="Views and engagement for every video delivered across your campaigns, synced from each platform." />
+      <VideoAnalytics />
     </div>
   );
 }

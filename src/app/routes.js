@@ -5,9 +5,9 @@ const lazy = (load, name) => React.lazy(() => load().then(m => ({ default: name 
 const P = {
   Legal: lazy(() => import("../pages/Legal")),
   CreatorDashboard: lazy(() => import("../pages/CreatorDashboard")),
-  ClientDashboard: lazy(() => import("../pages/ClientDashboard")),
-  ClientCampaignsPage: lazy(() => import("../pages/ClientDashboard"), "ClientCampaignsPage"),
-  ClientContentGallery: lazy(() => import("../pages/ClientDashboard"), "ClientContentGallery"),
+  ClientOverview: lazy(() => import("../pages/client/ClientOverview")),
+  ClientCampaigns: lazy(() => import("../pages/client/ClientCampaigns")),
+  ClientContent: lazy(() => import("../pages/client/ClientContent")),
   ClientVideoInsights: lazy(() => import("../pages/ClientVideoInsights")),
   CreatorConnections: lazy(() => import("../pages/CreatorConnections")),
   CreatorEarnings: lazy(() => import("../components/CreatorEarnings")),
@@ -33,19 +33,22 @@ const P = {
   PendingUsers: lazy(() => import("../pages/people/PendingUsers")),
   TeamPerformance: lazy(() => import("../pages/people/TeamPerformance")),
   ReviewQueue: lazy(() => import("../pages/review/ReviewQueue")),
+  Settings: lazy(() => import("../pages/Settings")),
 };
 
 // [component, props, skeleton variant] per role and page.
 export function routeFor(role, page, ctx) {
-  const { user, db, loadDB, setPage } = ctx;
+  const { user, db, loadDB, setPage, setUser } = ctx;
+  const settings = [P.Settings, { user, db, setUser, onRefresh: loadDB, onNavigate: setPage }, "detail"];
   const common = { user, db, onRefresh: loadDB };
   const table = {
     client: {
-      dashboard: [P.ClientDashboard, { ...common, onNavigate: setPage }, "dashboard"],
-      campaigns: [P.ClientCampaignsPage, { user, db }, "cards"],
-      "content-gallery": [P.ClientContentGallery, { user, db }, "cards"],
+      dashboard: [P.ClientOverview, { user, db, onNavigate: setPage }, "dashboard"],
+      campaigns: [P.ClientCampaigns, { user, db }, "cards"],
+      "content-gallery": [P.ClientContent, { user, db }, "cards"],
       analytics: [P.ClientVideoInsights, {}, "table"],
       legal: [P.Legal, {}, "detail"],
+      settings,
     },
     creator: {
       dashboard: [P.CreatorDashboard, { user, db, onNavigate: setPage }, "dashboard"],
@@ -57,6 +60,7 @@ export function routeFor(role, page, ctx) {
       "payout-manager": [P.CreatorEarnings, { user, db }, "table"],
       insights: [P.CreatorInsights, { user, db, onNavigate: setPage }, "detail"],
       legal: [P.Legal, {}, "detail"],
+      settings,
     },
     am: {
       dashboard: [P.AMDashboard, { user, db, setPage }, "dashboard"],
@@ -70,6 +74,7 @@ export function routeFor(role, page, ctx) {
       "creator-performance": [P.CreatorPerformance, { ...common, isOwner: false }, "table"],
       "payout-manager": [P.PayoutManager, {}, "table"],
       legal: [P.Legal, {}, "detail"],
+      settings,
     },
     owner: {
       dashboard: [P.OwnerDashboard, { db, setPage }, "dashboard"],
@@ -88,6 +93,7 @@ export function routeFor(role, page, ctx) {
       campaigns: [P.CampaignsPage, { ...common, isOwner: true }, "cards"],
       "content-library": [P.ContentLibrary, common, "cards"],
       legal: [P.Legal, {}, "detail"],
+      settings,
     },
   };
   return table[role]?.[page] || null;

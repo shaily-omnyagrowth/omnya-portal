@@ -149,7 +149,7 @@ console.log('\n=== Guards against defects that have already happened once');
 
 // ---- P3 ---------------------------------------------------------------------
 {
-  const cd = code('src/pages/ClientDashboard.js');
+  const cd = ['src/pages/client/CampaignDetail.js', 'src/pages/client/VideoAnalytics.js', 'src/pages/client/useClient.js'].map(code).join('\n');
   R(!/pay_per_video/.test(cd), 'the client portal never reads pay_per_video (it is what creators are paid)');
   R(!/\|\|\s*10\)\s*\*\s*Number/.test(cd) && /clientProfile\?\.budget/.test(cd),
     'client CPM comes from the client\'s own budget, never a made-up fallback');
