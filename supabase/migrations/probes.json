@@ -1,1 +1,7 @@
-{}
+{
+  "20261030190000_campaign_videos_needed.sql": {
+    "kind": "trigger",
+    "table": "submissions",
+    "trigger": "trg_complete_campaign_when_full"
+  }
+}
