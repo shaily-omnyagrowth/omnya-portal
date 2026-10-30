@@ -390,13 +390,14 @@ async function fetchInstagramMetrics(token, submission, ctx) {
 
 // ── Facebook ─────────────────────────────────────────────────────────────────
 
-const FB_FIELDS = 'likes.summary(true),comments.summary(true),shares';
+const FB_VIDEO_FIELDS = 'id,from,created_time,views,post_id,likes.summary(true),comments.summary(true)';
+const FB_POST_FIELDS = 'id,from,created_time,reactions.summary(true),comments.summary(true),shares';
 const FB_MAX_PAGES = 25;
 
 function shapeFacebook(data) {
   return {
-    views: 0, // requires page video insights; left at 0
-    likes: data?.likes?.summary?.total_count || 0,
+    views: data?.views || 0,
+    likes: data?.reactions?.summary?.total_count ?? data?.likes?.summary?.total_count ?? 0,
     comments: data?.comments?.summary?.total_count || 0,
     shares: data?.shares?.count || 0,
     saves: 0,
@@ -404,12 +405,21 @@ function shapeFacebook(data) {
   };
 }
 
-async function readFacebookObject(objectId, accessToken) {
+async function readFacebookFields(objectId, fields, accessToken) {
   const resp = await fetch(
-    `${facebookGraph(encodeURIComponent(objectId))}?fields=${FB_FIELDS}&access_token=${encodeURIComponent(accessToken)}`
+    `${facebookGraph(encodeURIComponent(objectId))}?fields=${fields}&access_token=${encodeURIComponent(accessToken)}`
   );
   const data = await resp.json().catch(() => ({}));
   return { resp, data };
+}
+
+// Views live on the video; reactions and shares live on its post.
+async function readFacebookObject(objectId, accessToken) {
+  const video = await readFacebookFields(objectId, FB_VIDEO_FIELDS, accessToken);
+  if (!video.resp.ok) return readFacebookFields(objectId, FB_POST_FIELDS, accessToken);
+  if (!video.data.post_id || !video.data.from?.id) return video;
+  const post = await readFacebookFields(`${video.data.from.id}_${video.data.post_id}`, FB_POST_FIELDS, accessToken);
+  return post.resp.ok ? { resp: post.resp, data: { ...video.data, ...post.data, id: video.data.id } } : post;
 }
 
 async function fetchFacebookMetrics(token, submission, ctx) {
@@ -765,6 +775,8 @@ module.exports = {
   fetchTikTokMetrics,
   fetchInstagramViaMetaMetrics,
   fetchInstagramBusinessMetrics,
+  readFacebookObject,
+  shapeFacebook,
   providerError,
   // Storage
   upsertVideoAnalytics,

@@ -2,7 +2,7 @@
 //
 // Looks up one video through the creator's connected account (TikTok, YouTube, Instagram, Facebook).
 
-const { resolveShortLink, detectPlatformFromUrl, extractVideoId, fetchTikTokMetrics, fetchInstagramBusinessMetrics } = require('./analytics');
+const { resolveShortLink, detectPlatformFromUrl, extractVideoId, fetchTikTokMetrics, fetchInstagramBusinessMetrics, readFacebookObject, shapeFacebook } = require('./analytics');
 const { facebookGraph } = require('./meta');
 const { refreshIfNeeded } = require('./tokenRefresh');
 
@@ -109,8 +109,6 @@ async function lookupInstagram(token, videoId, account, resolvedUrl) {
   };
 }
 
-const FB_OWN_FIELDS = ['from,created_time,likes.summary(true),comments.summary(true),shares', 'from,created_time,likes.summary(true),comments.summary(true)'];
-
 // Facebook: the post must read with one of the creator's Page tokens and be posted by that Page.
 async function lookupFacebook(token, videoId, account, resolvedUrl) {
   const resp = await fetch(`${facebookGraph('me/accounts')}?fields=id,access_token&limit=25&access_token=${encodeURIComponent(token)}`);
@@ -123,24 +121,22 @@ async function lookupFacebook(token, videoId, account, resolvedUrl) {
   const id = String(videoId);
   for (const page of pages) {
     for (const objectId of id.includes('_') ? [id] : [id, `${page.id}_${id}`]) {
-      for (const fields of FB_OWN_FIELDS) {
-        const r = await fetch(`${facebookGraph(encodeURIComponent(objectId))}?fields=${fields}&access_token=${encodeURIComponent(page.access_token)}`);
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) continue;
-        if (!d.from || d.from.id !== page.id) break;
-        return {
-          id: objectId,
-          url: resolvedUrl,
-          title: null,
-          thumbnailUrl: null,
-          durationSeconds: null,
-          postedAt: d.created_time || null,
-          views: 0,
-          likes: num(d.likes?.summary?.total_count),
-          comments: num(d.comments?.summary?.total_count),
-          shares: num(d.shares?.count),
-        };
-      }
+      const { resp: r, data: d } = await readFacebookObject(objectId, page.access_token);
+      if (!r.ok) continue;
+      if (!d.from || d.from.id !== page.id) break;
+      const { views, likes, comments, shares } = shapeFacebook(d);
+      return {
+        id: objectId,
+        url: resolvedUrl,
+        title: null,
+        thumbnailUrl: null,
+        durationSeconds: null,
+        postedAt: d.created_time || null,
+        views,
+        likes,
+        comments,
+        shares,
+      };
     }
   }
   return fail('video_not_on_account', 'not_yours', 404);
