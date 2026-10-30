@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Folder01Icon, UserIcon } from "@hugeicons/core-free-icons";
+import { Folder01Icon, InformationCircleIcon, UserIcon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
 import { sendEmail } from "../../lib/api";
 import { describeWriteError } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
 import EmptyState from "../../ui/EmptyState";
+import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import Segmented from "../../ui/Segmented";
 import { DropZone, HowItWorks, VerifiedVideo } from "./submit/parts";
@@ -160,15 +161,23 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               </Select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <span className="form-label" id="type-label">What are you sending?</span>
+              <span className="form-label" id="type-label">Has this video been posted?</span>
               <Segmented label="Submission type" value={form.type} onChange={t => { set({ type: t }); resetVerify(); if (t === "Final") setUploadMode("link"); }}
-                options={[["Concept", "Concept for approval"], ["Final", "Final posted video"]]} />
+                options={[["Concept", "Not yet"], ["Final", "Yes, it's live"]]} />
+              <span className="form-hint">{form.type === "Concept" ? "Your account manager will review it before you post." : "We'll confirm it's yours and start tracking views."}</span>
             </div>
           </div>
 
           <div className="form-section">
             <div className="flex-between mb-12">
-              <span className="form-label">Video</span>
+              <span className="form-label" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 0 }}>
+                Video
+                {uploadMode === "link" && (
+                  <button type="button" className="info-tip" aria-label="Which links work" data-tip={form.type === "Concept" ? "Loom, Google Drive or Frame.io links work." : `Paste the link to your ${platform || "posted"} video. App share links work too.`}>
+                    <Icon icon={InformationCircleIcon} size={15} />
+                  </button>
+                )}
+              </span>
               {form.type === "Concept" && <Segmented label="Upload method" value={uploadMode} onChange={m => { setUploadMode(m); resetVerify(); }} options={[["file", "Upload file"], ["link", "Paste link"]]} />}
             </div>
             {uploadMode === "file" ? (
@@ -177,9 +186,8 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="sr-only" htmlFor="video-link">{linkLabel}</label>
                 <input id="video-link" className="form-input" inputMode="url" value={form.concept_link}
-                  placeholder={form.type === "Concept" ? "https://www.loom.com/share/…" : "https://www.tiktok.com/@you/video/…"}
+                  placeholder="https://…"
                   onChange={e => { set({ concept_link: e.target.value }); resetVerify(); }} />
-                <span className="form-hint">{form.type === "Concept" ? "A Loom, Google Drive or Frame.io link the team can open." : "App share links like vt.tiktok.com or youtu.be work too."}</span>
               </div>
             )}
 
