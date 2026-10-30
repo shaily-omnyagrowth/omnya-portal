@@ -4,7 +4,7 @@ import { gooeyToast as toast } from "goey-toast";
 import AMClientSummaryBar from "../../components/AMClientSummaryBar";
 import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
-import { AreaChart } from "../../ui/charts";
+import { AreaChart, EmptyChart } from "../../ui/charts";
 import Dialog from "../../ui/Dialog";
 import Icon from "../../ui/Icon";
 import Tabs from "../../ui/Tabs";
@@ -129,7 +129,7 @@ export default function CampaignDetail({ campaign, db, user, onRefresh, onClose,
                 <div className="card">
                   {finance.burnup.length > 1
                     ? <AreaChart data={finance.burnup} height={160} ariaLabel="Approved videos over the campaign" format={(v) => Math.round(v)} />
-                    : <p className="fs-13 text-muted">The delivery chart starts after the first week.</p>}
+                    : <EmptyChart height={160}>The delivery chart starts after the first week.</EmptyChart>}
                 </div>
               </section>
               <section>

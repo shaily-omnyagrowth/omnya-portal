@@ -193,3 +193,15 @@ export function ShareBars({ items, format = fmtCompactNum }) {
     </div>
   );
 }
+
+const GHOST = [2, 3, 3, 5, 6, 8, 9, 11].map((value, i) => ({ label: `W${i + 1}`, value }));
+
+// A blurred sample chart with a message on top, for charts with no data yet.
+export function EmptyChart({ height = 160, children }) {
+  return (
+    <div className="chart-empty" style={{ height }}>
+      <div className="chart-empty-ghost" aria-hidden="true"><AreaChart data={GHOST} height={height} /></div>
+      <p className="chart-empty-msg">{children}</p>
+    </div>
+  );
+}
