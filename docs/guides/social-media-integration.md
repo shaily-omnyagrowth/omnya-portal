@@ -81,8 +81,8 @@ truth for naming.
 ### Shared
 | Variable | Purpose |
 |---|---|
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase admin client. |
-| `REACT_APP_SUPABASE_URL`, `REACT_APP_SUPABASE_ANON_KEY` | Client-side Supabase. |
+| `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Server-side Supabase admin client. |
+| `REACT_APP_SUPABASE_URL`, `REACT_APP_SUPABASE_PUBLISHABLE_KEY` | Client-side Supabase. |
 | `APP_BASE_URL` | Base URL of the deployed portal (e.g. `https://www.portalomnyagrowth.com`). Used to compose default redirect URIs and post-callback redirects. |
 | `ADDITIONAL_ALLOWED_ORIGINS` (optional) | Comma-separated extra origins to add to the CORS allow-list (e.g. preview deployments). |
 

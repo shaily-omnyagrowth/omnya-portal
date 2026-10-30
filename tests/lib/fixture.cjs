@@ -13,7 +13,7 @@ const path = require('path');
 const { env } = require('./schema.cjs');
 
 const U = env.SUPABASE_URL;
-const K = env.SUPABASE_SERVICE_ROLE_KEY;
+const K = env.SUPABASE_SECRET_KEY;
 const H = { apikey: K, Authorization: `Bearer ${K}`, 'Content-Type': 'application/json',
             Prefer: 'return=representation' };
 
@@ -152,7 +152,7 @@ async function tokens(fx) {
   const out = {};
   for (const u of fx.users) {
     const r = await fetch(`${U}/auth/v1/token?grant_type=password`, { method: 'POST',
-      headers: { apikey: env.REACT_APP_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' },
+      headers: { apikey: env.REACT_APP_SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: u.email, password: fx.password }) });
     const j = await r.json();
     out[u.role] = j.access_token || null;

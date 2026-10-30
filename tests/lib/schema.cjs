@@ -32,7 +32,7 @@ function loadEnv() {
 
 const env = loadEnv();
 const URL_BASE = env.SUPABASE_URL;
-const SERVICE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+const SERVICE_KEY = env.SUPABASE_SECRET_KEY;
 
 let _tables = null;
 

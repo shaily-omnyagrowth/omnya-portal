@@ -305,7 +305,7 @@ async function cronSweep() {
 
   const realSecret = process.env.CRON_SECRET;
   const realKey = process.env.ENCRYPTION_KEY;
-  const realAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const realAdmin = process.env.SUPABASE_SECRET_KEY;
   const origFetch = global.fetch;
 
   process.env.CRON_SECRET = 'test-cron-secret';

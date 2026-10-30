@@ -196,7 +196,7 @@ module.exports = async (req, res) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY}`,
           },
           body: JSON.stringify({
             type: 'payment_sent',

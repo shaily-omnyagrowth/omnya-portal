@@ -31,7 +31,7 @@ const { setupTenants, tokens, teardown } = require('./lib/fixture.cjs');
 const { env } = require('./lib/schema.cjs');
 const { BASE } = require('./lib/ui.cjs');
 
-const ANON = env.REACT_APP_SUPABASE_ANON_KEY;
+const ANON = env.REACT_APP_SUPABASE_PUBLISHABLE_KEY;
 
 let held = 0, open = 0;
 const openFindings = [];

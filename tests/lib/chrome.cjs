@@ -206,7 +206,7 @@ const SECRET_RULES = [
   //
   // The real question — "is a service key on the wire?" — is answered
   // precisely twice below in scanForSecrets(): once by matching the actual
-  // SUPABASE_SERVICE_ROLE_KEY value, and once by decoding every JWT and
+  // SUPABASE_SECRET_KEY value, and once by decoding every JWT and
   // reading its `role` claim. Those catch a genuine leak even when the key
   // differs from .env, and they do not fire on prose about the key.
   { id: 'oauth_token_field',      severity: 'critical', re: /"(access_token|refresh_token)"\s*:\s*"[^"]{8,}"/g,
@@ -724,10 +724,10 @@ class Session {
       scanForSecrets: async ({ allowUrls = [], allowValues = [] } = {}) => {
         const findings = [];
         const allowedValues = new Set([
-          ...(ENV && ENV.REACT_APP_SUPABASE_ANON_KEY ? [ENV.REACT_APP_SUPABASE_ANON_KEY] : []),
+          ...(ENV && ENV.REACT_APP_SUPABASE_PUBLISHABLE_KEY ? [ENV.REACT_APP_SUPABASE_PUBLISHABLE_KEY] : []),
           ...allowValues,
         ].filter(Boolean));
-        const serviceKey = ENV && ENV.SUPABASE_SERVICE_ROLE_KEY;
+        const serviceKey = ENV && ENV.SUPABASE_SECRET_KEY;
         const extraAllow = allowUrls.map(a => (a instanceof RegExp ? a : new RegExp(a)));
 
         for (const b of self._bodies) {
@@ -742,7 +742,7 @@ class Session {
           if (serviceKey && serviceKey.length > 20 && text.includes(serviceKey)) {
             findings.push({
               severity: 'critical', rule: 'service_role_key_value', url: b.url,
-              why: 'the SUPABASE_SERVICE_ROLE_KEY from .env appeared verbatim in a response body',
+              why: 'the SUPABASE_SECRET_KEY from .env appeared verbatim in a response body',
               excerpt: redact(serviceKey),
             });
           }

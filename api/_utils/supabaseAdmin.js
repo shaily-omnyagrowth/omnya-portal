@@ -13,13 +13,13 @@ function getSupabaseAdminClient() {
   if (cachedClient) return cachedClient;
 
   const url = process.env.SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey = process.env.SUPABASE_SECRET_KEY;
 
   if (!url) {
     throw new Error('SUPABASE_URL is not set');
   }
   if (!serviceKey) {
-    throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set');
+    throw new Error('SUPABASE_SECRET_KEY is not set');
   }
 
   cachedClient = createClient(url, serviceKey, {

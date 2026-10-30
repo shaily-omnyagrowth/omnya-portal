@@ -355,7 +355,7 @@ module.exports = async (req, res) => {
 
   // Allow service role or cron secret key bypass (for Supabase webhooks and backend crons)
   if (token && (
-    (process.env.SUPABASE_SERVICE_ROLE_KEY && token === process.env.SUPABASE_SERVICE_ROLE_KEY) ||
+    (process.env.SUPABASE_SECRET_KEY && token === process.env.SUPABASE_SECRET_KEY) ||
     (process.env.CRON_SECRET && token === process.env.CRON_SECRET)
   )) {
     authorized = true;

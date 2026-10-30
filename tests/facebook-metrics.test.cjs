@@ -7,7 +7,7 @@
 const path = require('path');
 
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost';
-process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test';
+process.env.SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || 'test';
 
 const { readFacebookObject, shapeFacebook } = require(path.join(__dirname, '..', 'api', '_utils', 'analytics.js'));
 

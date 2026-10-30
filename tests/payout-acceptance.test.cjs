@@ -75,7 +75,7 @@ const api = async (path, { method = 'GET', token, body } = {}) => {
 const rpc = async (fn, args, token) => {
   const r = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
-    headers: { apikey: env.REACT_APP_SUPABASE_ANON_KEY, 'content-type': 'application/json',
+    headers: { apikey: env.REACT_APP_SUPABASE_PUBLISHABLE_KEY, 'content-type': 'application/json',
                authorization: 'Bearer ' + token },
     body: JSON.stringify(args),
   });

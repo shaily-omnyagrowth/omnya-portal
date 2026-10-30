@@ -23,7 +23,7 @@ node tests/run-all.cjs --suite=creator  # one suite, prefix match
 node tests/run-all.cjs --no-servers     # CRA and devServer already running
 ```
 
-`CHROME_PATH` overrides the Chrome location. Live suites need `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`.
+`CHROME_PATH` overrides the Chrome location. Live suites need `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in `.env`.
 
 ## Conventions
 
