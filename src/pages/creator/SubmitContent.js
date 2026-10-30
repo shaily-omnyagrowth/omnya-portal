@@ -169,7 +169,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <span className="form-label" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 0 }}>
                 Video
                 {uploadMode === "link" && (
-                  <button type="button" className="info-tip" aria-label="Which links work" data-tip={form.type === "Concept" ? "Loom, Google Drive or Frame.io links work." : `Paste the link to your ${platform || "posted"} video. App share links work too.`}>
+                  <button type="button" className="info-tip" aria-label="Which links work" data-tip={form.type === "Concept" ? "Loom, Google Drive or Frame.io links work." : platform === "Facebook" ? "Open the video in a browser and paste the link from the address bar." : `Paste the link to your ${platform || "posted"} video. App share links work too.`}>
                     <Icon icon={InformationCircleIcon} size={15} />
                   </button>
                 )}

@@ -21,6 +21,7 @@ function stub(rel, exports) {
 
 let campaignFormat = 'YouTube';
 let fetched = 0;
+let lookup = { ok: false, kind: 'provider' };
 const query = (row) => {
   const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: row(), error: null }) };
   return q;
@@ -35,7 +36,7 @@ stub('_utils/supabaseAdmin.js', {
 stub('_utils/auth.js', { requireRole: async () => ({ user: { id: 'u1' }, profile: { role: 'creator' } }), normalizeRole: (r) => r });
 stub('_utils/cors.js', { applyCors: () => false });
 stub('_utils/rateLimit.js', { applyRateLimit: async () => false });
-stub('_utils/socialVideo.js', { fetchOwnVideo: async () => { fetched++; return { ok: false, kind: 'provider' }; } });
+stub('_utils/socialVideo.js', { fetchOwnVideo: async () => { fetched++; return lookup; } });
 
 const handler = require(path.join(API, 'social', 'verify-video-link.js'));
 
@@ -57,6 +58,12 @@ async function call(url) {
   fetched = 0;
   await call('https://www.tiktok.com/@me/video/123');
   R(fetched === 1, 'an old free-text format does not block any platform');
+  lookup = { ok: false, kind: 'validation' };
+  r = await call('https://www.facebook.com/share/r/1Ettep85Q1/');
+  R(r.code === 400 && /address bar/.test(JSON.stringify(r.body)), 'an unreadable Facebook share link says what to paste instead', String(r.code));
+  lookup = { ok: false, kind: 'not_linked', error: 'fb_no_pages' };
+  r = await call('https://www.facebook.com/reel/1115487841451188');
+  R(r.code === 422 && /tick your Page/.test(JSON.stringify(r.body)), 'a login with no Page says how to share one', String(r.code));
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

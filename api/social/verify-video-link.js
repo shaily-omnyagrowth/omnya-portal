@@ -116,7 +116,7 @@ module.exports = async (req, res) => {
       return Errors.unprocessable(res, `Connect ${label} on the Social Channels page to verify ${label} videos.`, { code: 'not_connected' });
     }
     if (fetchResult.kind === 'not_linked') {
-      return Errors.unprocessable(res, "Your Facebook login doesn't include any Pages. Reconnect Facebook and select your Page.", { code: fetchResult.error });
+      return Errors.unprocessable(res, "Facebook didn't share a Page with us. Reconnect Facebook, edit your settings on the Facebook screen and tick your Page. You need to manage the Page, and videos on a personal profile can't be tracked.", { code: fetchResult.error });
     }
     if (fetchResult.kind === 'not_yours') {
       return Errors.unprocessable(res, `This video isn't on the connected ${label} account.`, { code: 'author_mismatch' });
@@ -126,6 +126,9 @@ module.exports = async (req, res) => {
     }
     if (fetchResult.kind === 'not_supported') {
       return Errors.badRequest(res, 'Paste a TikTok, Instagram, YouTube or Facebook video link.');
+    }
+    if (/fb\.watch\/|facebook\.com\/share\//i.test(rawUrl)) {
+      return Errors.badRequest(res, "We can't read Facebook share links. Open the video in a browser and paste the link from the address bar.");
     }
     return Errors.badRequest(res, `Could not read the video from this ${label} link.`);
   }

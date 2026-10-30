@@ -61,7 +61,7 @@ export function deriveConnectionState(connection) {
   const status = STATUS_META[aliased] ? aliased : "not_connected";
   const tokenDead = !!(connection?.expiresAt && new Date(connection.expiresAt).getTime() < Date.now());
   const off = OFF_STATUSES.has(status);
-  const needsReauth = !off && (connection?.needsReauth === true || REAUTH_STATUSES.has(status) || tokenDead);
+  const needsReauth = !off && (REAUTH_STATUSES.has(status) || (connection?.needsReauth ?? tokenDead));
   const display = status === "connected" && needsReauth ? "expired" : status;
   const connected = display === "connected";
   return {
