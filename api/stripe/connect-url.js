@@ -115,8 +115,8 @@ module.exports = async function handler(req, res) {
   // Generate a fresh onboarding link (they expire after a few minutes)
   const accountLink = await stripe.accountLinks.create({
     account: accountId,
-    refresh_url: `${APP_URL}/?page=earnings&stripe_refresh=true`,
-    return_url:  `${APP_URL}/?page=earnings&stripe_connected=true`,
+    refresh_url: `${APP_URL}/?page=payout-manager&stripe_refresh=true`,
+    return_url:  `${APP_URL}/?page=payout-manager&stripe_connected=true`,
     type: 'account_onboarding',
     collect: 'eventually_due',
   });
