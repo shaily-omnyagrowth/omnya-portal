@@ -17,6 +17,7 @@ export const pages = {
   submissions: { title: "Submissions", icon: Film01Icon, desc: "Everything you have sent and where it is in review." },
   insights: { title: "Video insights", icon: ChartBarLineIcon, desc: "How your approved videos are performing over time." },
   "payout-manager": { title: "Payments", icon: Wallet01Icon },
+  settings: { title: "Settings", icon: Settings02Icon, desc: "Your profile and sign in details." },
   legal: { title: "Legal center", icon: JusticeScale01Icon, desc: "Our terms, privacy policy and how to delete your data." },
   "review-queue": { title: "Review queue", icon: TaskDone01Icon, desc: "Approve concepts and final videos, or send them back with notes." },
   "my-creators": { title: "Creators", icon: UserGroupIcon, desc: "The creators you manage, their rates and recent activity." },
@@ -65,7 +66,7 @@ export const navGroups = {
 };
 
 // Pages reachable by role but kept out of the sidebar.
-const hidden = { creator: ["legal"], am: ["legal"], owner: ["legal"], client: ["legal"] };
+const hidden = { creator: ["legal", "settings"], am: ["legal", "settings"], owner: ["legal", "settings"], client: ["legal", "settings"] };
 
 export const navs = Object.fromEntries(Object.entries(navGroups).map(([role, groups]) => [
   role,
