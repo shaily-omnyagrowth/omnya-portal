@@ -1,0 +1,87 @@
+:root {
+  /* surfaces */
+  --bg: #f6f5f3;
+  --bg2: #efedea;
+  --bg3: #e7e4e0;
+  --surface: #ffffff;
+  --surface2: #fbfaf9;
+  --surface-hover: #f8f7f5;
+
+  /* ink */
+  --ink: #0b0b0c;
+  --ink2: #34322f;
+  --ink3: #5f5c58;
+  --ink4: #8c8883;
+  --accent: var(--ink);
+
+  /* lines */
+  --border: #e6e3df;
+  --border2: #d7d3ce;
+  --border-strong: #bfbab4;
+
+  /* brand chrome, from the logo */
+  --chrome: linear-gradient(135deg, #f5f5f6 0%, #d5d7da 38%, #9da1a7 52%, #e4e5e8 70%, #b7bac0 100%);
+  --chrome-flat: #c9cbcf;
+
+  /* status: text on tint passes 4.5:1 */
+  --green: #1d6f47;
+  --green-light: #e8f3ec;
+  --amber: #8a5300;
+  --amber-light: #fbf0de;
+  --red: #b42330;
+  --red-light: #fbebeb;
+  --blue: #2445a8;
+  --blue-light: #eaeefa;
+  --orange: var(--amber);
+  --orange-light: var(--amber-light);
+  --gold: var(--amber);
+  --gold-light: var(--amber-light);
+
+  /* data viz: one hue ramp plus a neutral */
+  --viz-1: #0b0b0c;
+  --viz-2: #6d7178;
+  --viz-3: #b3b6bb;
+  --viz-grid: #ece9e5;
+  --viz-fill: rgba(11, 11, 12, 0.06);
+
+  /* type */
+  --font: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --fs-3xl: 32px;
+
+  /* shape */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* elevation, used sparingly */
+  --shadow-pop: 0 1px 2px rgba(11, 11, 12, 0.04), 0 14px 36px -12px rgba(11, 11, 12, 0.22);
+  --shadow: var(--shadow-pop);
+  --shadow-lg: var(--shadow-pop);
+  --ring: 0 0 0 3px rgba(11, 11, 12, 0.14);
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+
+  /* layout */
+  --sidebar-w: 248px;
+  --topbar-h: 60px;
+  --content-max: 1240px;
+  --gutter: 32px;
+}
+
+@media (max-width: 768px) {
+  :root { --gutter: 16px; }
+}

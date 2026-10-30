@@ -1,12 +1,9 @@
-export default function Spinner({ label = null }) {
+export default function Spinner({ label = null, inline = false }) {
+  if (inline) return <span className="spinner" role="status" aria-label={label || "Loading"} style={{ display: "inline-block" }} />;
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', width: '100%', minHeight: 240,
-      padding: '48px 24px', boxSizing: 'border-box', gap: 12,
-    }}>
-      <div className="ai-spinner" style={{ width: 32, height: 32, borderWidth: 3 }} role="status" aria-label={label || 'Loading'} />
-      {label && <div style={{ fontSize: 13, color: 'var(--ink3)' }}>{label}</div>}
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 200, padding: 32 }}>
+      <div className="spinner" role="status" aria-label={label || "Loading"} />
+      {label && <div style={{ fontSize: 13, color: "var(--ink3)" }}>{label}</div>}
     </div>
   );
 }
