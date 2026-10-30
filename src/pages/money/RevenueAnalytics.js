@@ -7,6 +7,7 @@ import { BarChart } from "../../ui/charts";
 import { fmtMoney } from "../../utils";
 import ClientFinanceEditor from "./ClientFinanceEditor";
 import { clientFinance } from "./finance";
+import usePagination from "../../ui/Pagination";
 
 const LIVE = new Set(["Approved", "Published/Tracked"]);
 const pct = (r) => `${Math.round(r * 100)}%`;
@@ -39,6 +40,7 @@ export default function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
   const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
   const atRisk = rows.filter(r => r.health.tone === "red");
   const shown = onlyRisk ? atRisk : rows;
+  const { rows: page, pager } = usePagination(shown, { label: "clients" });
   const names = (list) => list.length <= 3 ? list.map(r => r.client.name).join(", ") : `${list.slice(0, 3).map(r => r.client.name).join(", ")} and ${list.length - 3} more`;
 
   return (
@@ -70,7 +72,7 @@ export default function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
               <table>
                 <thead><tr><th>Client</th><th className="num">Revenue</th><th className="num">Creator cost</th><th className="num">Commission</th><th className="num">Gross profit</th><th className="num">Per video</th><th>Health</th>{isOwner && <th><span className="sr-only">Actions</span></th>}</tr></thead>
                 <tbody>
-                  {shown.map(r => (
+                  {page.map(r => (
                     <tr key={r.client.id}>
                       <td><span className="fw-600 truncate" style={{ display: "block", maxWidth: 240, color: "var(--ink)" }}>{r.client.name}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 240 }}>{[isOwner && (r.clientAM?.name || "No manager"), r.client.deal_type].filter(Boolean).join(" · ")}</span></td>
                       <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtMoney(r.revenue)}</td>
@@ -85,6 +87,7 @@ export default function RevenueAnalytics({ db, user, isOwner, onRefresh }) {
                 </tbody>
               </table>
             </div>
+            {pager}
           </section>
 
           <section className="card card-stacked section">

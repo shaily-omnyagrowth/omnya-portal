@@ -2,9 +2,12 @@ import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
 import Icon from "../../ui/Icon";
 import VideoThumb from "../../ui/VideoThumb";
 import { fmtCompactNum, fmtDate, fmtPct, platformMeta } from "../../utils";
+import usePagination from "../../ui/Pagination";
 
 export default function PostsTable({ posts, onSelect }) {
+  const { rows, pager } = usePagination(posts, { label: "videos" });
   return (
+    <>
     <div className="table-wrap">
       <table>
         <thead>
@@ -14,7 +17,7 @@ export default function PostsTable({ posts, onSelect }) {
           </tr>
         </thead>
         <tbody>
-          {posts.map(post => {
+          {rows.map(post => {
             const p = platformMeta(post.platformKey);
             return (
               <tr key={post.id} onClick={onSelect ? () => onSelect(post) : undefined} style={onSelect ? { cursor: "pointer" } : undefined}>
@@ -43,5 +46,7 @@ export default function PostsTable({ posts, onSelect }) {
         </tbody>
       </table>
     </div>
+    {pager}
+    </>
   );
 }

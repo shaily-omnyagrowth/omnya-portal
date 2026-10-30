@@ -706,3 +706,17 @@ th.num .th-sort { margin-left: auto; }
 @media (hover: hover) { .legal-row:hover { background: var(--surface-hover); } }
 .selection-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 10px 10px 16px; border-radius: var(--radius); background: var(--ink); color: #fff; animation: fade-in var(--dur-2) var(--ease-out) both; }
 .selection-bar .btn-primary { --btn-bg: #fff; --btn-fg: var(--ink); --btn-bd: #fff; }
+
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.pager-info { font-size: var(--fs-sm); color: var(--ink3); font-variant-numeric: tabular-nums; }
+.pager-pages { display: flex; align-items: center; gap: 2px; }
+.pager-num {
+  min-width: 32px; height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink3); font: inherit; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+@media (hover: hover) { .pager-num:hover:not([aria-current]) { background: var(--bg2); color: var(--ink); } }
+.pager-num[aria-current] { background: var(--ink); color: var(--surface); font-weight: 600; }
+.pager-num:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.pager-gap { min-width: 24px; text-align: center; color: var(--ink4); }
+@media (max-width: 640px) { .pager { justify-content: center; } .pager-info { width: 100%; text-align: center; } }

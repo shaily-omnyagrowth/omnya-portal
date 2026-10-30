@@ -11,6 +11,7 @@ import PageHeader from "../../ui/PageHeader";
 import { fmtMoney, statusBadge } from "../../utils";
 import ClientForm from "./ClientForm";
 import ClientProfile from "./ClientProfile";
+import usePagination from "../../ui/Pagination";
 
 const EMPTY = { name: "", deal_type: "Monthly Retainer", videos_per_month: 20, budget: 0, status: "Active", contact_name: "", contact_email: "", contact_phone: "", contract_notes: "", contract_url: "", drive_link: "" };
 
@@ -29,6 +30,7 @@ export default function ClientsPage({ isOwner, db, onRefresh, user }) {
   const archivedCount = db.clients.filter(c => c.status === "Archived").length;
   const rows = db.clients.filter(c => (showArchived || c.status !== "Archived") && (!search.trim() || `${c.name} ${c.contact_name || ""}`.toLowerCase().includes(search.toLowerCase())))
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const { rows: page, pager } = usePagination(rows, { label: "clients" });
   const viewClient = viewId && db.clients.find(c => c.id === viewId);
   const open = (kind, c) => { setErr(""); setText(""); kind === "link" ? setLink(c) : kind === "archive" ? setArchiveTarget(c) : setDeleteTarget(c); };
 
@@ -105,7 +107,7 @@ export default function ClientsPage({ isOwner, db, onRefresh, user }) {
             <table>
               <thead><tr><th>Client</th><th>Deal</th><th className="num">Videos a month</th><th className="num">Budget</th><th>Manager</th><th>Portal</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
-                {rows.map(c => (
+                {page.map(c => (
                   <tr key={c.id} style={c.status === "Archived" ? { opacity: 0.6 } : undefined}>
                     <td><button className="text-btn fw-600 truncate" style={{ textDecoration: "none", maxWidth: 260, display: "block", textAlign: "left" }} onClick={() => setViewId(c.id)}>{c.name}</button>{isOwner && c.contact_email && <span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{c.contact_name ? `${c.contact_name} · ` : ""}{c.contact_email}</span>}</td>
                     <td>{statusBadge(c.deal_type)}</td>
@@ -126,6 +128,7 @@ export default function ClientsPage({ isOwner, db, onRefresh, user }) {
               </tbody>
             </table>
           </div>
+          {pager}
         </>
       )}
 

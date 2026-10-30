@@ -5,8 +5,10 @@ import { supabase } from '../../supabaseClient';
 import Alert from '../../ui/Alert';
 import EmptyState from '../../ui/EmptyState';
 import { SkeletonTable } from '../../ui/Skeleton';
-import { EMPTY, fmtMoney, fmtNum, fmtRelativeTime, getInitials } from '../../utils';
+import { EMPTY, fmtMoney, fmtNum, fmtRelativeTime } from '../../utils';
 import { EarningStatusBadge, ForfeitModal } from './parts';
+import Avatar from '../../ui/Avatar';
+import usePagination from '../../ui/Pagination';
 
 export default function BonusReviewSection() {
   const [rows, setRows] = useState(null);
@@ -33,6 +35,8 @@ export default function BonusReviewSection() {
     return true;
   };
 
+  const { rows: page, pager } = usePagination(rows, { label: 'bonuses' });
+
   if (!rows) return <SkeletonTable rows={4} cols={6} />;
   if (loadError) return <Alert tone="error" title="Bonuses didn't load" action={<button className="btn btn-secondary btn-sm" onClick={load}>Try again</button>}>{loadError}</Alert>;
   if (!rows.length) return <div className="card"><EmptyState compact icon={Award01Icon} title="No bonuses to review">When a video crosses a bonus tier, it shows up here for a quick check before it's paid.</EmptyState></div>;
@@ -43,9 +47,9 @@ export default function BonusReviewSection() {
         <table>
           <thead><tr><th>Creator</th><th className="num">Views counted</th><th>Tier</th><th className="num">Bonus</th><th>Eligible</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>
-            {rows.map(e => (
+            {page.map(e => (
               <tr key={e.id}>
-                <td><span className="flex-center gap-12"><span className="avatar">{getInitials(e.creator_name)}</span><span className="min-w-0"><span className="fw-600 text-ink truncate" style={{ display: 'block', maxWidth: 200 }}>{e.creator_name}</span>{e.creator_email && <span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 200 }}>{e.creator_email}</span>}</span></span></td>
+                <td><span className="flex-center gap-12"><Avatar name={e.creator_name} /><span className="min-w-0"><span className="fw-600 text-ink truncate" style={{ display: 'block', maxWidth: 200 }}>{e.creator_name}</span>{e.creator_email && <span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 200 }}>{e.creator_email}</span>}</span></span></td>
                 <td className="num">{fmtNum(e.views_counted)}</td>
                 <td className="text-muted">{e.bonus_tier || EMPTY}</td>
                 <td className="num fw-600 text-ink">{fmtMoney(e.amount, { cents: true })}</td>
@@ -60,6 +64,7 @@ export default function BonusReviewSection() {
           </tbody>
         </table>
       </div>
+      {pager}
       {forfeitTarget && <ForfeitModal earning={forfeitTarget} working={working}
         onConfirm={async (reason) => { if (await update(forfeitTarget, { status: 'forfeited', description: reason }, 'Bonus forfeited', "Bonus wasn't forfeited")) setForfeitTarget(null); }}
         onClose={() => setForfeitTarget(null)} />}

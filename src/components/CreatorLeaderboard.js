@@ -4,6 +4,8 @@ import EmptyState from '../ui/EmptyState';
 import { BarChart } from '../ui/charts';
 import Icon from '../ui/Icon';
 import { engagementRate, fmtCompactNum, fmtPct, getInitials, isBreakoutVideo, viewsOf } from '../utils';
+import Avatar from '../ui/Avatar';
+import usePagination from '../ui/Pagination';
 
 const LIVE = new Set(['Approved', 'Published/Tracked']);
 const COLS = [['name', 'Creator'], ['videoCount', 'Videos'], ['totalViews', 'Views'], ['avgViews', 'Avg views'], ['er', 'Engagement'], ['breakouts', 'Breakouts']];
@@ -25,6 +27,7 @@ export default function CreatorLeaderboard({ creators = [], submissions = [], an
   const shown = rows.filter(c => !q || `${c.name} ${c.email} ${c.tiktok_handle || ''}`.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => (typeof a[key] === 'string' ? a[key].localeCompare(b[key]) : a[key] - b[key]) * (asc ? 1 : -1));
   const top = [...rows].sort((a, b) => b.totalViews - a.totalViews).slice(0, 8);
+  const { rows: page, offset, pager } = usePagination(shown, { label: 'creators' });
 
   if (!rows.length) return <div className="card"><EmptyState icon={Award01Icon} title="No creators to rank yet">Creators show up here, ranked by views, once one of their videos is approved.</EmptyState></div>;
 
@@ -46,10 +49,10 @@ export default function CreatorLeaderboard({ creators = [], submissions = [], an
                 <button className="th-sort" onClick={() => setSort([k, key === k ? !asc : k === 'name'])}>{l}{key === k ? (asc ? ' ↑' : ' ↓') : ''}</button>
               </th>))}</tr></thead>
             <tbody>
-              {shown.map((c, i) => (
+              {page.map((c, i) => (
                 <tr key={c.id}>
-                  <td className="text-muted tnum">{i + 1}</td>
-                  <td><span className="flex-center gap-12"><span className="avatar">{getInitials(c.name)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: 'block', color: 'var(--ink)', maxWidth: 240 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 240 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
+                  <td className="text-muted tnum">{offset + i + 1}</td>
+                  <td><span className="flex-center gap-12"><Avatar name={c.name} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: 'block', color: 'var(--ink)', maxWidth: 240 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 240 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
                   <td className="num">{c.videoCount}</td>
                   <td className="num fw-600" style={{ color: 'var(--ink)' }}>{fmtCompactNum(c.totalViews)}</td>
                   <td className="num">{fmtCompactNum(c.avgViews)}</td>
@@ -61,6 +64,7 @@ export default function CreatorLeaderboard({ creators = [], submissions = [], an
             </tbody>
           </table>
         </div>
+        {pager}
       </section>
     </div>
   );

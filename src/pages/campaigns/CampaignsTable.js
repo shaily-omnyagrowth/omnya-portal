@@ -1,14 +1,17 @@
 import { Share01Icon } from "@hugeicons/core-free-icons";
 import Icon from "../../ui/Icon";
 import { calcPacing, daysLeftLabel, statusBadge } from "../../utils";
+import usePagination from "../../ui/Pagination";
 
 export default function CampaignsTable({ campaigns, db, approvedFor, onOpen, onShare }) {
+  const { rows, pager } = usePagination(campaigns, { label: "campaigns" });
   return (
+    <>
     <div className="table-wrap">
       <table>
         <thead><tr><th>Campaign</th><th>Client</th><th>Manager</th><th>Format</th><th>Delivery</th><th>Pace</th><th>Deadline</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
         <tbody>
-          {campaigns.map(c => {
+          {rows.map(c => {
             const client = db.clients.find(cl => cl.id === c.client_id);
             const approved = approvedFor(c.id);
             const pacing = calcPacing({ startDate: c.start_date || c.created_at, deadline: c.deadline, videosNeeded: c.videos_needed || 10, approvedCount: approved });
@@ -34,5 +37,7 @@ export default function CampaignsTable({ campaigns, db, approvedFor, onOpen, onS
         </tbody>
       </table>
     </div>
+    {pager}
+    </>
   );
 }

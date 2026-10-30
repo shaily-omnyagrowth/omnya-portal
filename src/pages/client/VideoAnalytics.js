@@ -8,6 +8,7 @@ import Icon from "../../ui/Icon";
 import Select from "../../ui/Select";
 import { SkeletonStats, SkeletonTable } from "../../ui/Skeleton";
 import { EMPTY, fmtCompactNum, fmtDate, fmtNum, fmtRelativeTime, platformMeta } from "../../utils";
+import usePagination from "../../ui/Pagination";
 
 const PLATFORMS = [["all", "All platforms"], ["tiktok", "TikTok"], ["instagram", "Instagram"], ["youtube", "YouTube"], ["facebook", "Facebook"]];
 
@@ -45,6 +46,7 @@ export default function VideoAnalytics({ campaignId = null, isClient = true }) {
 
   const shown = useMemo(() => (metrics || []).filter(m => platform === "all" || (m.platform || "").toLowerCase() === platform), [metrics, platform]);
   const totals = useMemo(() => shown.reduce((t, m) => ({ views: t.views + (Number(m.views) || 0), likes: t.likes + (Number(m.likes) || 0), comments: t.comments + (Number(m.comments) || 0), shares: t.shares + (Number(m.shares) || 0) + (Number(m.saves) || 0) }), { views: 0, likes: 0, comments: 0, shares: 0 }), [shown]);
+  const { rows: page, pager } = usePagination(shown, { label: "videos" });
 
   const refresh = async () => {
     setRefreshing(true);
@@ -92,11 +94,12 @@ export default function VideoAnalytics({ campaignId = null, isClient = true }) {
           {metrics.length ? "Pick another platform to see its videos." : "Metrics sync every 12 hours once a video is live. Use Refresh metrics to pull them now."}
         </EmptyState></div>
       ) : (
+        <>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Video</th><th className="num">Views</th><th className="num">Likes</th><th className="num">Comments</th><th className="num">Engagement</th><th>Synced</th></tr></thead>
             <tbody>
-              {shown.map(m => {
+              {page.map(m => {
                 const p = platformMeta(m.platform);
                 const href = linkFor(m);
                 return (
@@ -113,6 +116,8 @@ export default function VideoAnalytics({ campaignId = null, isClient = true }) {
             </tbody>
           </table>
         </div>
+        {pager}
+        </>
       )}
     </div>
   );

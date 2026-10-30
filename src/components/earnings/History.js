@@ -2,15 +2,18 @@ import { Clock01Icon, Wallet01Icon } from "@hugeicons/core-free-icons";
 import EmptyState from "../../ui/EmptyState";
 import { fmtDate, fmtMoney, fmtNum, statusBadge } from "../../utils";
 import { earningType, methodLabel, tierLabel } from "./rules";
+import usePagination from "../../ui/Pagination";
 
 export function EarningsTable({ rows, campaigns }) {
+  const { rows: page, pager } = usePagination(rows, { label: "earnings" });
   if (!rows.length) return <div className="card"><EmptyState icon={Wallet01Icon} title="No earnings yet">Base pay and bonuses appear here as videos are approved.</EmptyState></div>;
   return (
+    <>
     <div className="table-wrap">
       <table>
         <thead><tr><th>Date</th><th>Type</th><th>Campaign</th><th className="num">Views</th><th className="num">Amount</th><th>Status</th></tr></thead>
         <tbody>
-          {rows.map(r => (
+          {page.map(r => (
             <tr key={r.id}>
               <td style={{ whiteSpace: "nowrap" }}>{fmtDate(r.created_at)}</td>
               <td style={{ whiteSpace: "nowrap" }}>{earningType(r.earning_type)}{r.views_counted && tierLabel(r.views_counted) ? <span className="fs-12 text-muted"> · {tierLabel(r.views_counted)}</span> : null}</td>
@@ -23,17 +26,21 @@ export function EarningsTable({ rows, campaigns }) {
         </tbody>
       </table>
     </div>
+    {pager}
+    </>
   );
 }
 
 export function WithdrawalsTable({ rows }) {
+  const { rows: page, pager } = usePagination(rows, { label: "withdrawals" });
   if (!rows.length) return <div className="card"><EmptyState icon={Clock01Icon} title="No withdrawals yet">When you withdraw your balance, each request and its status shows up here.</EmptyState></div>;
   return (
+    <>
     <div className="table-wrap">
       <table>
         <thead><tr><th>Requested</th><th className="num">Amount</th><th>Method</th><th>Status</th><th>Details</th></tr></thead>
         <tbody>
-          {rows.map(w => (
+          {page.map(w => (
             <tr key={w.id}>
               <td style={{ whiteSpace: "nowrap" }}>{fmtDate(w.created_at)}</td>
               <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtMoney(w.amount, { cents: true })}</td>
@@ -45,5 +52,7 @@ export function WithdrawalsTable({ rows }) {
         </tbody>
       </table>
     </div>
+    {pager}
+    </>
   );
 }

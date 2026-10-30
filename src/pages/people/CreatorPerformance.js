@@ -6,8 +6,10 @@ import Alert from "../../ui/Alert";
 import Dialog from "../../ui/Dialog";
 import EmptyState from "../../ui/EmptyState";
 import PageHeader from "../../ui/PageHeader";
-import { fmtMoney, getInitials } from "../../utils";
+import { fmtMoney } from "../../utils";
 import Select from "../../ui/Select";
+import Avatar from "../../ui/Avatar";
+import usePagination from "../../ui/Pagination";
 
 const LIVE = new Set(["Approved", "Published/Tracked"]);
 const TIERS = { A: ["80 to 100", "Top performer", "green"], B: ["60 to 79", "Solid", "blue"], C: ["40 to 59", "Needs support", "orange"], D: ["under 40", "At risk", "red"] };
@@ -38,6 +40,7 @@ export default function CreatorPerformance({ db, isOwner, user, onRefresh }) {
   const [err, setErr] = useState("");
   const rows = db.creators.filter(c => !c.archived_at && (isOwner || c.am_id === am?.id)).map(c => ({ c, ...score(c, db) }))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  const { rows: page, pager } = usePagination(rows, { label: "creators" });
 
   const write = async (updates, msg) => {
     setBusy(true); setErr("");
@@ -59,13 +62,14 @@ export default function CreatorPerformance({ db, isOwner, user, onRefresh }) {
         {Object.entries(TIERS).map(([t, [range, label]], i) => <span key={t}>{i > 0 && " · "}<strong className="text-ink">Tier {t}</strong> {range}, {label.toLowerCase()}</span>)}
       </p>
       {rows.length === 0 ? <div className="card"><EmptyState icon={Award01Icon} title="No creators to score yet">Creators get a score after their first submission.</EmptyState></div> : (
+        <>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Creator</th><th>Tier</th><th className="num">Score</th><th className="num">Submissions</th><th className="num">Approved</th><th className="num">Revisions</th><th className="num">On time</th><th className="num">Earned</th><th><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
-              {rows.map(r => (
+              {page.map(r => (
                 <tr key={r.c.id}>
-                  <td><span className="flex-center gap-12"><span className="avatar">{getInitials(r.c.name)}</span><span className="fw-600 truncate" style={{ color: "var(--ink)", maxWidth: 220 }}>{r.c.name}</span></span></td>
+                  <td><span className="flex-center gap-12"><Avatar name={r.c.name} /><span className="fw-600 truncate" style={{ color: "var(--ink)", maxWidth: 220 }}>{r.c.name}</span></span></td>
                   <td>{r.tier ? <span className={`badge badge-${TIERS[r.tier]?.[2] || "gray"}`}>Tier {r.tier}{r.isOverridden ? " · adjusted" : ""}</span> : <span className="text-muted">No data</span>}</td>
                   <td className="num fw-600" style={{ color: "var(--ink)" }}>{r.score ?? "--"}</td>
                   <td className="num">{r.subs}</td>
@@ -79,6 +83,8 @@ export default function CreatorPerformance({ db, isOwner, user, onRefresh }) {
             </tbody>
           </table>
         </div>
+        {pager}
+        </>
       )}
 
       {edit && (

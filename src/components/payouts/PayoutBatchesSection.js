@@ -7,6 +7,7 @@ import EmptyState from '../../ui/EmptyState';
 import { SkeletonTable } from '../../ui/Skeleton';
 import { fmtDate, fmtMoney } from '../../utils';
 import { BatchStatusBadge, MarkPaidModal } from './parts';
+import usePagination from '../../ui/Pagination';
 
 const MARKABLE = ['draft', 'approved', 'exported'];
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -61,6 +62,8 @@ export default function PayoutBatchesSection({ callApi }) {
     }
   };
 
+  const { rows: page, pager } = usePagination(batches, { label: 'batches' });
+
   if (!batches) return <SkeletonTable rows={4} cols={6} />;
   if (loadError) return <Alert tone="error" title="Batches didn't load" action={<button className="btn btn-secondary btn-sm" onClick={load}>Try again</button>}>{loadError}</Alert>;
   if (!batches.length) return <div className="card"><EmptyState compact icon={Package01Icon} title="No payout batches yet">Approve withdrawals, select them on the Withdrawals tab and create a batch.</EmptyState></div>;
@@ -71,7 +74,7 @@ export default function PayoutBatchesSection({ callApi }) {
         <table>
           <thead><tr><th>Batch</th><th>Status</th><th className="num">Total</th><th className="num">Creators</th><th className="num">Payments</th><th>Created</th><th><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>
-            {batches.map(b => (
+            {page.map(b => (
               <tr key={b.id}>
                 <td className="mono fw-600 text-ink">{b.batch_number || b.id.substring(0, 8)}</td>
                 <td><BatchStatusBadge status={b.status} /></td>
@@ -88,6 +91,7 @@ export default function PayoutBatchesSection({ callApi }) {
           </tbody>
         </table>
       </div>
+      {pager}
       {markPaidTarget && <MarkPaidModal batch={markPaidTarget} working={working} onConfirm={markPaid} onClose={() => setMarkPaidTarget(null)} />}
     </>
   );

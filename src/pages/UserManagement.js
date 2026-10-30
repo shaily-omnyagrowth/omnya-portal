@@ -5,10 +5,12 @@ import Dialog from '../ui/Dialog';
 import Icon from '../ui/Icon';
 import PageHeader from '../ui/PageHeader';
 import { SkeletonTable } from '../ui/Skeleton';
-import { fmtDate, getInitials } from '../utils';
+import { fmtDate } from '../utils';
 import useUserAdmin, { ROLE_LABEL } from './users/useUserAdmin';
 import Select from "../ui/Select";
 import { NoMatchRow } from "../ui/EmptyState";
+import Avatar from '../ui/Avatar';
+import usePagination from '../ui/Pagination';
 
 const ROLE_TONE = { owner: 'ink', am: 'blue', account_manager: 'blue', creator: 'green', client: 'orange', pending: 'gray', denied: 'red' };
 const ASSIGNABLE = ['creator', 'am', 'client', 'owner', 'pending'];
@@ -32,6 +34,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
     const q = search.trim().toLowerCase();
     return !q || `${u.email || ''} ${u.full_name || ''}`.toLowerCase().includes(q);
   });
+  const { rows: page, pager } = usePagination(visible, { label: 'users' });
 
   return (
     <div className="content">
@@ -49,17 +52,18 @@ export default function UserManagement({ currentUser, onRefresh }) {
         <label className="toolbar-search" style={{ maxWidth: 320 }}><Icon icon={Search01Icon} size={16} /><span className="sr-only">Search users</span><input className="form-input" type="search" placeholder="Search name or email" value={search} onChange={e => setSearch(e.target.value)} /></label>
       </div>
       {a.loading ? <SkeletonTable rows={8} cols={5} /> : (
+        <>
         <div className="table-wrap">
           <table>
             <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Linked to</th><th>Joined</th><th><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
-              {visible.map(u => {
+              {page.map(u => {
                 const linked = u.linked_creator || u.linked_manager || u.linked_client;
                 const off = u.status === 'deactivated';
                 const locked = a.isSelf(u) || a.onlyOwner(u);
                 return (
                   <tr key={u.id} style={off ? { opacity: 0.6 } : undefined}>
-                    <td><span className="flex-center gap-12"><span className="avatar">{getInitials(u.full_name || u.email)}</span><span style={{ minWidth: 0 }}>
+                    <td><span className="flex-center gap-12"><Avatar name={u.full_name || u.email} /><span style={{ minWidth: 0 }}>
                       <span className="fw-600 truncate" style={{ display: 'block', color: 'var(--ink)', maxWidth: 220 }}>{u.full_name || u.email.split('@')[0]}{a.isSelf(u) && <span className="text-muted fw-500"> (you)</span>}</span>
                       <span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 220 }}>{u.email}</span></span></span></td>
                     <td><span className={`badge badge-${ROLE_TONE[u.role] || 'gray'}`}>{ROLE_LABEL[u.role] || u.role}</span>{u.role === 'pending' && u.requested_role && <div className="fs-12 text-muted mt-4">asked for {(ROLE_LABEL[u.requested_role] || u.requested_role).toLowerCase()}</div>}</td>
@@ -78,6 +82,8 @@ export default function UserManagement({ currentUser, onRefresh }) {
             </tbody>
           </table>
         </div>
+        {pager}
+        </>
       )}
 
       {create && (

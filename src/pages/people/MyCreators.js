@@ -10,8 +10,10 @@ import EmptyState, { NoMatchRow } from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import { Skeleton } from "../../ui/Skeleton";
-import { fmtMoney, fmtRelativeTime, getInitials, statusBadge } from "../../utils";
+import { fmtMoney, fmtRelativeTime, statusBadge } from "../../utils";
 import Select from "../../ui/Select";
+import Avatar from "../../ui/Avatar";
+import usePagination from "../../ui/Pagination";
 
 const EMPTY = { name: "", email: "", tiktok_handle: "", instagram_handle: "", weekly_rate: "", videos_per_week: "", status: "Active" };
 const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
@@ -59,6 +61,7 @@ export default function MyCreators({ user, db, onRefresh }) {
   }).filter(c => (showArchived || !c.archived_at) && (!search.trim() || `${c.name} ${c.tiktok_handle || ""} ${c.email || ""}`.toLowerCase().includes(search.toLowerCase())))
     .sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0)), [base, db.submissions, search, showArchived]);
   const archivedCount = base.filter(c => c.archived_at).length;
+  const { rows: page, pager } = usePagination(rows, { label: "creators" });
 
   const save = async (e) => {
     e.preventDefault();
@@ -136,9 +139,9 @@ export default function MyCreators({ user, db, onRefresh }) {
             <table>
               <thead><tr><th>Creator</th><th>Status</th><th className="num">Approved</th><th className="num">Approval rate</th><th className="num">Weekly rate</th><th>Last active</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
-                {rows.map(c => (
+                {page.map(c => (
                   <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
-                    <td><span className="flex-center gap-12"><span className="avatar">{getInitials(c.name)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 200 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 200 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
+                    <td><span className="flex-center gap-12"><Avatar name={c.name} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 200 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 200 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
                     <td>{c.archived_at ? <span className="badge badge-gray" title={c.archive_reason || ""}>Archived</span> : statusBadge(c.status)}</td>
                     <td className="num">{c.approved}</td>
                     <td className="num">{c.rate == null ? "--" : `${c.rate}%`}</td>
@@ -156,6 +159,7 @@ export default function MyCreators({ user, db, onRefresh }) {
               </tbody>
             </table>
           </div>
+          {pager}
         </>
       )}
 

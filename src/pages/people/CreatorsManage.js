@@ -9,9 +9,11 @@ import Dialog from "../../ui/Dialog";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import Tabs from "../../ui/Tabs";
-import { fmtMoney, fmtRelativeTime, getInitials, statusBadge } from "../../utils";
+import { fmtMoney, fmtRelativeTime, statusBadge } from "../../utils";
 import Select from "../../ui/Select";
 import { NoMatchRow } from "../../ui/EmptyState";
+import Avatar from "../../ui/Avatar";
+import usePagination from "../../ui/Pagination";
 
 const PAYMENT_METHODS = ["PayPal", "Venmo", "Zelle", "Bank Transfer", "Cash App", "Crypto"];
 const FILTERS = [["all", "All"], ["active", "Active"], ["paused", "Paused"], ["archived", "Archived"]];
@@ -46,6 +48,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
   const match = (c, f) => f === "all" || (f === "active" && !c.archived_at && c.status === "Active") || (f === "paused" && !c.archived_at && c.status === "Paused") || (f === "archived" && !!c.archived_at);
   const shown = creators.filter(c => match(c, filter) && (!search.trim() || `${c.name} ${c.email} ${c.tiktok_handle || ""} ${c.instagram_handle || ""}`.toLowerCase().includes(search.toLowerCase())))
     .sort((a, b) => sort === "name" ? (a.name || "").localeCompare(b.name || "") : sort === "rate" ? Number(b.weekly_rate || 0) - Number(a.weekly_rate || 0) : (b.lastActive || 0) - (a.lastActive || 0));
+  const { rows: page, pager } = usePagination(shown, { label: "creators" });
 
   const done = (msg) => { toast.success(msg); setErr(""); onRefresh(); };
 
@@ -120,11 +123,11 @@ export default function CreatorsManage({ db, onRefresh, user }) {
             <table>
               <thead><tr><th>Creator</th><th>Manager</th><th className="num">Weekly rate</th><th>Last active</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
-                {shown.map(c => {
+                {page.map(c => {
                   const am = db.accountManagers.find(a => a.id === c.am_id);
                   return (
                     <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
-                      <td><span className="flex-center gap-12"><span className="avatar">{getInitials(c.name)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 240 }}>{c.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 240 }}>{c.email}</span></span></span></td>
+                      <td><span className="flex-center gap-12"><Avatar name={c.name} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 240 }}>{c.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 240 }}>{c.email}</span></span></span></td>
                       <td>{am?.name || <span className="text-orange">Unassigned</span>}</td>
                       <td className="num">{c.weekly_rate ? fmtMoney(c.weekly_rate) : "--"}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{c.lastActive ? fmtRelativeTime(c.lastActive) : "Never"}</td>
@@ -141,6 +144,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
               </tbody>
             </table>
           </div>
+          {pager}
         </>
       ) : (
         <div className="table-wrap">
@@ -151,7 +155,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
                 const archived = am.status === "Archived";
                 return (
                   <tr key={am.id} style={archived ? { opacity: 0.6 } : undefined}>
-                    <td><span className="flex-center gap-12"><span className="avatar">{getInitials(am.name || am.email)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 260 }}>{am.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{am.email}</span></span></span></td>
+                    <td><span className="flex-center gap-12"><Avatar name={am.name || am.email} /><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 260 }}>{am.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{am.email}</span></span></span></td>
                     <td className="num">{assigned(am.id)}</td>
                     <td className="num">{Math.round(Number(am.commission_rate ?? 0.1) * 100)}%</td>
                     <td>{archived ? <span className="badge badge-gray" title={am.archive_reason || ""}>Archived</span> : statusBadge("Active")}</td>

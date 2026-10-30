@@ -7,6 +7,7 @@ import EmptyState from '../../ui/EmptyState';
 import { SkeletonTable } from '../../ui/Skeleton';
 import { EMPTY, fmtDate, fmtMoney } from '../../utils';
 import { CreateBatchModal, RejectModal, WithdrawalStatusBadge } from './parts';
+import usePagination from '../../ui/Pagination';
 
 const STATUSES = [
   ['pending_admin_approval', 'Waiting', 'Nothing waiting for approval', 'New withdrawal requests from creators show up here.'],
@@ -52,6 +53,7 @@ export default function WithdrawalsSection({ callApi }) {
   const [, , emptyTitle, emptyText] = STATUSES.find(s => s[0] === status);
   const selectable = status === 'approved';
   const actionable = status === 'pending_admin_approval' || status === 'approved';
+  const { rows: page, pager } = usePagination(rows, { label: 'requests' });
 
   return (
     <div className="flex-col gap-16">
@@ -69,6 +71,7 @@ export default function WithdrawalsSection({ callApi }) {
       {loadError && <Alert tone="error" title="Withdrawals didn't load" action={<button className="btn btn-secondary btn-sm" onClick={load}>Try again</button>}>{loadError}</Alert>}
 
       {!rows ? <SkeletonTable rows={4} cols={6} /> : rows.length === 0 ? (!loadError && <div className="card"><EmptyState compact icon={MoneyReceive02Icon} title={emptyTitle}>{emptyText}</EmptyState></div>) : (
+        <>
         <div className="table-wrap">
           <table>
             <thead><tr>
@@ -76,7 +79,7 @@ export default function WithdrawalsSection({ callApi }) {
               <th>Creator</th><th className="num">Amount</th><th>Method</th><th>Destination</th><th>Requested</th><th>Status</th>{actionable && <th><span className="sr-only">Actions</span></th>}
             </tr></thead>
             <tbody>
-              {rows.map(r => (
+              {page.map(r => (
                 <tr key={r.id}>
                   {selectable && <td><input type="checkbox" aria-label={`Select ${r.creator_name}`} checked={selected.includes(r.id)} onChange={() => setSelected(s => (s.includes(r.id) ? s.filter(x => x !== r.id) : [...s, r.id]))} /></td>}
                   <td><div className="fw-600 text-ink truncate" style={{ maxWidth: 200 }}>{r.creator_name}</div>{r.creator_email && <div className="fs-12 text-muted truncate" style={{ maxWidth: 200 }}>{r.creator_email}</div>}</td>
@@ -96,6 +99,8 @@ export default function WithdrawalsSection({ callApi }) {
             </tbody>
           </table>
         </div>
+        {pager}
+        </>
       )}
 
       {rejectTarget && <RejectModal withdrawal={rejectTarget} working={working} onConfirm={(reason) => reject(rejectTarget, reason)} onClose={() => setRejectTarget(null)} />}
