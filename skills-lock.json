@@ -31,12 +31,6 @@
       "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
       "computedHash": "128fac78002d916c8ca908245d398e634f540d8bcf20915b2b2359aeb18eba59"
     },
-    "upstash-ratelimit-js": {
-      "source": "upstash/skills",
-      "sourceType": "github",
-      "skillPath": "skills/upstash-ratelimit-js/SKILL.md",
-      "computedHash": "3833ff63ef2e339ffd8d173d484d5cb0c28dfdcea4bc18d2b7286e7ae311e768"
-    },
     "webapp-testing": {
       "source": "anthropics/skills",
       "sourceType": "github",

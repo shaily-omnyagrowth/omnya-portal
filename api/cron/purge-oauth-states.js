@@ -50,6 +50,10 @@ module.exports = async (req, res) => {
     const purged = typeof data === 'number' ? data : (data ?? null);
     console.log(`[cron/purge-oauth-states] purged ${purged} expired state row(s)`);
 
+    // Expired rate limit windows.
+    const { error: rlError } = await supabase.from('rate_limits').delete().lt('window_ends', new Date().toISOString());
+    if (rlError) console.warn('[cron/purge-oauth-states] rate_limits purge failed:', rlError.message);
+
     return sendOk(res, { purged });
   } catch (err) {
     console.error('[cron/purge-oauth-states] Unexpected error:', err.message);

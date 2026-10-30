@@ -6,7 +6,7 @@
 // APP_BASE_URL, one after another. That route allows 60 per 60 s per IP, and
 // its limiter runs before auth, so a working limiter answers 401 sixty times
 // and then 429 with Retry-After. If no 429 arrives, the limiter is failing
-// open in production (Upstash unset or broken), and this suite reports FAILED,
+// open in production (the limiter is broken), and this suite reports FAILED,
 // never BLOCKED: that is a real production defect, not a missing migration.
 //
 // It reaches production, so it needs APP_BASE_URL (https, not localhost) in

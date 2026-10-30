@@ -194,7 +194,7 @@ async function invoke(handler, request) {
 
 // Reaching a third-party with no key configured is an environment gap, not a
 // broken auth gate. Recognise it rather than counting it either way.
-const ENV_GAP_RE = /RESEND|ENCRYPTION_KEY|STRIPE|ANTHROPIC|UPSTASH|not configured|is not set/i;
+const ENV_GAP_RE = /RESEND|ENCRYPTION_KEY|STRIPE|not configured|is not set/i;
 
 const looksEnvGap = r =>
   (r.threw && ENV_GAP_RE.test(String(r.threw.message))) ||

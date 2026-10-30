@@ -232,7 +232,7 @@ const historyOf = async (db) => {
 
   // ------------------------------------------------------------ partial failure
   console.log('\nPush stops at a failing file and says where (AC-6)');
-  await db.exec('ALTER TABLE public.creator_social_accounts RENAME TO csa_gone;');
+  await db.exec('CREATE VIEW public.rate_limits AS SELECT 1 AS x;');
   const pf = makeSys(db);
   const cp = await runner.main([`--env-file=${goodEnv()}`], pf);
   const pfOut = pf.logs.join('\n');
@@ -242,7 +242,7 @@ const historyOf = async (db) => {
   R(new RegExp(`FAILED at ${LAST_TWO[1]}`).test(pfOut), 'names the failed file');
   R(/Postgres said: .+/.test(pfOut), 'prints the Postgres error');
   R(/No rollback file exists for it\.|Rollback, if you decide you need it/.test(pfOut), 'says whether a rollback exists, and does not run it');
-  await db.exec('ALTER TABLE public.csa_gone RENAME TO creator_social_accounts;');
+  await db.exec('DROP VIEW public.rate_limits;');
 
   // ------------------------------------------------------------ happy push
   console.log('\nPush applies the rest and proves it (AC-5, AC-6)');

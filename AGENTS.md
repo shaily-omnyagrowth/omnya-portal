@@ -7,7 +7,7 @@ Creator, client and staff portal for a UGC agency: campaigns, content submission
 - **Language / Runtime**: JavaScript (no TypeScript). Browser SPA plus Node serverless functions (CommonJS)
 - **Framework**: React 19 on Create React App (`react-scripts` 5). No router library
 - **Backend**: Vercel functions in `api/`, Vercel cron (see `vercel.json`), Supabase Postgres with RLS, Auth and Storage
-- **Key dependencies**: `@supabase/supabase-js`, `stripe` (Connect payouts), Resend (email over REST), Upstash Redis (rate limits over REST)
+- **Key dependencies**: `@supabase/supabase-js`, `stripe` (Connect payouts), Resend (email over REST), rate limits in Postgres (`rate_limit_hit`)
 - **Package manager**: npm
 
 ## Build approach
@@ -54,7 +54,7 @@ node tests/run-all.cjs                  # everything; exit 3 means blocked on a 
 
 Installed skills live in `.agents/skills/` and are listed in the area doc they govern (`api/`, `supabase/`, `tests/`).
 
-MCP servers: Supabase (connected), Stripe (recommended), Upstash (recommended), Resend (recommended)
+MCP servers: Supabase (connected), Stripe (recommended), Resend (recommended)
 
 ## Context files
 

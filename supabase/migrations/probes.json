@@ -17,5 +17,10 @@
     "label": "TikTok link tracking removed",
     "kind": "function",
     "signature": "public.guard_verified_view_columns()"
+  },
+  "20261030150000_rate_limits.sql": {
+    "label": "Rate limits stored in Postgres",
+    "kind": "function",
+    "signature": "public.rate_limit_hit(text,integer)"
   }
 }
