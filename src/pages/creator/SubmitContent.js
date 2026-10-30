@@ -29,7 +29,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
 
   const creator = isOverride ? db.creators.find(c => c.id === overrideCreatorId) : ownCreator;
   const { isConnected } = useConnectedPlatforms(creator?.user_id);
-  const { verify, verifying, verifyErr, verifiedVideo, reset: resetVerify } = useVerifyLink({ creator, isConnected });
+  const { verify, verifyErr, verifiedVideo, reset: resetVerify } = useVerifyLink({ creator, isConnected });
 
   const myJobs = db.campaigns.filter(c => (c.assigned_creators || []).includes(creator?.id) && c.status !== "Completed" && c.status !== "Archived");
 
@@ -198,13 +198,6 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
                   </Select>
                   {!isConnected(platform) && <span className="form-error">Connect {platform} on Social channels to submit {platform} videos.</span>}
                 </div>
-                {uploadMode === "link" && (
-                  <div className="form-group" style={{ marginBottom: 0, justifyContent: "flex-end" }}>
-                    <button type="button" className="btn btn-secondary" onClick={() => verify(form.concept_link, platform)} disabled={verifying || !form.concept_link || !isConnected(platform)}>
-                      {verifying ? "Checking…" : verifiedVideo ? "Checked" : "Check it's mine"}
-                    </button>
-                  </div>
-                )}
               </div>
             )}
             {verifyErr && <Alert tone="error" style={{ marginTop: 12 }}>{verifyErr}</Alert>}
