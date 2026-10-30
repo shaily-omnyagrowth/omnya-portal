@@ -21,6 +21,9 @@ for (const line of fs.readFileSync(path.join(ROOT, '.env'), 'utf8').split(/\r?\n
   const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
 }
+// The refresh tests stub fetch; they only need a YouTube client to be configured.
+process.env.YOUTUBE_CLIENT_ID = process.env.YOUTUBE_CLIENT_ID || 'test-youtube-client';
+process.env.YOUTUBE_CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || 'test-youtube-secret';
 
 // ---------------------------------------------------------------------------
 // ENCRYPTION_KEY
