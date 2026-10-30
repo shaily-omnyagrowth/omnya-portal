@@ -4,7 +4,7 @@ import { gooeyToast as toast } from "goey-toast";
 import { updateRows } from "../../lib/db";
 import EmptyState from "../../ui/EmptyState";
 import PageHeader from "../../ui/PageHeader";
-import { getInitials } from "../../utils";
+import Avatar from "../../ui/Avatar";
 
 const LIVE = new Set(["Approved", "Published/Tracked"]);
 
@@ -67,7 +67,7 @@ export default function TeamPerformance({ db, onRefresh, onNavigate }) {
               <section key={am.id} className="card">
                 <div className="card-head">
                   <span className="flex-center gap-12" style={{ minWidth: 0 }}>
-                    <span className="avatar" style={{ width: 40, height: 40 }}>{getInitials(am.name)}</span>
+                    <Avatar name={am.name} size={40} />
                     <span style={{ minWidth: 0 }}><span className="fw-600 fs-16 truncate" style={{ display: "block" }}>{am.name}</span><span className="fs-13 text-muted truncate" style={{ display: "block" }}>{am.email} · {Math.round(Number(am.commission_rate || 0.1) * 100)}% commission</span></span>
                   </span>
                   {avg != null && <span className="fs-13 text-muted">Satisfaction <strong className="text-ink">{avg.toFixed(1)}</strong> / 5</span>}

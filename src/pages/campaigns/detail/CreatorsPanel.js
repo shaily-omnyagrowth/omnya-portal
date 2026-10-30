@@ -4,13 +4,13 @@ import { gooeyToast as toast } from "goey-toast";
 import { describeWriteError, updateRows } from "../../../lib/db";
 import { supabase } from "../../../supabaseClient";
 import Icon from "../../../ui/Icon";
-import { getInitials } from "../../../utils";
+import Avatar from "../../../ui/Avatar";
 
 function Person({ c, children }) {
   return (
     <div className="list-item">
       <span className="flex-center gap-12" style={{ minWidth: 0 }}>
-        <span className="avatar">{getInitials(c?.name)}</span>
+        <Avatar name={c?.name} />
         <span style={{ minWidth: 0 }}><span className="fw-600 fs-13 truncate" style={{ display: "block" }}>{c?.name || "Creator"}</span>
           <span className="fs-12 text-muted truncate" style={{ display: "block" }}>{c?.tiktok_handle ? `@${c.tiktok_handle}` : c?.email}</span></span>
       </span>

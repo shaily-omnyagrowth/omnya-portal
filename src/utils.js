@@ -3,7 +3,6 @@ import { Facebook01Icon, InstagramIcon, TiktokIcon, Video01Icon, YoutubeIcon } f
 export const EMPTY = "--";
 
 export const getInitials = (name) => (name || "?").trim().split(/\s+/).map(n => n[0]).join("").toUpperCase().slice(0, 2) || "?";
-export const getAvatarColor = () => "";
 
 export const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: new Date(d).getFullYear() !== new Date().getFullYear() ? "numeric" : undefined }) : EMPTY;
 export const fmtDateTime = (d) => d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : EMPTY;

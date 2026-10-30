@@ -4,7 +4,8 @@ import PostCard from '../components/posts/PostCard';
 import EmptyState from '../ui/EmptyState';
 import Icon from '../ui/Icon';
 import { SkeletonStats, SkeletonCards } from '../ui/Skeleton';
-import { fmtCompactNum, fmtDate, fmtNum, getInitials, platformKey, platformMeta, statusBadge } from '../utils';
+import { fmtCompactNum, fmtDate, fmtNum, platformKey, platformMeta, statusBadge } from '../utils';
+import Avatar from '../ui/Avatar';
 
 const PACE = { completed: ['Delivered', 'text-green'], ahead: ['Ahead of pace', 'text-green'], behind: ['Behind pace', 'text-amber'], on_track: ['On track', 'text-muted'] };
 
@@ -97,7 +98,7 @@ export default function SharedCampaignReport() {
             <div className="report-creators">
               {creators.map(c => (
                 <div key={c.id} className="report-creator">
-                  <span className="avatar">{getInitials(c.name)}</span>
+                  <Avatar name={c.name} />
                   <span className="min-w-0"><span className="fw-600 text-ink truncate" style={{ display: 'block' }}>{c.name}</span>
                     <span className="fs-12 text-muted truncate" style={{ display: 'block' }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.instagram_handle ? `@${c.instagram_handle}` : 'Creator'}</span></span>
                 </div>

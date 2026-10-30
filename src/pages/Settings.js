@@ -4,8 +4,8 @@ import { describeWriteError } from "../lib/db";
 import { supabase } from "../supabaseClient";
 import Alert from "../ui/Alert";
 import PageHeader from "../ui/PageHeader";
-import { getInitials } from "../utils";
 import { roleLabel } from "../app/nav";
+import Avatar from "../ui/Avatar";
 
 const clean = (h) => h.trim().replace(/^@+/, "");
 
@@ -81,7 +81,7 @@ export default function Settings({ user, db, setUser, onRefresh, onNavigate }) {
       <PageHeader title="Settings" description="Your profile and sign in details." />
 
       <div className="settings-who card">
-        <span className="avatar avatar-lg">{getInitials(display)}</span>
+        <Avatar name={display} className="avatar-lg" />
         <div className="min-w-0">
           <div className="fw-600 text-ink truncate">{display}</div>
           <div className="fs-13 text-muted truncate">{user?.email} · {roleLabel[role] || "Member"}</div>

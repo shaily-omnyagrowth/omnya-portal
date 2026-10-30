@@ -77,7 +77,7 @@
 }
 .user-chip[aria-expanded="true"] { background: var(--shell-2); }
 @media (hover: hover) { .user-chip:hover { background: var(--shell-2); } }
-.user-chip .user-avatar { background: var(--surface); box-shadow: 0 0 0 1px var(--border); }
+.user-chip .user-avatar { box-shadow: 0 0 0 1px var(--border); }
 .user-info { flex: 1; min-width: 0; }
 .user-name, .user-email { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-name { font-size: var(--fs-sm); font-weight: 600; color: var(--ink); }
