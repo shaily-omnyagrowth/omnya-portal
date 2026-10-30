@@ -39,8 +39,6 @@ export function useVerifyLink({ creator, isConnected }) {
   const verify = async (rawUrl, platform) => {
     const url = (rawUrl || "").trim();
     if (!url) { setVerifyErr("Paste the video link first."); return null; }
-    const detected = linkPlatform(url);
-    if (detected && detected !== platform) { setVerifyErr(`This is a ${detected} link. Switch the platform to ${detected}.`); return null; }
     if (!isConnected(platform)) { setVerifyErr(`Connect ${platform} on the Social channels page so we can confirm the video is yours.`); return null; }
     setVerifying(true); setVerifyErr("");
     try {
