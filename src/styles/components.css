@@ -236,6 +236,17 @@ input[type="date"].form-input { min-height: 40px; }
 }
 .segmented button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(11, 11, 12, 0.08); }
 
+.choice-group { border: 0; padding: 0; margin: 0; min-width: 0; }
+.choice-group legend { padding: 0; margin-bottom: 8px; }
+.choice-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.choice-card { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--surface); cursor: pointer; }
+.choice-card input { flex-shrink: 0; margin: 2px 0 0; }
+.choice-card strong { display: block; font-weight: 600; color: var(--ink); }
+.choice-card-text { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--ink3); }
+.choice-card:has(input:checked) { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+@media (hover: hover) { .choice-card:hover { border-color: var(--border-strong); } .choice-card:has(input:checked):hover { border-color: var(--ink); } }
+@media (max-width: 640px) { .choice-cards { grid-template-columns: minmax(0, 1fr); } }
+
 .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip {
   height: 30px; padding: 0 12px; border-radius: var(--radius-pill);

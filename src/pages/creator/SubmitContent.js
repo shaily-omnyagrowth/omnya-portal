@@ -9,7 +9,7 @@ import EmptyState from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import Segmented from "../../ui/Segmented";
-import { DropZone, HowItWorks, VerifiedVideo } from "./submit/parts";
+import { DropZone, HowItWorks, PostedChoice, VerifiedVideo } from "./submit/parts";
 import { authedPost, linkPlatform, useConnectedPlatforms, useVerifyLink } from "./submit/useVerifyLink";
 import Select from "../../ui/Select";
 import { campaignPlatform } from "../../utils";
@@ -160,12 +160,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
                 {myJobs.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
               </Select>
             </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <span className="form-label" id="type-label">Has this video been posted?</span>
-              <Segmented label="Submission type" value={form.type} onChange={t => { set({ type: t }); resetVerify(); if (t === "Final") setUploadMode("link"); }}
-                options={[["Concept", "Not yet"], ["Final", "Yes, it's live"]]} />
-              <span className="form-hint">{form.type === "Concept" ? "Your account manager will review it before you post." : "We'll confirm it's yours and start tracking views."}</span>
-            </div>
+            <PostedChoice value={form.type} onChange={t => { set({ type: t }); resetVerify(); if (t === "Final") setUploadMode("link"); }} />
           </div>
 
           <div className="form-section">
@@ -186,7 +181,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="sr-only" htmlFor="video-link">{linkLabel}</label>
                 <input id="video-link" className="form-input" inputMode="url" value={form.concept_link}
-                  placeholder="https://…"
+                  placeholder={form.type === "Final" && platform ? `Paste your ${platform} link` : "Paste a link to your draft"}
                   onChange={e => { set({ concept_link: e.target.value }); resetVerify(); }} />
               </div>
             )}

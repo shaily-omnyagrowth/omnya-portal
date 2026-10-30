@@ -74,3 +74,27 @@ export function HowItWorks({ type }) {
     </aside>
   );
 }
+
+const POSTED_CHOICES = [
+  ["Concept", "Not posted yet", "Send a draft for approval."],
+  ["Final", "Already posted", "We'll confirm it's yours and track views."],
+];
+
+export function PostedChoice({ value, onChange }) {
+  return (
+    <fieldset className="choice-group">
+      <legend className="form-label">Has this video been posted?</legend>
+      <div className="choice-cards">
+        {POSTED_CHOICES.map(([v, title, text]) => (
+          <label key={v} className="choice-card">
+            <input type="radio" name="posted" checked={value === v} onChange={() => onChange(v)} />
+            <span>
+              <strong>{title}</strong>
+              <span className="choice-card-text">{text}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
