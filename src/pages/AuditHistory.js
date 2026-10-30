@@ -1,108 +1,81 @@
-/* eslint-disable */
-import React, { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ArrowDown01Icon, Archive02Icon, ClipboardIcon, Key01Icon, MoneyReceive02Icon, Package01Icon,
+  RotateLeft01Icon, UserBlock01Icon, Video01Icon,
+} from '@hugeicons/core-free-icons';
 import { supabase } from '../supabaseClient';
-import { getInitials, getAvatarColor } from '../utils';
-import LoadingSpinner from '../components/LoadingSpinner';
+import Alert from '../ui/Alert';
+import EmptyState from '../ui/EmptyState';
+import Icon from '../ui/Icon';
+import PageHeader from '../ui/PageHeader';
+import { SkeletonTable } from '../ui/Skeleton';
+import { EMPTY, fmtRelativeTime } from '../utils';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AUDIT HISTORY — scope §5.2 ("View audit history: Owner Yes")
-//
-// The events were being written all along and nothing ever showed them. Two
-// journals, one history:
-//
-//   admin_audit_logs    role changes, deactivation, restoration, archiving,
-//                       content review decisions, payment voids      (§5.1)
-//   payment_audit_logs  withdrawal approve/reject, batch creation,
-//                       mark-paid, exports, manager grants
-//
-// Both are append-only, so paging by timestamp is stable — a row can never
-// shift between pages while you read.
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function callApi(path) {
+// Null when the API layer isn't running (local CRA answers with index.html).
+async function getJson(path) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Your session has expired. Sign in again.');
-
-  const res = await fetch(path, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${session.access_token}` },
-  });
-
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    return null;
-  }
-
-  let payload = null;
-  try { payload = await res.json(); } catch (_) {}
-
-  if (!res.ok || payload?.ok === false) {
-    throw new Error(payload?.error?.message || payload?.message || `Request failed (${res.status})`);
-  }
+  const res = await fetch(path, { headers: { Authorization: `Bearer ${session.access_token}` } });
+  if (!(res.headers.get('content-type') || '').includes('application/json')) return null;
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || payload?.ok === false) throw new Error(payload?.error?.message || payload?.message || `Request failed (${res.status})`);
   return payload?.data ?? payload;
 }
 
-// Grouping the filter by what someone is actually looking for, rather than by
-// which table the row happens to live in.
 const FILTERS = [
-  { id: '',                  label: 'Everything' },
-  { id: 'user',              label: 'Users & roles',   entityType: 'user' },
-  { id: 'submission',        label: 'Content reviews', entityType: 'submission' },
-  { id: 'campaign',          label: 'Campaigns',       entityType: 'campaign' },
-  { id: 'client',            label: 'Clients',         entityType: 'client' },
-  { id: 'withdrawal_request',label: 'Withdrawals',     entityType: 'withdrawal_request' },
-  { id: 'payout_batch',      label: 'Payout batches',  entityType: 'payout_batch' },
-  { id: 'payment',           label: 'Payments',        entityType: 'payment' },
+  { id: '', label: 'Everything' },
+  { id: 'user', label: 'Users and roles' },
+  { id: 'submission', label: 'Content reviews' },
+  { id: 'campaign', label: 'Campaigns' },
+  { id: 'client', label: 'Clients' },
+  { id: 'withdrawal_request', label: 'Withdrawals' },
+  { id: 'payout_batch', label: 'Payout batches' },
+  { id: 'payment', label: 'Payments' },
 ];
 
-const ICON = {
-  role_changed: '🔑', user_deactivated: '🚫', user_restored: '↩',
-  campaign_archived: '🗄', campaign_restored: '↩',
-  client_archived: '🗄', client_restored: '↩',
-  account_manager_archived: '🗄', account_manager_restored: '↩',
-  concept_review: '📽', final_review: '🎬', submission_review: '🎬',
-  payment_voided: '🚫',
-  approve_withdrawal: '✅', reject_withdrawal: '✕', withdrawal_requested: '💸',
-  batch_created: '📦', batch_marked_paid: '💰', export_batch: '📤',
-  payment_manager_granted: '🔓', payment_manager_revoked: '🔒',
+const KIND = {
+  role_changed: [Key01Icon, 'amber'], payment_manager_granted: [Key01Icon, 'amber'], payment_manager_revoked: [Key01Icon, 'red'],
+  user_deactivated: [UserBlock01Icon, 'red'], payment_voided: [UserBlock01Icon, 'red'], reject_withdrawal: [UserBlock01Icon, 'red'],
+  user_restored: [RotateLeft01Icon, 'green'], campaign_restored: [RotateLeft01Icon], client_restored: [RotateLeft01Icon], account_manager_restored: [RotateLeft01Icon],
+  campaign_archived: [Archive02Icon, 'amber'], client_archived: [Archive02Icon, 'amber'], account_manager_archived: [Archive02Icon, 'amber'],
+  concept_review: [Video01Icon], final_review: [Video01Icon], submission_review: [Video01Icon],
+  approve_withdrawal: [MoneyReceive02Icon, 'green'], withdrawal_requested: [MoneyReceive02Icon], batch_marked_paid: [MoneyReceive02Icon, 'green'],
+  batch_created: [Package01Icon], export_batch: [Package01Icon],
 };
 
-// Financial and destructive actions get a colour; routine ones stay quiet, so
-// the eye lands on what matters.
-const TONE = {
-  user_deactivated: 'var(--red)',
-  payment_voided: 'var(--red)',
-  reject_withdrawal: 'var(--red)',
-  payment_manager_revoked: 'var(--red)',
-  role_changed: 'var(--gold)',
-  campaign_archived: 'var(--orange)',
-  client_archived: 'var(--orange)',
-  account_manager_archived: 'var(--orange)',
-  payment_manager_granted: 'var(--gold)',
-  approve_withdrawal: 'var(--green)',
-  batch_marked_paid: 'var(--green)',
-  user_restored: 'var(--green)',
+const when = (e) => e.occurred_at || e.created_at;
+const fullTime = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
+const dayLabel = (iso) => {
+  const d = new Date(iso); const today = new Date();
+  const diff = Math.round((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000);
+  return diff === 0 ? 'Today' : diff === 1 ? 'Yesterday' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
 };
 
-function relativeTime(iso) {
-  if (!iso) return '—';
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
-}
-
-function fullTime(iso) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleString(undefined, {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+function Row({ e, open, onToggle }) {
+  const [icon, tone] = KIND[e.action] || [ClipboardIcon];
+  return (
+    <li className={`audit-row ${open ? 'open' : ''}`}>
+      <button type="button" className="audit-hit" aria-expanded={open} onClick={onToggle}>
+        <span className={`audit-icon ${tone ? `tone-${tone}` : ''}`}><Icon icon={icon} size={16} /></span>
+        <span className="audit-main">
+          <span className="audit-summary">{e.summary}</span>
+          {e.reason && <span className="audit-reason">"{e.reason}"</span>}
+        </span>
+        <span className="audit-time" data-tip={fullTime(when(e))}>{fmtRelativeTime(when(e))}</span>
+        <Icon icon={ArrowDown01Icon} size={14} className="audit-caret" />
+      </button>
+      {open && (
+        <dl className="kv audit-detail">
+          <dt>When</dt><dd>{fullTime(when(e))}</dd>
+          <dt>By</dt><dd>{e.actor_email || e.actor_label || EMPTY}{e.actor_role ? ` · ${e.actor_role}` : ''}</dd>
+          <dt>Action</dt><dd className="mono">{e.action}</dd>
+          <dt>Target</dt><dd className="mono">{e.entity_type}{e.entity_id ? ` · ${e.entity_id}` : ''}</dd>
+          {(e.from_value || e.to_value) && <><dt>Change</dt><dd>{e.from_value ?? EMPTY} to {e.to_value ?? EMPTY}</dd></>}
+          {e.metadata && Object.keys(e.metadata).length > 0 && <><dt>Detail</dt><dd className="mono fs-12">{JSON.stringify(e.metadata)}</dd></>}
+        </dl>
+      )}
+    </li>
+  );
 }
 
 export default function AuditHistory() {
@@ -112,51 +85,28 @@ export default function AuditHistory() {
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
   const [nextBefore, setNextBefore] = useState(null);
-  const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(null);
 
-  const buildUrl = (before) => {
+  const url = useCallback((before) => {
     const params = new URLSearchParams({ limit: '50' });
-    const f = FILTERS.find((x) => x.id === filter);
-    if (f?.entityType) params.set('entityType', f.entityType);
+    if (filter) params.set('entityType', filter);
     if (before) params.set('before', before);
-    return `/api/admin/audit?${params.toString()}`;
-  };
+    return `/api/admin/audit?${params}`;
+  }, [filter]);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+    setLoading(true); setError('');
     try {
-      const data = await callApi(buildUrl(null));
+      const data = await getJson(url(null));
       if (data && Array.isArray(data.events)) {
         setEvents(data.events);
-        setHasMore(!!data.hasMore);
-        setNextBefore(data.nextBefore);
+        setNextBefore(data.hasMore ? data.nextBefore : null);
       } else {
-        // Local dev fallback: query admin_audit_logs directly
-        const f = FILTERS.find((x) => x.id === filter);
-        let q = supabase
-          .from('admin_audit_logs')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50);
-        if (f?.entityType) {
-          q = q.eq('entity_type', f.entityType);
-        }
-        const { data: rows, error: sbErr } = await q;
-        if (!sbErr && rows) {
-          setEvents(rows.map(r => ({
-            id: r.id,
-            action: r.action,
-            entity_type: r.entity_type,
-            created_at: r.created_at,
-            actor_label: r.actor_email || 'Owner',
-            summary: `${r.actor_email || 'Owner'} performed ${r.action || 'action'}`
-          })));
-        } else {
-          setEvents([]);
-        }
-        setHasMore(false);
+        let q = supabase.from('admin_audit_logs').select('*').order('created_at', { ascending: false }).limit(50);
+        if (filter) q = q.eq('entity_type', filter);
+        const { data: rows, error: e } = await q;
+        if (e) throw e;
+        setEvents((rows || []).map(r => ({ ...r, source: 'admin', actor_label: r.actor_email || 'Owner', summary: `${r.actor_email || 'Owner'} performed ${r.action || 'an action'}` })));
         setNextBefore(null);
       }
     } catch (err) {
@@ -164,21 +114,15 @@ export default function AuditHistory() {
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, [url, filter]);
 
   useEffect(() => { load(); }, [load]);
 
   const loadMore = async () => {
-    if (!nextBefore) return;
     setLoadingMore(true);
     try {
-      const data = await callApi(buildUrl(nextBefore));
-      if (data && Array.isArray(data.events)) {
-        setEvents((prev) => [...prev, ...(data.events || [])]);
-        setHasMore(!!data.hasMore);
-        setNextBefore(data.nextBefore);
-      }
+      const data = await getJson(url(nextBefore));
+      if (data?.events) { setEvents(prev => [...prev, ...data.events]); setNextBefore(data.hasMore ? data.nextBefore : null); }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -186,142 +130,43 @@ export default function AuditHistory() {
     }
   };
 
+  const days = [];
+  events.forEach(e => {
+    const label = dayLabel(when(e));
+    if (days[days.length - 1]?.label !== label) days.push({ label, items: [] });
+    days[days.length - 1].items.push(e);
+  });
+  const key = (e) => `${e.source || ''}-${e.id}`;
+
   return (
     <div className="content">
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Audit History</h2>
-        <p style={{ color: 'var(--ink3)', fontSize: 13, margin: 0 }}>
-          Every sensitive action, with who did it and when. Entries are written
-          by the database and can never be edited or removed.
-        </p>
+      <PageHeader title="Audit history" description="Every privileged action, who took it and when. The database writes these entries and they can't be edited or removed." />
+      <div className="chip-row mb-16" role="group" aria-label="Filter by area">
+        {FILTERS.map(f => <button key={f.id || 'all'} type="button" className="chip" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>{f.label}</button>)}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
-        {FILTERS.map((f) => (
-          <button
-            key={f.id || 'all'}
-            onClick={() => setFilter(f.id)}
-            style={{
-              padding: '7px 13px',
-              background: filter === f.id ? 'var(--ink)' : 'var(--bg2)',
-              color: filter === f.id ? '#fff' : 'var(--ink)',
-              border: `1px solid ${filter === f.id ? 'var(--ink)' : 'var(--border)'}`,
-              borderRadius: 'var(--radius-sm)', cursor: 'pointer',
-              fontSize: 12.5, fontWeight: 500,
-            }}
-          >{f.label}</button>
-        ))}
-      </div>
+      {error && <Alert tone="error" title="The history didn't load" action={<button className="btn btn-secondary btn-sm" onClick={load}>Try again</button>} style={{ marginBottom: 16 }}>{error}</Alert>}
 
-      {error && (
-        <div style={{
-          background: 'rgba(192,57,43,0.08)', border: '1px solid var(--red)',
-          borderRadius: 'var(--radius-sm)', padding: '10px 14px',
-          marginBottom: 16, fontSize: 13, color: 'var(--red)',
-        }}>{error}</div>
-      )}
-
-      {loading ? <LoadingSpinner label="Loading history…" /> : (
-        <>
-          <div className="premium-card" style={{ padding: 0 }}>
-            {events.map((e) => {
-              const open = expanded === e.id;
-              const tone = TONE[e.action] || 'var(--border)';
-              return (
-                <div
-                  key={`${e.source}-${e.id}`}
-                  style={{
-                    padding: '13px 16px',
-                    borderBottom: '1px solid var(--border2)',
-                    borderLeft: `3px solid ${tone}`,
-                    cursor: 'pointer',
-                  }}
-                  onClick={() => setExpanded(open ? null : e.id)}
-                >
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 11 }}>
-                    <span style={{ fontSize: 16, lineHeight: 1.3 }}>{ICON[e.action] || '•'}</span>
-
-                    <div className={`creator-avatar ${getAvatarColor(e.actor_label || '?')}`}
-                         style={{ width: 26, height: 26, fontSize: 10, flexShrink: 0 }}>
-                      {getInitials(e.actor_label || '?')}
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13.5, lineHeight: 1.45 }}>{e.summary}</div>
-                      {e.reason && (
-                        <div style={{ fontSize: 12, color: 'var(--ink3)', marginTop: 3, fontStyle: 'italic' }}>
-                          "{e.reason}"
-                        </div>
-                      )}
-                      {open && (
-                        <div style={{
-                          marginTop: 10, padding: 11, background: 'var(--bg2)',
-                          borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--ink2)',
-                        }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 14px' }}>
-                            <span style={{ color: 'var(--ink3)' }}>When</span>
-                            <span>{fullTime(e.occurred_at)}</span>
-
-                            <span style={{ color: 'var(--ink3)' }}>Actor</span>
-                            <span>{e.actor_email || e.actor_label}{e.actor_role ? ` · ${e.actor_role}` : ''}</span>
-
-                            <span style={{ color: 'var(--ink3)' }}>Action</span>
-                            <span style={{ fontFamily: 'monospace' }}>{e.action}</span>
-
-                            <span style={{ color: 'var(--ink3)' }}>Target</span>
-                            <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                              {e.entity_type}{e.entity_id ? ` · ${e.entity_id}` : ''}
-                            </span>
-
-                            {(e.from_value || e.to_value) && (
-                              <>
-                                <span style={{ color: 'var(--ink3)' }}>Change</span>
-                                <span>{e.from_value ?? '—'} → {e.to_value ?? '—'}</span>
-                              </>
-                            )}
-
-                            {e.metadata && Object.keys(e.metadata).length > 0 && (
-                              <>
-                                <span style={{ color: 'var(--ink3)' }}>Detail</span>
-                                <span style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>
-                                  {JSON.stringify(e.metadata)}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: 11, color: 'var(--ink3)', whiteSpace: 'nowrap', flexShrink: 0 }}
-                         title={fullTime(e.occurred_at)}>
-                      {relativeTime(e.occurred_at)}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-
-            {events.length === 0 && (
-              <div className="empty" style={{ padding: 48 }}>
-                <div className="empty-icon">📜</div>
-                <h3>Nothing recorded yet</h3>
-                <p>
-                  Sensitive actions appear here as they happen. An empty list on a
-                  live system may mean the audit migration has not been applied.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {hasMore && (
-            <div style={{ textAlign: 'center', marginTop: 16 }}>
-              <button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>
-                {loadingMore ? 'Loading…' : 'Load older entries'}
-              </button>
+      {loading ? <SkeletonTable rows={8} cols={3} /> : events.length === 0 ? (
+        !error && <div className="card"><EmptyState icon={ClipboardIcon} title={filter ? 'Nothing in this area yet' : 'Nothing recorded yet'}>
+          {filter ? 'Try another filter, or check back after someone takes an action here.' : 'Privileged actions show up here as they happen. If this stays empty on a live system, the audit migration may not be applied.'}
+        </EmptyState></div>
+      ) : (
+        <div className="flex-col gap-24">
+          {days.map(d => (
+            <section key={d.label}>
+              <h2 className="audit-day">{d.label}</h2>
+              <ul className="card flush audit-list">
+                {d.items.map(e => <Row key={key(e)} e={e} open={expanded === key(e)} onToggle={() => setExpanded(expanded === key(e) ? null : key(e))} />)}
+              </ul>
+            </section>
+          ))}
+          {nextBefore && (
+            <div className="text-center">
+              <button className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load older entries'}</button>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

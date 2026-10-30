@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { gooeyToast as toast } from "goey-toast";
+import Dialog from "../../ui/Dialog";
 
 export default function SQLSetupModal({ onClose }) {
   const sql = `-- Run this in Supabase SQL Editor to set up your database
@@ -150,34 +151,17 @@ create index if not exists idx_submissions_campaign_id on submissions(campaign_i
 create index if not exists idx_campaigns_status on campaigns(status);
 create index if not exists idx_payments_status on payments(status);`;
 
-  const [copied, setCopied] = useState(false);
-  const copy = () => { navigator.clipboard.writeText(sql); setCopied(true); setTimeout(()=>setCopied(false),2000); };
+  const copy = () => navigator.clipboard.writeText(sql).then(() => toast.success("SQL copied"), () => toast.error("Couldn't copy", { description: "Select the text and copy it by hand." }));
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{maxWidth:700,maxHeight:"80vh"}} onClick={e=>e.stopPropagation()}>
-        <div className="flex-between mb-16">
-          <div><div className="modal-title">Database Setup</div><div className="modal-sub">Run this SQL in your Supabase SQL Editor to create all tables</div></div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-        <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:"var(--radius-sm)",padding:16,marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:600,color:"var(--ink3)",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Instructions</div>
-          <div style={{fontSize:13,color:"var(--ink2)",lineHeight:1.7}}>
-            1. Go to <strong>supabase.com</strong> → your <strong>omnya-portal</strong> project<br/>
-            2. Click <strong>SQL Editor</strong> in the left sidebar<br/>
-            3. Click <strong>New Query</strong><br/>
-            4. Paste the SQL below and click <strong>Run</strong><br/>
-            5. Come back here and refresh — your database is ready!
-          </div>
-        </div>
-        <div style={{background:"#1a1a2e",borderRadius:"var(--radius-sm)",padding:16,overflowY:"auto",maxHeight:300,marginBottom:16}}>
-          <pre style={{fontFamily:"monospace",fontSize:11,color:"#a8d8a8",whiteSpace:"pre-wrap",lineHeight:1.6}}>{sql}</pre>
-        </div>
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Close</button>
-          <button className="btn btn-primary" onClick={copy}>{copied?"✓ Copied!":"Copy SQL"}</button>
-        </div>
-      </div>
-    </div>
+    <Dialog size="lg" title="Database setup SQL" description="Only for a brand new Supabase project. Existing projects apply supabase/migrations instead." onClose={onClose}
+      actions={<><button className="btn btn-secondary" onClick={onClose}>Close</button><button className="btn btn-primary" onClick={copy}>Copy SQL</button></>}>
+      <ol className="fs-13 text-muted mb-16" style={{ paddingLeft: 18, lineHeight: 1.7 }}>
+        <li>Open the project in Supabase and go to the SQL editor.</li>
+        <li>Start a new query, paste this SQL and run it.</li>
+        <li>Come back and reload the portal.</li>
+      </ol>
+      <pre className="code-block">{sql}</pre>
+    </Dialog>
   );
 }
