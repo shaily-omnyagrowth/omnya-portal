@@ -10,6 +10,8 @@ import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import Tabs from "../../ui/Tabs";
 import { fmtMoney, fmtRelativeTime, getInitials, statusBadge } from "../../utils";
+import Select from "../../ui/Select";
+import { NoMatchRow } from "../../ui/EmptyState";
 
 const PAYMENT_METHODS = ["PayPal", "Venmo", "Zelle", "Bank Transfer", "Cash App", "Crypto"];
 const FILTERS = [["all", "All"], ["active", "Active"], ["paused", "Paused"], ["archived", "Archived"]];
@@ -112,7 +114,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
           <div className="toolbar">
             <div className="chip-row">{FILTERS.map(([id, l]) => <button key={id} className="chip" aria-pressed={filter === id} onClick={() => setFilter(id)}>{l} <span className="text-muted">{creators.filter(c => match(c, id)).length}</span></button>)}</div>
             <label className="toolbar-search" style={{ maxWidth: 300 }}><Icon icon={Search01Icon} size={16} /><span className="sr-only">Search creators</span><input className="form-input" type="search" placeholder="Search name, email or handle" value={search} onChange={e => setSearch(e.target.value)} /></label>
-            <label className="toolbar-field" style={{ marginLeft: "auto" }}><span className="sr-only">Sort</span><select className="select" value={sort} onChange={e => setSort(e.target.value)}><option value="lastActive">Recently active</option><option value="name">Name</option><option value="rate">Highest rate</option></select></label>
+            <label className="toolbar-field" style={{ marginLeft: "auto" }}><span className="sr-only">Sort</span><Select className="select" value={sort} onChange={e => setSort(e.target.value)}><option value="lastActive">Recently active</option><option value="name">Name</option><option value="rate">Highest rate</option></Select></label>
           </div>
           <div className="table-wrap">
             <table>
@@ -124,7 +126,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
                     <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
                       <td><span className="flex-center gap-12"><span className="avatar">{getInitials(c.name)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 240 }}>{c.name || "Unnamed"}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 240 }}>{c.email}</span></span></span></td>
                       <td>{am?.name || <span className="text-orange">Unassigned</span>}</td>
-                      <td className="num">{c.weekly_rate ? fmtMoney(c.weekly_rate) : "–"}</td>
+                      <td className="num">{c.weekly_rate ? fmtMoney(c.weekly_rate) : "--"}</td>
                       <td style={{ whiteSpace: "nowrap" }}>{c.lastActive ? fmtRelativeTime(c.lastActive) : "Never"}</td>
                       <td>{c.archived_at ? <span className="badge badge-gray" title={c.archive_reason || ""}>Archived</span> : statusBadge(c.status || "Active")}</td>
                       <td className="num"><span className="flex gap-4" style={{ justifyContent: "flex-end" }}>
@@ -135,7 +137,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
                     </tr>
                   );
                 })}
-                {shown.length === 0 && <tr><td colSpan={6} className="text-center text-muted" style={{ padding: 32 }}>No creators match.</td></tr>}
+                {shown.length === 0 && <NoMatchRow colSpan={6} onClear={() => setSearch("")}>No creators match this search or filter.</NoMatchRow>}
               </tbody>
             </table>
           </div>
@@ -175,10 +177,10 @@ export default function CreatorsManage({ db, onRefresh, user }) {
               {[["name", "Name"], ["tiktok_handle", "TikTok handle"], ["instagram_handle", "Instagram handle"]].map(([k, l]) => <div key={k} className="form-group"><label className="form-label" htmlFor={`ec-${k}`}>{l}</label><input id={`ec-${k}`} className="form-input" value={editCreator[k] || ""} onChange={e => setEditCreator({ ...editCreator, [k]: e.target.value })} /></div>)}
               <div className="form-group"><label className="form-label" htmlFor="ec-rate">Weekly rate (USD)</label><input id="ec-rate" className="form-input" type="number" inputMode="decimal" value={editCreator.weekly_rate || ""} onChange={e => setEditCreator({ ...editCreator, weekly_rate: e.target.value })} /></div>
               <div className="form-group"><label className="form-label" htmlFor="ec-vpw">Videos per week</label><input id="ec-vpw" className="form-input" type="number" inputMode="numeric" value={editCreator.videos_per_week || ""} onChange={e => setEditCreator({ ...editCreator, videos_per_week: e.target.value })} /></div>
-              <div className="form-group"><label className="form-label" htmlFor="ec-am">Account manager</label><select id="ec-am" className="select" value={editCreator.am_id || ""} onChange={e => setEditCreator({ ...editCreator, am_id: e.target.value })}><option value="">Unassigned</option>{db.accountManagers.filter(a => a.status !== "Archived").map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-              <div className="form-group"><label className="form-label" htmlFor="ec-pm">Payment method</label><select id="ec-pm" className="select" value={editCreator.payment_method || ""} onChange={e => setEditCreator({ ...editCreator, payment_method: e.target.value })}><option value="">Not set</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-am">Account manager</label><Select id="ec-am" className="select" value={editCreator.am_id || ""} onChange={e => setEditCreator({ ...editCreator, am_id: e.target.value })}><option value="">Unassigned</option>{db.accountManagers.filter(a => a.status !== "Archived").map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-pm">Payment method</label><Select id="ec-pm" className="select" value={editCreator.payment_method || ""} onChange={e => setEditCreator({ ...editCreator, payment_method: e.target.value })}><option value="">Not set</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</Select></div>
               <div className="form-group"><label className="form-label" htmlFor="ec-ph">Payment handle or email</label><input id="ec-ph" className="form-input" value={editCreator.payment_handle || ""} onChange={e => setEditCreator({ ...editCreator, payment_handle: e.target.value })} /></div>
-              <div className="form-group"><label className="form-label" htmlFor="ec-status">Status</label><select id="ec-status" className="select" value={editCreator.status || "Active"} onChange={e => setEditCreator({ ...editCreator, status: e.target.value })}>{["Active", "Paused", "Offboarded"].map(s => <option key={s}>{s}</option>)}</select></div>
+              <div className="form-group"><label className="form-label" htmlFor="ec-status">Status</label><Select id="ec-status" className="select" value={editCreator.status || "Active"} onChange={e => setEditCreator({ ...editCreator, status: e.target.value })}>{["Active", "Paused", "Offboarded"].map(s => <option key={s}>{s}</option>)}</Select></div>
             </div>
             {err && <Alert tone="error">{err}</Alert>}
           </form>
@@ -191,7 +193,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
           <form id="edit-am" onSubmit={saveAM} noValidate>
             <div className="form-group"><label className="form-label" htmlFor="ea-name">Name</label><input id="ea-name" className="form-input" value={editAM.name || ""} onChange={e => setEditAM({ ...editAM, name: e.target.value })} /></div>
             <div className="form-group"><label className="form-label" htmlFor="ea-email">Email</label><input id="ea-email" className="form-input" type="email" value={editAM.email || ""} onChange={e => setEditAM({ ...editAM, email: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label" htmlFor="ea-rate">Commission</label><select id="ea-rate" className="select" value={editAM.commission_rate || 0.10} onChange={e => setEditAM({ ...editAM, commission_rate: Number(e.target.value) })}>{[0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25].map(r => <option key={r} value={r}>{Math.round(r * 100)}%{r === 0.10 ? " (default)" : ""}</option>)}</select><span className="form-hint">Charged on their clients' budgets unless a campaign overrides it.</span></div>
+            <div className="form-group"><label className="form-label" htmlFor="ea-rate">Commission</label><Select id="ea-rate" className="select" value={editAM.commission_rate || 0.10} onChange={e => setEditAM({ ...editAM, commission_rate: Number(e.target.value) })}>{[0.05, 0.08, 0.10, 0.12, 0.15, 0.18, 0.20, 0.25].map(r => <option key={r} value={r}>{Math.round(r * 100)}%{r === 0.10 ? " (default)" : ""}</option>)}</Select><span className="form-hint">Charged on their clients' budgets unless a campaign overrides it.</span></div>
             {err && <Alert tone="error">{err}</Alert>}
           </form>
         </Dialog>

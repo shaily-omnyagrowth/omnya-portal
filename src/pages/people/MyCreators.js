@@ -6,11 +6,12 @@ import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
 import confirm from "../../ui/confirm";
 import Dialog from "../../ui/Dialog";
-import EmptyState from "../../ui/EmptyState";
+import EmptyState, { NoMatchRow } from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import { Skeleton } from "../../ui/Skeleton";
 import { fmtMoney, fmtRelativeTime, getInitials, statusBadge } from "../../utils";
+import Select from "../../ui/Select";
 
 const EMPTY = { name: "", email: "", tiktok_handle: "", instagram_handle: "", weekly_rate: "", videos_per_week: "", status: "Active" };
 const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
@@ -30,7 +31,7 @@ export function CreatorFields({ f, setF }) {
       <div className="form-group"><label className="form-label" htmlFor="cf-ig">Instagram handle</label><input id="cf-ig" className="form-input" placeholder="@handle" value={f.instagram_handle || ""} onChange={e => s({ instagram_handle: e.target.value })} /></div>
       <div className="form-group"><label className="form-label" htmlFor="cf-rate">Weekly rate (USD)</label><input id="cf-rate" className="form-input" type="number" inputMode="decimal" min="0" value={f.weekly_rate ?? ""} onChange={e => s({ weekly_rate: e.target.value })} /></div>
       <div className="form-group"><label className="form-label" htmlFor="cf-vpw">Videos per week</label><input id="cf-vpw" className="form-input" type="number" inputMode="numeric" min="0" value={f.videos_per_week ?? ""} onChange={e => s({ videos_per_week: e.target.value })} /></div>
-      <div className="form-group"><label className="form-label" htmlFor="cf-status">Status</label><select id="cf-status" className="select" value={f.status || "Active"} onChange={e => s({ status: e.target.value })}>{["Active", "Paused", "Offboarded"].map(x => <option key={x}>{x}</option>)}</select></div>
+      <div className="form-group"><label className="form-label" htmlFor="cf-status">Status</label><Select id="cf-status" className="select" value={f.status || "Active"} onChange={e => s({ status: e.target.value })}>{["Active", "Paused", "Offboarded"].map(x => <option key={x}>{x}</option>)}</Select></div>
     </div>
   );
 }
@@ -137,11 +138,11 @@ export default function MyCreators({ user, db, onRefresh }) {
               <tbody>
                 {rows.map(c => (
                   <tr key={c.id} style={c.archived_at ? { opacity: 0.6 } : undefined}>
-                    <td><span className="flex-center gap-12"><span className="avatar">{getInitials(c.name)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 260 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
+                    <td><span className="flex-center gap-12"><span className="avatar">{getInitials(c.name)}</span><span style={{ minWidth: 0 }}><span className="fw-600 truncate" style={{ display: "block", color: "var(--ink)", maxWidth: 200 }}>{c.name}</span><span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 200 }}>{c.tiktok_handle ? `@${c.tiktok_handle}` : c.email}</span></span></span></td>
                     <td>{c.archived_at ? <span className="badge badge-gray" title={c.archive_reason || ""}>Archived</span> : statusBadge(c.status)}</td>
                     <td className="num">{c.approved}</td>
-                    <td className="num">{c.rate == null ? "–" : `${c.rate}%`}</td>
-                    <td className="num">{c.weekly_rate ? fmtMoney(c.weekly_rate) : "–"}</td>
+                    <td className="num">{c.rate == null ? "--" : `${c.rate}%`}</td>
+                    <td className="num">{c.weekly_rate ? fmtMoney(c.weekly_rate) : "--"}</td>
                     <td style={{ whiteSpace: "nowrap" }}>{c.lastActive ? fmtRelativeTime(c.lastActive) : "No submissions"}</td>
                     <td className="num"><span className="flex gap-4" style={{ justifyContent: "flex-end" }}>
                       <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { setFormErr(""); setForm({ ...EMPTY, ...c }); }}>Edit</button>
@@ -151,7 +152,7 @@ export default function MyCreators({ user, db, onRefresh }) {
                     </span></td>
                   </tr>
                 ))}
-                {rows.length === 0 && <tr><td colSpan={7} className="text-center text-muted" style={{ padding: 32 }}>No creators match your search.</td></tr>}
+                {rows.length === 0 && <NoMatchRow colSpan={7} onClear={() => setSearch("")}>No creators match your search.</NoMatchRow>}
               </tbody>
             </table>
           </div>

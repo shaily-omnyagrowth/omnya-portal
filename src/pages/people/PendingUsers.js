@@ -8,6 +8,7 @@ import EmptyState from "../../ui/EmptyState";
 import PageHeader from "../../ui/PageHeader";
 import { SkeletonTable } from "../../ui/Skeleton";
 import { fmtRelativeTime } from "../../utils";
+import Select from "../../ui/Select";
 
 const ROLES = [["creator", "Creator"], ["am", "Account manager"], ["client", "Brand"]];
 const roleName = (r) => (ROLES.find(([k]) => k === r || (r === "account_manager" && k === "am")) || [null, "Not specified"])[1];
@@ -75,9 +76,9 @@ export default function PendingUsers({ onRefresh }) {
                   <div className="fs-12 text-muted">Asked to join as {roleName(u.requested_role).toLowerCase()} · signed up {fmtRelativeTime(u.created_at).toLowerCase()}</div>
                 </div>
                 <input className="form-input" aria-label={`Name for ${u.email}`} value={d.name || ""} onChange={e => setDraft({ ...draft, [u.id]: { ...d, name: e.target.value } })} placeholder="Full name" />
-                <select className="select" aria-label={`Role for ${u.email}`} value={d.role} onChange={e => setDraft({ ...draft, [u.id]: { ...d, role: e.target.value } })}>
+                <Select className="select" aria-label={`Role for ${u.email}`} value={d.role} onChange={e => setDraft({ ...draft, [u.id]: { ...d, role: e.target.value } })}>
                   {ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
+                </Select>
                 <span className="flex gap-8">
                   <button className="btn btn-ghost btn-sm" disabled={saving === u.id} onClick={() => deny(u)}>Deny</button>
                   <button className="btn btn-primary btn-sm" disabled={saving === u.id} onClick={() => approve(u)}>{saving === u.id ? "Approving…" : "Approve"}</button>

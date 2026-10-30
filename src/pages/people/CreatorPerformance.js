@@ -7,6 +7,7 @@ import Dialog from "../../ui/Dialog";
 import EmptyState from "../../ui/EmptyState";
 import PageHeader from "../../ui/PageHeader";
 import { fmtMoney, getInitials } from "../../utils";
+import Select from "../../ui/Select";
 
 const LIVE = new Set(["Approved", "Published/Tracked"]);
 const TIERS = { A: ["80 to 100", "Top performer", "green"], B: ["60 to 79", "Solid", "blue"], C: ["40 to 59", "Needs support", "orange"], D: ["under 40", "At risk", "red"] };
@@ -66,12 +67,12 @@ export default function CreatorPerformance({ db, isOwner, user, onRefresh }) {
                 <tr key={r.c.id}>
                   <td><span className="flex-center gap-12"><span className="avatar">{getInitials(r.c.name)}</span><span className="fw-600 truncate" style={{ color: "var(--ink)", maxWidth: 220 }}>{r.c.name}</span></span></td>
                   <td>{r.tier ? <span className={`badge badge-${TIERS[r.tier]?.[2] || "gray"}`}>Tier {r.tier}{r.isOverridden ? " · adjusted" : ""}</span> : <span className="text-muted">No data</span>}</td>
-                  <td className="num fw-600" style={{ color: "var(--ink)" }}>{r.score ?? "–"}</td>
+                  <td className="num fw-600" style={{ color: "var(--ink)" }}>{r.score ?? "--"}</td>
                   <td className="num">{r.subs}</td>
-                  <td className="num">{r.subs ? `${r.approvalRate}%` : "–"}</td>
-                  <td className="num">{r.subs ? `${r.revisionRate}%` : "–"}</td>
-                  <td className="num">{r.onTimeRate == null ? "–" : `${r.onTimeRate}%`}</td>
-                  <td className="num">{r.subs ? fmtMoney(r.paid) : "–"}</td>
+                  <td className="num">{r.subs ? `${r.approvalRate}%` : "--"}</td>
+                  <td className="num">{r.subs ? `${r.revisionRate}%` : "--"}</td>
+                  <td className="num">{r.onTimeRate == null ? "--" : `${r.onTimeRate}%`}</td>
+                  <td className="num">{r.subs ? fmtMoney(r.paid) : "--"}</td>
                   <td className="num"><button className="btn btn-ghost btn-sm" onClick={() => { setErr(""); setEdit({ c: r.c, score: r.c.score_override ?? r.score ?? "", tier: r.c.tier_override || r.tier || "C", isOverridden: r.isOverridden, computed: r.computed }); }}>Adjust</button></td>
                 </tr>
               ))}
@@ -89,7 +90,7 @@ export default function CreatorPerformance({ db, isOwner, user, onRefresh }) {
           </>}>
           <div className="form-row">
             <div className="form-group"><label className="form-label" htmlFor="ov-score">Score</label><input id="ov-score" className="form-input" type="number" inputMode="numeric" min="0" max="100" value={edit.score} onChange={e => setEdit({ ...edit, score: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label" htmlFor="ov-tier">Tier</label><select id="ov-tier" className="select" value={edit.tier} onChange={e => setEdit({ ...edit, tier: e.target.value })}>{Object.entries(TIERS).map(([t, [, label]]) => <option key={t} value={t}>Tier {t}, {label.toLowerCase()}</option>)}</select></div>
+            <div className="form-group"><label className="form-label" htmlFor="ov-tier">Tier</label><Select id="ov-tier" className="select" value={edit.tier} onChange={e => setEdit({ ...edit, tier: e.target.value })}>{Object.entries(TIERS).map(([t, [, label]]) => <option key={t} value={t}>Tier {t}, {label.toLowerCase()}</option>)}</Select></div>
           </div>
           {err && <Alert tone="error">{err}</Alert>}
         </Dialog>

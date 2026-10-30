@@ -17,7 +17,8 @@
   --accent: var(--ink);
 
   /* lines */
-  --border: #e6e3df;
+  --border: #e9e6e2;
+  --divider: #f0eeeb;
   --border2: #d7d3ce;
   --border-strong: #bfbab4;
 

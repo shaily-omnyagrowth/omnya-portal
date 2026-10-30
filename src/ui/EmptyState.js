@@ -25,3 +25,11 @@ export default function EmptyState({ icon, title, children, action, compact = fa
     </div>
   );
 }
+
+export function NoMatchRow({ colSpan, onClear, children = "Try another search or filter." }) {
+  return (
+    <tr><td colSpan={colSpan} data-label="">
+      <div className="empty compact"><h3>Nothing matches</h3><p>{children}</p>{onClear && <button className="btn btn-secondary btn-sm" onClick={onClear}>Clear search</button>}</div>
+    </td></tr>
+  );
+}

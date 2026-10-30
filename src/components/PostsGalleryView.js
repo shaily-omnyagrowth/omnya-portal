@@ -6,18 +6,19 @@ import { fmtCompactNum } from "../utils";
 import PostCard from "./posts/PostCard";
 import PostsTable from "./posts/PostsTable";
 import usePosts from "./posts/usePosts";
+import Select from "../ui/Select";
 
 const PLATFORM_OPTIONS = [["all", "All platforms"], ["tiktok", "TikTok"], ["instagram", "Instagram"], ["youtube", "YouTube"], ["facebook", "Facebook"]];
 const RANGE_OPTIONS = [["all", "All time"], ["7d", "Last 7 days"], ["30d", "Last 30 days"], ["month", "This month"]];
 const SORT_OPTIONS = [["views", "Most views"], ["likes", "Most likes"], ["engRate", "Highest engagement"], ["recent", "Newest"]];
 
-function Select({ label, value, onChange, options }) {
+function Filter({ label, value, onChange, options }) {
   return (
     <label className="toolbar-field">
       <span className="sr-only">{label}</span>
-      <select className="select" value={value} onChange={e => onChange(e.target.value)}>
+      <Select className="select" aria-label={label} value={value} onChange={e => onChange(e.target.value)}>
         {options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-      </select>
+      </Select>
     </label>
   );
 }
@@ -43,11 +44,11 @@ export default function PostsGalleryView({ submissions = [], analytics = [], cre
           <span className="sr-only">Search posts</span>
           <input className="form-input" type="search" placeholder="Search creator or campaign" value={filters.search} onChange={e => set({ search: e.target.value })} />
         </label>
-        <Select label="Platform" value={filters.platform} onChange={v => set({ platform: v })} options={PLATFORM_OPTIONS} />
-        {usedCampaigns.length > 1 && <Select label="Campaign" value={filters.campaign} onChange={v => set({ campaign: v })} options={[["all", "All campaigns"], ...usedCampaigns.map(c => [c.id, c.name])]} />}
-        {usedCreators.length > 1 && <Select label="Creator" value={filters.creator} onChange={v => set({ creator: v })} options={[["all", "All creators"], ...usedCreators.map(c => [c.id, c.name])]} />}
-        <Select label="Time range" value={filters.range} onChange={v => set({ range: v })} options={RANGE_OPTIONS} />
-        <Select label="Sort" value={filters.sort} onChange={v => set({ sort: v })} options={SORT_OPTIONS} />
+        <Filter label="Platform" value={filters.platform} onChange={v => set({ platform: v })} options={PLATFORM_OPTIONS} />
+        {usedCampaigns.length > 1 && <Filter label="Campaign" value={filters.campaign} onChange={v => set({ campaign: v })} options={[["all", "All campaigns"], ...usedCampaigns.map(c => [c.id, c.name])]} />}
+        {usedCreators.length > 1 && <Filter label="Creator" value={filters.creator} onChange={v => set({ creator: v })} options={[["all", "All creators"], ...usedCreators.map(c => [c.id, c.name])]} />}
+        <Filter label="Time range" value={filters.range} onChange={v => set({ range: v })} options={RANGE_OPTIONS} />
+        <Filter label="Sort" value={filters.sort} onChange={v => set({ sort: v })} options={SORT_OPTIONS} />
         <div className="segmented toolbar-view" role="group" aria-label="Layout">
           <button type="button" aria-pressed={view === "gallery"} onClick={() => setView("gallery")} aria-label="Gallery"><Icon icon={GridViewIcon} size={16} /></button>
           <button type="button" aria-pressed={view === "table"} onClick={() => setView("table")} aria-label="Table"><Icon icon={TableIcon} size={16} /></button>

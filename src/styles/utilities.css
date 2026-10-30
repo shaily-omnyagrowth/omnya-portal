@@ -49,3 +49,8 @@
 
 @media (max-width: 1023px) { .desktop-only { display: none !important; } }
 @media (min-width: 1024px) { .mobile-only { display: none !important; } }
+.text-amber { color: var(--amber); }
+.fw-550 { font-weight: 550; }
+.mono { font-family: var(--font-mono); }
+.min-w-0 { min-width: 0; }
+.fs-13 { font-size: var(--fs-sm); }

@@ -8,12 +8,18 @@ function useWidth() {
     const el = ref.current;
     if (!el) return undefined;
     setW(el.clientWidth);
-    const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)));
+    let raf = 0;
+    const ro = new ResizeObserver(([e]) => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setW(Math.round(e.contentRect.width)));
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
   return [ref, w];
 }
+
+const keyOf = (data) => data.map(d => `${d.label}:${d.value}`).join("|");
 
 const niceMax = (v) => {
   if (v <= 0) return 1;
@@ -78,9 +84,9 @@ export function AreaChart({ data, height = 220, format = fmtCompactNum, formatLa
           {data.map((d, i) => ((i % labelEvery === 0 && data.length - 1 - i >= labelEvery * 0.6) || i === data.length - 1) && (
             <text key={i} x={xs(i)} y={height - 6} textAnchor={i === 0 ? "start" : i === data.length - 1 ? "end" : "middle"} className="chart-axis">{formatLabel(d.label)}</text>
           ))}
-          <g style={{ color }}>
-            {showArea && <path d={area} fill={`url(#g${gid})`} className="chart-draw" />}
-            <path d={line} fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" className="chart-draw" />
+          <g style={{ color }} key={keyOf(data)}>
+            {showArea && <path d={area} fill={`url(#g${gid})`} className="chart-area" />}
+            <path d={line} pathLength="1" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" className="chart-line" />
             {data.length === 1 && <circle cx={xs(0)} cy={ys(data[0].value)} r="3.5" fill="currentColor" />}
           </g>
           {hover != null && data[hover] && (
@@ -124,6 +130,7 @@ export function BarChart({ data, height = 200, format = fmtCompactNum, ariaLabel
               <text x={pad.l - 8} y={ys(f * max)} dy="0.32em" textAnchor="end" className="chart-axis">{format(f * max)}</text>
             </g>
           ))}
+          <g key={keyOf(data)}>
           {data.map((d, i) => {
             const x = pad.l + slot * i + (slot - bw) / 2;
             const y = ys(d.value);
@@ -131,11 +138,12 @@ export function BarChart({ data, height = 200, format = fmtCompactNum, ariaLabel
               <g key={i} onPointerEnter={() => setHover(i)} onPointerDown={() => setHover(i)}>
                 <rect x={pad.l + slot * i} y={pad.t} width={slot} height={ih} fill="transparent" />
                 <rect x={x} y={y} width={bw} height={Math.max(0, pad.t + ih - y)} rx="3"
-                  fill={d.tone || (hover === i ? "var(--ink)" : "var(--viz-2)")} className="chart-bar" style={{ transformOrigin: `0 ${pad.t + ih}px` }} />
+                  fill={d.tone || (hover === i ? "var(--ink)" : "var(--viz-2)")} className="chart-bar" style={{ transformOrigin: `0 ${pad.t + ih}px`, animationDelay: `${Math.min(i * 30, 360)}ms` }} />
                 <text x={x + bw / 2} y={height - 6} textAnchor="middle" className="chart-axis">{d.label}</text>
               </g>
             );
           })}
+          </g>
         </svg>
       )}
       {hover != null && data[hover] && (

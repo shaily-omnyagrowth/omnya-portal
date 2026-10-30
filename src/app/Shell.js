@@ -11,6 +11,7 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("sidebar_collapsed") === "1"; } catch (_) { return false; } });
   const toggleCollapsed = () => setCollapsed(c => { try { localStorage.setItem("sidebar_collapsed", c ? "0" : "1"); } catch (_) {} return !c; });
   const mainRef = useRef(null);
+  const scrollRef = useRef(null);
   const firstPage = useRef(true);
 
   const title = titleFor(role, page);
@@ -24,16 +25,19 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
     setDrawer(false);
     if (firstPage.current) { firstPage.current = false; return; }
     window.scrollTo(0, 0);
+    scrollRef.current?.scrollTo(0, 0);
     mainRef.current?.focus({ preventScroll: true });
   }, [page]);
 
   useEffect(() => watchTables(), []);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 4);
+    const el = scrollRef.current;
+    const onScroll = () => setScrolled(window.scrollY > 4 || el.scrollTop > 4);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); el.removeEventListener("scroll", onScroll); };
   }, []);
 
   useEffect(() => {
@@ -54,7 +58,7 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
         onNavigate={onNavigate} overrideRole={overrideRole} onViewAs={onViewAs} onLogout={onLogout}
         collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
       />
-      <div className="main" inert={drawer || undefined}>
+      <div className="main" ref={scrollRef} inert={drawer || undefined}>
         <header className={`topbar ${scrolled ? "scrolled" : ""}`}>
           <div className="topbar-left">
             <button className="btn btn-ghost btn-icon mobile-toggle" onClick={() => setDrawer(d => !d)} aria-label={drawer ? "Close menu" : "Open menu"} aria-expanded={drawer}>
@@ -67,7 +71,7 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
           </div>
           <div className="topbar-right">
             {overrideRole && (
-              <button className="badge badge-ink" style={{ height: 28, border: 0, gap: 6, paddingInline: 10 }} onClick={() => onViewAs(null)} title="Return to your owner view">
+              <button className="badge badge-ink" style={{ height: 28, border: 0, gap: 6, paddingInline: 10 }} onClick={() => onViewAs(null)} data-tip="Return to your owner view">
                 <Icon icon={ViewIcon} size={14} />
                 <span>Viewing as {roleLabel[overrideRole].toLowerCase()}</span>
                 <Icon icon={Cancel01Icon} size={12} />

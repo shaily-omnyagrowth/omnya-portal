@@ -5,7 +5,7 @@ import { describeWriteError } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
 import Dialog from "../../ui/Dialog";
-import EmptyState from "../../ui/EmptyState";
+import EmptyState, { NoMatchRow } from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import { fmtMoney, statusBadge } from "../../utils";
@@ -109,7 +109,7 @@ export default function ClientsPage({ isOwner, db, onRefresh, user }) {
                   <tr key={c.id} style={c.status === "Archived" ? { opacity: 0.6 } : undefined}>
                     <td><button className="text-btn fw-600 truncate" style={{ textDecoration: "none", maxWidth: 260, display: "block", textAlign: "left" }} onClick={() => setViewId(c.id)}>{c.name}</button>{isOwner && c.contact_email && <span className="fs-12 text-muted truncate" style={{ display: "block", maxWidth: 260 }}>{c.contact_name ? `${c.contact_name} · ` : ""}{c.contact_email}</span>}</td>
                     <td>{statusBadge(c.deal_type)}</td>
-                    <td className="num">{c.videos_per_month ?? "–"}</td>
+                    <td className="num">{c.videos_per_month ?? "--"}</td>
                     <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtMoney(c.budget)}</td>
                     <td>{db.accountManagers.find(a => a.id === c.am_id)?.name || <span className="text-muted">Unassigned</span>}</td>
                     <td>{c.user_id ? <span className="badge badge-green">Linked</span> : <button className="btn btn-ghost btn-sm" onClick={() => open("link", c)}>Link account</button>}</td>
@@ -122,7 +122,7 @@ export default function ClientsPage({ isOwner, db, onRefresh, user }) {
                     </span></td>
                   </tr>
                 ))}
-                {rows.length === 0 && <tr><td colSpan={8} className="text-center text-muted" style={{ padding: 32 }}>No clients match your search.</td></tr>}
+                {rows.length === 0 && <NoMatchRow colSpan={8} onClear={() => setSearch("")}>No clients match your search.</NoMatchRow>}
               </tbody>
             </table>
           </div>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { MotionConfig } from "framer-motion";
 import { GooeyToaster } from "goey-toast";
+import TooltipLayer from "./ui/TooltipLayer";
 import { Home01Icon } from "@hugeicons/core-free-icons";
 import ErrorBoundary from "./app/ErrorBoundary";
 import { navs } from "./app/nav";
@@ -35,7 +36,7 @@ function useMediaQuery(query) {
 
 function Toaster() {
   const mobile = useMediaQuery("(max-width: 640px)");
-  return <GooeyToaster theme="dark" position={mobile ? "top-center" : "bottom-right"} preset="smooth" closeButton={!mobile} />;
+  return <><TooltipLayer /><GooeyToaster theme="dark" position={mobile ? "top-center" : "bottom-right"} preset="smooth" closeButton={!mobile} /></>;
 }
 
 function PublicFooter() {
@@ -140,7 +141,7 @@ export default function App() {
       );
     }
     if (ws.status !== "ready" || !navs[role]) return <PageSkeleton variant={skeletonFor(role, page)} />;
-    const route = routeFor(role, page, { user, db, loadDB: ws.loadDB, setPage });
+    const route = routeFor(role, page, { user, db, loadDB: ws.loadDB, setPage, setUser: session.setUser });
     if (!route) {
       return (
         <div className="content">

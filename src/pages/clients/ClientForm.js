@@ -1,5 +1,6 @@
 import Alert from "../../ui/Alert";
 import Dialog from "../../ui/Dialog";
+import Select from "../../ui/Select";
 
 export default function ClientForm({ data, setData, onSave, onCancel, title, db, err, saving }) {
   const s = (patch) => setData({ ...data, ...patch });
@@ -12,8 +13,8 @@ export default function ClientForm({ data, setData, onSave, onCancel, title, db,
       <form id="client-form" onSubmit={e => { e.preventDefault(); onSave(); }} noValidate>
         {field("name", "Client name", { placeholder: "e.g. Eden Health", autoFocus: true })}
         <div className="form-row">
-          <div className="form-group"><label className="form-label" htmlFor="cl-deal">Deal type</label><select id="cl-deal" className="select" value={data.deal_type || "Monthly Retainer"} onChange={e => s({ deal_type: e.target.value })}>{["Monthly Retainer", "One-Off", "Trial"].map(x => <option key={x}>{x}</option>)}</select></div>
-          <div className="form-group"><label className="form-label" htmlFor="cl-status">Status</label><select id="cl-status" className="select" value={data.status || "Active"} onChange={e => s({ status: e.target.value })}>{["Active", "Paused", "Completed"].map(x => <option key={x}>{x}</option>)}</select></div>
+          <div className="form-group"><label className="form-label" htmlFor="cl-deal">Deal type</label><Select id="cl-deal" className="select" value={data.deal_type || "Monthly Retainer"} onChange={e => s({ deal_type: e.target.value })}>{["Monthly Retainer", "One-Off", "Trial"].map(x => <option key={x}>{x}</option>)}</Select></div>
+          <div className="form-group"><label className="form-label" htmlFor="cl-status">Status</label><Select id="cl-status" className="select" value={data.status || "Active"} onChange={e => s({ status: e.target.value })}>{["Active", "Paused", "Completed"].map(x => <option key={x}>{x}</option>)}</Select></div>
           {field("videos_per_month", "Videos per month", { type: "number", inputMode: "numeric", min: 0 })}
           {field("budget", "Monthly budget (USD)", { type: "number", inputMode: "decimal", min: 0 })}
         </div>
@@ -21,7 +22,7 @@ export default function ClientForm({ data, setData, onSave, onCancel, title, db,
           {field("contact_name", "Contact name")}
           {field("contact_email", "Contact email", { type: "email", inputMode: "email" })}
           {field("contact_phone", "Contact phone", { type: "tel", inputMode: "tel" })}
-          <div className="form-group"><label className="form-label" htmlFor="cl-am">Account manager</label><select id="cl-am" className="select" value={data.am_id || ""} onChange={e => s({ am_id: e.target.value || null })}><option value="">Unassigned</option>{db.accountManagers.filter(a => a.status !== "Archived").map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
+          <div className="form-group"><label className="form-label" htmlFor="cl-am">Account manager</label><Select id="cl-am" className="select" value={data.am_id || ""} onChange={e => s({ am_id: e.target.value || null })}><option value="">Unassigned</option>{db.accountManagers.filter(a => a.status !== "Archived").map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></div>
         </div>
         {field("drive_link", "Shared drive link", { inputMode: "url", placeholder: "https://drive.google.com/…" })}
         <div className="form-group"><label className="form-label" htmlFor="cl-notes">Contract notes</label><textarea id="cl-notes" className="textarea" rows={3} value={data.contract_notes || ""} onChange={e => s({ contract_notes: e.target.value })} placeholder="Terms, payment schedule, anything unusual" /></div>

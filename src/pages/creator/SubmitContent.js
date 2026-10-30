@@ -10,6 +10,7 @@ import PageHeader from "../../ui/PageHeader";
 import Segmented from "../../ui/Segmented";
 import { DropZone, HowItWorks, VerifiedVideo } from "./submit/parts";
 import { authedPost, linkPlatform, useConnectedPlatforms, useVerifyLink } from "./submit/useVerifyLink";
+import Select from "../../ui/Select";
 
 const PLATFORMS = ["TikTok", "Instagram", "YouTube", "Facebook"];
 const BLANK = { campaign_id: "", type: "Concept", concept_link: "", posted_link: "", platform: "TikTok", comment: "" };
@@ -45,10 +46,10 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
         <div className="card" style={{ maxWidth: 520 }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label" htmlFor="override-creator">Creator</label>
-            <select id="override-creator" className="select" value={overrideCreatorId} onChange={e => setOverrideCreatorId(e.target.value)}>
+            <Select id="override-creator" className="select" value={overrideCreatorId} onChange={e => setOverrideCreatorId(e.target.value)}>
               <option value="">Choose a creator</option>
               {db.creators.filter(c => c.status !== "Offboarded" && !c.archived_at).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            </Select>
           </div>
         </div>
       </div>
@@ -150,9 +151,9 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
           <div className="form-section">
             <div className="form-group">
               <label className="form-label" htmlFor="campaign">Campaign</label>
-              <select id="campaign" className="select" value={form.campaign_id} onChange={e => set({ campaign_id: e.target.value })}>
+              <Select id="campaign" className="select" value={form.campaign_id} onChange={e => set({ campaign_id: e.target.value })}>
                 {myJobs.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
-              </select>
+              </Select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <span className="form-label" id="type-label">What are you sending?</span>
@@ -186,9 +187,9 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <div className="form-row mt-16">
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" htmlFor="platform">Platform</label>
-                  <select id="platform" className="select" value={form.platform} onChange={e => { set({ platform: e.target.value }); resetVerify(); }}>
+                  <Select id="platform" className="select" value={form.platform} onChange={e => { set({ platform: e.target.value }); resetVerify(); }}>
                     {PLATFORMS.map(p => <option key={p}>{p}</option>)}
-                  </select>
+                  </Select>
                   {!isConnected(form.platform) && <span className="form-error">Connect {form.platform} on Social channels to submit {form.platform} videos.</span>}
                 </div>
                 {uploadMode === "link" && (

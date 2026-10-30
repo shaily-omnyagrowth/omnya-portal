@@ -4,6 +4,7 @@ import { describeWriteError } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
 import Dialog from "../../ui/Dialog";
+import Select from "../../ui/Select";
 
 const BLANK = {
   name: "", client_id: "", description: "", format: "TikTok", videos_needed: 10, pay_per_video: 10, deadline: "", status: "Open",
@@ -45,15 +46,15 @@ export default function NewCampaignDialog({ clients, isOwner, onClose, onCreated
         <div className="form-row">
           <div className="form-group"><label className="form-label" htmlFor="c-name">Campaign name</label><input id="c-name" className="form-input" value={form.name} onChange={e => set({ name: e.target.value })} placeholder="Spring launch" autoFocus /></div>
           <div className="form-group"><label className="form-label" htmlFor="c-client">Client</label>
-            <select id="c-client" className="select" value={form.client_id} onChange={e => set({ client_id: e.target.value })}>
+            <Select id="c-client" className="select" value={form.client_id} onChange={e => set({ client_id: e.target.value })}>
               <option value="">Choose a client</option>
               {clients.filter(c => !c.archived_at).sort((a, b) => (a.name || "").localeCompare(b.name || "")).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            </Select>
           </div>
         </div>
         <div className="form-group"><label className="form-label" htmlFor="c-brief">Brief</label><textarea id="c-brief" className="textarea" rows={4} value={form.description} onChange={e => set({ description: e.target.value })} placeholder="What to make, talking points, the call to action and anything to avoid." /></div>
         <div className="form-row">
-          <div className="form-group"><label className="form-label" htmlFor="c-format">Format</label><select id="c-format" className="select" value={form.format} onChange={e => set({ format: e.target.value })}>{["TikTok", "IG Reel", "FB Reel", "YouTube Short"].map(f => <option key={f}>{f}</option>)}</select></div>
+          <div className="form-group"><label className="form-label" htmlFor="c-format">Format</label><Select id="c-format" className="select" value={form.format} onChange={e => set({ format: e.target.value })}>{["TikTok", "IG Reel", "FB Reel", "YouTube Short"].map(f => <option key={f}>{f}</option>)}</Select></div>
           <div className="form-group"><label className="form-label" htmlFor="c-deadline">Deadline</label><input id="c-deadline" className="form-input" type="date" value={form.deadline} onChange={e => set({ deadline: e.target.value })} /></div>
           <div className="form-group"><label className="form-label" htmlFor="c-videos">Videos needed</label><input id="c-videos" className="form-input" type="number" inputMode="numeric" min="1" value={form.videos_needed} onChange={e => set({ videos_needed: e.target.value })} /></div>
           <div className="form-group"><label className="form-label" htmlFor="c-pay">Pay per video (USD)</label><input id="c-pay" className="form-input" type="number" inputMode="decimal" min="0" value={form.pay_per_video} onChange={e => set({ pay_per_video: e.target.value })} /></div>
@@ -63,13 +64,13 @@ export default function NewCampaignDialog({ clients, isOwner, onClose, onCreated
           <label className="check"><input type="checkbox" checked={form.is_sales_sourced} onChange={e => set({ is_sales_sourced: e.target.checked })} /><span><span className="fw-600">Sales sourced</span><span className="form-hint" style={{ display: "block" }}>A sales commission is charged on this campaign.</span></span></label>
           {isOwner && form.is_sales_sourced && (
             <div className="form-group" style={{ marginTop: 12 }}><label className="form-label" htmlFor="c-sales">Sales commission</label>
-              <select id="c-sales" className="select" value={form.sales_commission_rate} onChange={e => set({ sales_commission_rate: Number(e.target.value) })}><option value={0.10}>10%</option><option value={0.20}>20%</option><option value={0.30}>30%</option></select></div>
+              <Select id="c-sales" className="select" value={form.sales_commission_rate} onChange={e => set({ sales_commission_rate: Number(e.target.value) })}><option value={0.10}>10%</option><option value={0.20}>20%</option><option value={0.30}>30%</option></Select></div>
           )}
           {isOwner && (
             <div className="form-group" style={{ marginTop: 12 }}><label className="form-label" htmlFor="c-mgr">Manager commission</label>
-              <select id="c-mgr" className="select" value={form.manager_commission_rate ?? ""} onChange={e => set({ manager_commission_rate: e.target.value === "" ? null : Number(e.target.value) })}>
+              <Select id="c-mgr" className="select" value={form.manager_commission_rate ?? ""} onChange={e => set({ manager_commission_rate: e.target.value === "" ? null : Number(e.target.value) })}>
                 <option value="">Use the manager's default rate</option><option value={0.10}>10% for this campaign</option><option value={0.15}>15% for this campaign</option><option value={0.20}>20% for this campaign</option>
-              </select></div>
+              </Select></div>
           )}
           <label className="check" style={{ marginTop: 12 }}><input type="checkbox" checked={form.show_client_cpm} onChange={e => set({ show_client_cpm: e.target.checked })} /><span><span className="fw-600">Show CPM to the client</span><span className="form-hint" style={{ display: "block" }}>Adds cost per thousand views to their brand portal.</span></span></label>
         </fieldset>

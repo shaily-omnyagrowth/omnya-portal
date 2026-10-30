@@ -7,6 +7,8 @@ import PageHeader from '../ui/PageHeader';
 import { SkeletonTable } from '../ui/Skeleton';
 import { fmtDate, getInitials } from '../utils';
 import useUserAdmin, { ROLE_LABEL } from './users/useUserAdmin';
+import Select from "../ui/Select";
+import { NoMatchRow } from "../ui/EmptyState";
 
 const ROLE_TONE = { owner: 'ink', am: 'blue', account_manager: 'blue', creator: 'green', client: 'orange', pending: 'gray', denied: 'red' };
 const ASSIGNABLE = ['creator', 'am', 'client', 'owner', 'pending'];
@@ -49,7 +51,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
       {a.loading ? <SkeletonTable rows={8} cols={5} /> : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Linked record</th><th>Joined</th><th><span className="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Linked to</th><th>Joined</th><th><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {visible.map(u => {
                 const linked = u.linked_creator || u.linked_manager || u.linked_client;
@@ -58,11 +60,11 @@ export default function UserManagement({ currentUser, onRefresh }) {
                 return (
                   <tr key={u.id} style={off ? { opacity: 0.6 } : undefined}>
                     <td><span className="flex-center gap-12"><span className="avatar">{getInitials(u.full_name || u.email)}</span><span style={{ minWidth: 0 }}>
-                      <span className="fw-600 truncate" style={{ display: 'block', color: 'var(--ink)', maxWidth: 260 }}>{u.full_name || u.email.split('@')[0]}{a.isSelf(u) && <span className="text-muted fw-500"> (you)</span>}</span>
-                      <span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 260 }}>{u.email}</span></span></span></td>
+                      <span className="fw-600 truncate" style={{ display: 'block', color: 'var(--ink)', maxWidth: 220 }}>{u.full_name || u.email.split('@')[0]}{a.isSelf(u) && <span className="text-muted fw-500"> (you)</span>}</span>
+                      <span className="fs-12 text-muted truncate" style={{ display: 'block', maxWidth: 220 }}>{u.email}</span></span></span></td>
                     <td><span className={`badge badge-${ROLE_TONE[u.role] || 'gray'}`}>{ROLE_LABEL[u.role] || u.role}</span>{u.role === 'pending' && u.requested_role && <div className="fs-12 text-muted mt-4">asked for {(ROLE_LABEL[u.requested_role] || u.requested_role).toLowerCase()}</div>}</td>
                     <td>{off ? <span className="badge badge-red" title={u.deactivation_reason || ''}>Deactivated</span> : <span className="badge badge-green">Active</span>}</td>
-                    <td className="text-muted">{linked ? `${u.linked_creator ? 'Creator' : u.linked_manager ? 'Manager' : 'Brand'} · ${linked.status || 'no status'}` : 'None'}</td>
+                    <td className="text-muted" style={{ whiteSpace: 'nowrap' }}>{linked ? <span data-tip={`Status: ${linked.status || 'not set'}`}>{u.linked_creator ? 'Creator profile' : u.linked_manager ? 'Manager profile' : 'Brand'}</span> : '--'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(u.created_at)}</td>
                     <td className="num"><span className="flex gap-4" style={{ justifyContent: 'flex-end' }}>
                       {!off && <button className="btn btn-ghost btn-sm" disabled={a.working || a.isSelf(u)} title={a.isSelf(u) ? "You can't change your own role" : undefined} onClick={() => { setRoleTarget(u); setNewRole(u.role === 'account_manager' ? 'am' : u.role); }}>Change role</button>}
@@ -72,7 +74,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
                   </tr>
                 );
               })}
-              {visible.length === 0 && <tr><td colSpan={6} className="text-center text-muted" style={{ padding: 32 }}>No users match. Try another filter or search.</td></tr>}
+              {visible.length === 0 && <NoMatchRow colSpan={6} onClear={() => { setSearch(""); setFilter("all"); }}>No users match this search or filter.</NoMatchRow>}
             </tbody>
           </table>
         </div>
@@ -84,7 +86,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
           <div className="form-group"><label className="form-label" htmlFor="u-email">Email</label><input id="u-email" className="form-input" type="email" inputMode="email" value={create.email} onChange={e => setCreate({ ...create, email: e.target.value })} autoFocus /></div>
           <div className="form-row">
             <div className="form-group"><label className="form-label" htmlFor="u-name">Full name <span className="text-muted" style={{ fontWeight: 400 }}>(optional)</span></label><input id="u-name" className="form-input" value={create.fullName} onChange={e => setCreate({ ...create, fullName: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label" htmlFor="u-role">Role</label><select id="u-role" className="select" value={create.role} onChange={e => setCreate({ ...create, role: e.target.value })}>{ASSIGNABLE.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</select></div>
+            <div className="form-group"><label className="form-label" htmlFor="u-role">Role</label><Select id="u-role" className="select" value={create.role} onChange={e => setCreate({ ...create, role: e.target.value })}>{ASSIGNABLE.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</Select></div>
           </div>
           <label className="check"><input type="checkbox" checked={create.sendInvite} onChange={e => setCreate({ ...create, sendInvite: e.target.checked })} /><span>Email them an invite link</span></label>
           {!create.sendInvite && <p className="form-hint mt-8" style={{ color: 'var(--amber)' }}>Without an invite they can't sign in until you send a password reset.</p>}
@@ -94,7 +96,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
       {roleTarget && (
         <Dialog size="sm" title="Change role" description={roleTarget.email} onClose={() => setRoleTarget(null)}
           actions={<><button className="btn btn-secondary" onClick={() => setRoleTarget(null)}>Cancel</button><button className="btn btn-primary" disabled={a.working || !newRole || newRole === roleTarget.role} onClick={async () => { if (await a.changeRole(roleTarget, newRole)) setRoleTarget(null); }}>{a.working ? 'Saving…' : 'Change role'}</button></>}>
-          <div className="form-group"><label className="form-label" htmlFor="u-newrole">New role</label><select id="u-newrole" className="select" value={newRole} onChange={e => setNewRole(e.target.value)}>{ASSIGNABLE.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</select></div>
+          <div className="form-group"><label className="form-label" htmlFor="u-newrole">New role</label><Select id="u-newrole" className="select" value={newRole} onChange={e => setNewRole(e.target.value)}>{ASSIGNABLE.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</Select></div>
           {newRole === 'owner' && <Alert tone="warning">Owners can do everything, including changing other owners.</Alert>}
           <p className="fs-12 text-muted mt-8">The change is recorded in the audit history with your name.</p>
         </Dialog>

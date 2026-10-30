@@ -3,6 +3,7 @@ import { gooeyToast as toast } from "goey-toast";
 import { updateRows } from "../../../lib/db";
 import Alert from "../../../ui/Alert";
 import { fmtMoney } from "../../../utils";
+import Select from "../../../ui/Select";
 
 // Optimistic toggles that move back with the reason if updateRows reports the write didn't land.
 export default function FinancePanel({ campaign, isOwner, onRefresh, finance, rates, setRates }) {
@@ -28,8 +29,8 @@ export default function FinancePanel({ campaign, isOwner, onRefresh, finance, ra
     ...(isSalesSourced ? [["Sales commission", fmtMoney(f.salesCost), `${Math.round(f.activeSalesRate * 100)}% of budget`]] : []),
     ["Gross profit", fmtMoney(f.grossProfit), null, f.grossProfit >= 0 ? "var(--ink)" : "var(--red)"],
     ["Margin", `${f.margin}%`, "target 60%", marginTone],
-    ["Cost per video", f.costPerVideo > 0 ? fmtMoney(f.costPerVideo) : "–", "target under $50", cpvTone],
-    ["CPM", f.cpm == null ? "–" : fmtMoney(f.cpm, { cents: true }), f.views > 0 ? `${f.views.toLocaleString()} views` : "no views synced yet"],
+    ["Cost per video", f.costPerVideo > 0 ? fmtMoney(f.costPerVideo) : "--", "target under $50", cpvTone],
+    ["CPM", f.cpm == null ? "--" : fmtMoney(f.cpm, { cents: true }), f.views > 0 ? `${f.views.toLocaleString()} views` : "no views synced yet"],
   ];
 
   return (
@@ -47,17 +48,17 @@ export default function FinancePanel({ campaign, isOwner, onRefresh, finance, ra
         </label>
         {isOwner && isSalesSourced && (
           <div className="flex-center gap-8 mt-8 fs-13"><label htmlFor="sales-rate" className="text-muted">Sales commission</label>
-            <select id="sales-rate" className="select" style={{ width: "auto", minHeight: 32, height: 32 }} value={salesRate} onChange={e => write({ sales_commission_rate: Number(e.target.value) }, { salesRate: Number(e.target.value) }, { salesRate }, "Sales commission updated")}>
+            <Select id="sales-rate" className="select" style={{ width: "auto", minHeight: 32, height: 32 }} value={salesRate} onChange={e => write({ sales_commission_rate: Number(e.target.value) }, { salesRate: Number(e.target.value) }, { salesRate }, "Sales commission updated")}>
               <option value={0.10}>10%</option><option value={0.20}>20%</option><option value={0.30}>30%</option>
-            </select></div>
+            </Select></div>
         )}
         <div className="flex-center gap-8 mt-12 fs-13"><span className="text-muted">Manager commission</span>
           {isOwner ? (
-            <select aria-label="Manager commission" className="select" style={{ width: "auto", minHeight: 32, height: 32 }} value={managerRate ?? ""}
+            <Select aria-label="Manager commission" className="select" style={{ width: "auto", minHeight: 32, height: 32 }} value={managerRate ?? ""}
               onChange={e => { const v = e.target.value === "" ? null : Number(e.target.value); write({ manager_commission_rate: v }, { managerRate: v }, { managerRate }, "Manager commission updated"); }}>
               <option value="">Manager's default ({Math.round(f.amDefaultRate * 100)}%)</option>
               <option value={0.10}>10% for this campaign</option><option value={0.15}>15% for this campaign</option><option value={0.20}>20% for this campaign</option>
-            </select>
+            </Select>
           ) : <strong>{Math.round(f.activeMgrRate * 100)}%</strong>}
         </div>
         <label className="check mt-12">

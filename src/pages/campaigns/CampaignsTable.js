@@ -15,9 +15,9 @@ export default function CampaignsTable({ campaigns, db, approvedFor, onOpen, onS
             return (
               <tr key={c.id} onClick={() => onOpen(c)} style={{ cursor: "pointer" }}>
                 <td><div className="fw-600 truncate" style={{ color: "var(--ink)", maxWidth: 260 }}>{c.name}</div><div className="fs-12 text-muted">{(c.assigned_creators || []).length} creators</div></td>
-                <td><span className="truncate" style={{ display: "block", maxWidth: 200 }}>{client?.name || "–"}</span></td>
-                <td>{db.accountManagers.find(a => a.id === client?.am_id)?.name || "–"}</td>
-                <td style={{ whiteSpace: "nowrap" }}>{c.format || "–"}</td>
+                <td><span className="truncate" style={{ display: "block", maxWidth: 200 }}>{client?.name || "--"}</span></td>
+                <td>{db.accountManagers.find(a => a.id === client?.am_id)?.name || "--"}</td>
+                <td style={{ whiteSpace: "nowrap" }}>{c.format || "--"}</td>
                 <td style={{ minWidth: 140 }}>
                   <div className="fs-12 text-muted mb-4 tnum">{approved} of {c.videos_needed || 0} · {pacing.deliveryPct}%</div>
                   <div className="progress-bar" style={{ width: 110 }}><div className="progress-fill" style={{ width: `${Math.min(pacing.deliveryPct, 100)}%` }} /></div>

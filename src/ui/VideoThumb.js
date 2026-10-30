@@ -16,10 +16,10 @@ export default function VideoThumb({ sub, width = 48, ratio = 4 / 3, radius = 8,
   const p = platformMeta(platform || sub?.platform);
   const size = fluid ? { width: "100%", aspectRatio: `1 / ${ratio}` } : { width, height: Math.round(width * ratio) };
   const style = { ...size, borderRadius: radius, flexShrink: 0, background: "var(--bg2)", overflow: "hidden", display: "grid", placeItems: "center", color: "var(--ink3)" };
-  if (!src || failed) return <span style={style} aria-hidden="true"><Icon icon={p.icon} size={fluid ? 28 : Math.max(14, Math.round(width / 3))} /></span>;
+  if (!src || failed) return <span style={style} aria-hidden="true">{fluid ? <span className="thumb-empty"><Icon icon={p.icon} size={20} /></span> : <Icon icon={p.icon} size={Math.max(14, Math.round(width / 3))} />}</span>;
   return (
     <span style={style}>
-      <img src={src} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      <img src={src} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} onLoad={e => { if (e.currentTarget.naturalWidth <= 120) setFailed(true); }} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
     </span>
   );
 }
