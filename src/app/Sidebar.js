@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { JusticeScale01Icon, Settings02Icon, Logout03Icon, SidebarLeft01Icon, Tick02Icon, UnfoldMoreIcon, ViewIcon } from "@hugeicons/core-free-icons";
-import { getInitials } from "../utils";
+import { JusticeScale01Icon, Settings02Icon, Logout03Icon, SidebarLeft01Icon, UnfoldMoreIcon } from "@hugeicons/core-free-icons";
 import Icon from "../ui/Icon";
 import { navsFor, roleLabel } from "./nav";
-
-const VIEW_AS = [["", "Owner"], ["am", "Account manager"], ["creator", "Creator"], ["client", "Brand"]];
+import Avatar from "../ui/Avatar";
 
 export function NavLink({ id, active, onNavigate, className = "", children, ...rest }) {
   return (
@@ -24,7 +22,7 @@ export function NavLink({ id, active, onNavigate, className = "", children, ...r
   );
 }
 
-function AccountMenu({ collapsed, user, role, isOwner, overrideRole, onViewAs, onNavigate, onLogout }) {
+function AccountMenu({ collapsed, user, role, onNavigate, onLogout }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -44,16 +42,6 @@ function AccountMenu({ collapsed, user, role, isOwner, overrideRole, onViewAs, o
     <div className="sidebar-footer" ref={ref}>
       {open && (
         <div className="menu" role="menu">
-          {isOwner && <>
-            <div className="menu-label">View the portal as</div>
-            {VIEW_AS.map(([value, label]) => (
-              <button key={label} role="menuitemradio" aria-checked={(overrideRole || "") === value} className="menu-item" onClick={pick(() => onViewAs(value || null))}>
-                <Icon icon={(overrideRole || "") === value ? Tick02Icon : ViewIcon} size={16} style={{ opacity: (overrideRole || "") === value ? 1 : 0.6 }} />
-                {label}
-              </button>
-            ))}
-            <div className="menu-sep" />
-          </>}
           <div className="menu-label truncate">{user.email}</div>
           <button role="menuitem" className="menu-item" onClick={pick(() => onNavigate("settings"))}>
             <Icon icon={Settings02Icon} size={16} /> Settings
@@ -67,7 +55,7 @@ function AccountMenu({ collapsed, user, role, isOwner, overrideRole, onViewAs, o
         </div>
       )}
       <button className="user-chip" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)} data-tip={collapsed ? name : undefined} data-tip-side="right">
-        <span className="user-avatar">{getInitials(name)}</span>
+        <Avatar name={name} className="user-avatar" />
         <span className="user-info">
           <span className="user-name" style={{ display: "block" }}>{name}</span>
           <span className="user-email sidebar-role" style={{ display: "block" }}>{roleLabel[role]}</span>
@@ -78,7 +66,7 @@ function AccountMenu({ collapsed, user, role, isOwner, overrideRole, onViewAs, o
   );
 }
 
-export default function Sidebar({ user, role, baseRole, caps, page, onNavigate, counts, overrideRole, onViewAs, onLogout, collapsed, onToggleCollapsed }) {
+export default function Sidebar({ user, role, caps, page, onNavigate, counts, onLogout, collapsed, onToggleCollapsed }) {
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="sidebar-header">
@@ -104,7 +92,7 @@ export default function Sidebar({ user, role, baseRole, caps, page, onNavigate, 
           </div>
         ))}
       </nav>
-      <AccountMenu collapsed={collapsed} user={user} role={role} isOwner={baseRole === "owner"} overrideRole={overrideRole} onViewAs={onViewAs} onNavigate={onNavigate} onLogout={onLogout} />
+      <AccountMenu collapsed={collapsed} user={user} role={role} onNavigate={onNavigate} onLogout={onLogout} />
     </aside>
   );
 }

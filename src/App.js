@@ -63,15 +63,13 @@ function Frame({ children, footer = false }) {
 export default function App() {
   const path = window.location.pathname.toLowerCase().replace(/\/+$/, "") || "/";
   const [page, setPage] = useState(() => pageFromUrl() || localStorage.getItem("last_page") || "dashboard");
-  const [overrideRole, setOverrideRole] = useState(null);
   const [showSQL, setShowSQL] = useState(false);
-  const resetPage = useCallback(() => { setPage("dashboard"); setOverrideRole(null); }, []);
+  const resetPage = useCallback(() => setPage("dashboard"), []);
 
   const session = useSession({ resetPage });
   const { user, loading } = session;
   const rawRole = (user?.role || "pending").toLowerCase();
-  const baseRole = normalizeRole(rawRole);
-  const role = baseRole === "owner" && overrideRole ? overrideRole : baseRole;
+  const role = normalizeRole(rawRole);
   const ws = useWorkspace(user, role);
 
   useEffect(() => {
@@ -100,7 +98,6 @@ export default function App() {
   }, [user, page, role]);
 
   const navigate = useCallback((id) => setPage(id), []);
-  const viewAs = useCallback((r) => { setOverrideRole(r); setPage("dashboard"); }, []);
 
   const searchParams = new URLSearchParams(window.location.search);
   const isPublicShare = path === "/share/campaign" || path.startsWith("/share/") || searchParams.has("share_token");
@@ -136,7 +133,7 @@ export default function App() {
       return (
         <div className="content">
           <ErrorMsg msg={ws.error} onRetry={ws.loadDB} />
-          {baseRole === "owner" && <button className="btn btn-secondary btn-sm mt-12" onClick={() => setShowSQL(true)}>View database setup SQL</button>}
+          {role === "owner" && <button className="btn btn-secondary btn-sm mt-12" onClick={() => setShowSQL(true)}>View database setup SQL</button>}
         </div>
       );
     }
@@ -162,13 +159,13 @@ export default function App() {
   return wrap(
     <>
       <Shell
-        user={user} role={role} baseRole={baseRole} caps={ws.caps} page={page} counts={counts}
-        onNavigate={navigate} overrideRole={overrideRole} onViewAs={viewAs} onLogout={session.handleLogout}
+        user={user} role={role} caps={ws.caps} page={page} counts={counts}
+        onNavigate={navigate} onLogout={session.handleLogout}
         refreshing={ws.refreshing}
       >
         {renderPage()}
       </Shell>
-      {showSQL && baseRole === "owner" && <React.Suspense fallback={null}><SQLSetupModal onClose={() => setShowSQL(false)} /></React.Suspense>}
+      {showSQL && role === "owner" && <React.Suspense fallback={null}><SQLSetupModal onClose={() => setShowSQL(false)} /></React.Suspense>}
     </>
   );
 }

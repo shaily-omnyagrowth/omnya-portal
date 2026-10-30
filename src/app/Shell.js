@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ArrowRight01Icon, Cancel01Icon, Menu01Icon, ViewIcon } from "@hugeicons/core-free-icons";
+import { ArrowRight01Icon, Cancel01Icon, Menu01Icon } from "@hugeicons/core-free-icons";
 import Icon from "../ui/Icon";
 import watchTables from "../ui/tableLabels";
-import { navsFor, roleLabel, titleFor } from "./nav";
+import { navsFor, titleFor } from "./nav";
 import Sidebar from "./Sidebar";
 
-export default function Shell({ user, role, baseRole, caps, page, onNavigate, counts, overrideRole, onViewAs, onLogout, refreshing, children }) {
+export default function Shell({ user, role, caps, page, onNavigate, counts, onLogout, refreshing, children }) {
   const [drawer, setDrawer] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("sidebar_collapsed") === "1"; } catch (_) { return false; } });
@@ -54,8 +54,8 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
       {refreshing && <div className="top-progress" role="progressbar" aria-label="Updating" />}
       <div className="sidebar-overlay" onClick={() => setDrawer(false)} aria-hidden="true" />
       <Sidebar
-        user={user} role={role} baseRole={baseRole} caps={caps} page={page} counts={counts}
-        onNavigate={onNavigate} overrideRole={overrideRole} onViewAs={onViewAs} onLogout={onLogout}
+        user={user} role={role} caps={caps} page={page} counts={counts}
+        onNavigate={onNavigate} onLogout={onLogout}
         collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
       />
       <div className="main" ref={scrollRef} inert={drawer || undefined}>
@@ -68,15 +68,6 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
               {group && <><span className="desktop-only">{group}</span><span className="desktop-only" aria-hidden="true"><Icon icon={ArrowRight01Icon} size={12} /></span></>}
               <span className="current">{title}</span>
             </div>
-          </div>
-          <div className="topbar-right">
-            {overrideRole && (
-              <button className="badge badge-ink" style={{ height: 28, border: 0, gap: 6, paddingInline: 10 }} onClick={() => onViewAs(null)} data-tip="Return to your owner view">
-                <Icon icon={ViewIcon} size={14} />
-                <span>Viewing as {roleLabel[overrideRole].toLowerCase()}</span>
-                <Icon icon={Cancel01Icon} size={12} />
-              </button>
-            )}
           </div>
         </header>
         <main ref={mainRef} tabIndex={-1} style={{ outline: "none" }}>
