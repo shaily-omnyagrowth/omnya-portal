@@ -11,7 +11,10 @@
 //   * routes with `failClosed: true` answer 503 in production (spec 0001, AC-11);
 //   * every other route, and every route on preview and local, is let through.
 // On a failClosed route, call this BEFORE the auth guard.
+//
+// Signed-in callers are counted per session (bearer token hash), anonymous callers per IP.
 
+const crypto = require('crypto');
 const { getSupabaseAdminClient } = require('./supabaseAdmin');
 
 const TIMEOUT_MS = 2000;
@@ -50,9 +53,10 @@ async function applyRateLimit(req, res, opts = {}) {
     (req.socket && req.socket.remoteAddress) ||
     'unknown';
 
+  const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
   const keyParts = ['rl', endpoint];
   if (userId) keyParts.push(`u:${userId}`);
-  keyParts.push(`ip:${ip}`);
+  keyParts.push(bearer ? `t:${crypto.createHash('sha256').update(bearer).digest('hex').slice(0, 32)}` : `ip:${ip}`);
   const key = keyParts.join(':');
 
   let timer;

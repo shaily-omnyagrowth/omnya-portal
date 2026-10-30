@@ -37,7 +37,7 @@ module.exports = async (req, res) => {
 
   const blocked = await applyRateLimit(req, res, {
     failClosed: true,
-    max: 30,
+    max: 200,
     windowSecs: 3600,
     endpoint: 'admin-users-role',
   });

@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
   // carry the user id any more.
   const blocked = await applyRateLimit(req, res, {
     failClosed: true,
-    max: 5,
+    max: 20,
     windowSecs: 3600,
     endpoint: 'creators-payment-method',
   });
