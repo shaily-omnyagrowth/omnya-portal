@@ -1,226 +1,75 @@
-import React, { useState, useMemo } from 'react';
-import { platformMeta } from '../utils';
+import { useMemo, useState } from 'react';
+import { ArrowLeft01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons';
+import Icon from '../ui/Icon';
+import { fmtDate } from '../utils';
 
-export default function CampaignCalendarView({ campaigns = [], db, onSelectCampaign }) {
-  const [currentDate, setCurrentDate] = useState(() => new Date());
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
-
-  const monthName = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-
-  // First day of current month & total days
-  const firstDay = new Date(year, month, 1).getDay(); // 0 = Sunday
+export default function CampaignCalendarView({ campaigns = [], onSelectCampaign }) {
+  const [cursor, setCursor] = useState(() => new Date());
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = ymd(new Date());
 
-  const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1));
-  const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1));
-  const todayMonth = () => setCurrentDate(new Date());
-
-  // Map campaigns to dates in this month
-  const campaignsByDate = useMemo(() => {
+  const byDay = useMemo(() => {
     const map = {};
     for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const dayDate = new Date(year, month, day);
-
-      const activeCamps = campaigns.filter(c => {
-        const start = c.start_date ? new Date(c.start_date) : new Date(c.created_at);
-        const end = c.deadline ? new Date(c.deadline) : null;
-        if (!end) return false;
-
-        // Strip time
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
-
-        return dayDate >= start && dayDate <= end;
+      const date = new Date(year, month, day);
+      const key = ymd(date);
+      const deadlines = campaigns.filter(c => c.deadline && c.deadline.startsWith(key));
+      const active = campaigns.filter(c => {
+        if (!c.deadline || deadlines.includes(c)) return false;
+        const start = new Date(c.start_date || c.created_at); start.setHours(0, 0, 0, 0);
+        const end = new Date(c.deadline); end.setHours(23, 59, 59, 999);
+        return date >= start && date <= end;
       });
-
-      const deadlines = campaigns.filter(c => {
-        if (!c.deadline) return false;
-        return c.deadline.startsWith(dateStr);
-      });
-
-      map[day] = { activeCamps, deadlines };
+      map[day] = { key, deadlines, active };
     }
     return map;
   }, [campaigns, year, month, daysInMonth]);
 
-  // Calendar cells: empty padding days + actual days
-  const calendarCells = [];
-  for (let i = 0; i < firstDay; i++) {
-    calendarCells.push({ empty: true, key: `empty-${i}` });
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    calendarCells.push({ empty: false, day: d, key: `day-${d}`, ...campaignsByDate[d] });
-  }
-
-  const isToday = (day) => {
-    const today = new Date();
-    return today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
-  };
+  const agenda = Object.entries(byDay).filter(([, v]) => v.deadlines.length).map(([day, v]) => ({ day: Number(day), ...v }));
+  const pick = (c) => onSelectCampaign?.(c);
 
   return (
-    <div className="premium-card" style={{ padding: 20 }}>
-      {/* Calendar Header Controls */}
-      <div className="flex-between mb-16" style={{ flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0, color: 'var(--ink)' }}>
-            Campaign Schedule & Deadlines
-          </h3>
-          <p style={{ color: 'var(--ink3)', fontSize: 12, marginTop: 4 }}>
-            Visual flight tracking across active deliverables
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button className="btn btn-ghost btn-sm" onClick={todayMonth} style={{ fontSize: 12 }}>
-            Today
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button className="btn btn-ghost btn-sm" onClick={prevMonth} style={{ padding: '4px 10px' }}>
-              ◀
-            </button>
-            <span style={{ fontWeight: 700, fontSize: 14, minWidth: 140, textAlign: 'center' }}>
-              {monthName}
-            </span>
-            <button className="btn btn-ghost btn-sm" onClick={nextMonth} style={{ padding: '4px 10px' }}>
-              ▶
-            </button>
-          </div>
+    <section className="card">
+      <div className="card-head" style={{ alignItems: 'center' }}>
+        <div><h2 className="card-title">{cursor.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</h2><p className="card-desc">Flights run from start to deadline. Deadlines are marked.</p></div>
+        <div className="flex-center gap-4">
+          <button className="btn btn-ghost btn-sm" onClick={() => setCursor(new Date())}>Today</button>
+          <button className="btn btn-ghost btn-icon btn-sm" aria-label="Previous month" onClick={() => setCursor(new Date(year, month - 1, 1))}><Icon icon={ArrowLeft01Icon} size={16} /></button>
+          <button className="btn btn-ghost btn-icon btn-sm" aria-label="Next month" onClick={() => setCursor(new Date(year, month + 1, 1))}><Icon icon={ArrowRight01Icon} size={16} /></button>
         </div>
       </div>
 
-      {/* Days of Week Header */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(7, 1fr)',
-        gap: 6,
-        textAlign: 'center',
-        fontWeight: 600,
-        fontSize: 12,
-        color: 'var(--ink3)',
-        marginBottom: 8
-      }}>
-        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-          <div key={d} style={{ padding: '4px 0' }}>{d}</div>
-        ))}
-      </div>
-
-      {/* Calendar Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(7, 1fr)',
-        gap: 6
-      }}>
-        {calendarCells.map(cell => {
-          if (cell.empty) {
-            return (
-              <div
-                key={cell.key}
-                style={{
-                  minHeight: 90,
-                  background: 'var(--bg2)',
-                  opacity: 0.3,
-                  borderRadius: 6
-                }}
-              />
-            );
-          }
-
-          const hasDeadlines = cell.deadlines && cell.deadlines.length > 0;
-
+      <div className="cal desktop-cal">
+        {DAYS.map(d => <div key={d} className="cal-dow">{d}</div>)}
+        {Array.from({ length: firstDay }, (_, i) => <div key={`e${i}`} className="cal-cell empty" />)}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          const cell = byDay[day];
           return (
-            <div
-              key={cell.key}
-              style={{
-                minHeight: 90,
-                background: isToday(cell.day) ? 'rgba(37, 99, 235, 0.05)' : 'var(--bg)',
-                border: isToday(cell.day) ? '2px solid var(--blue)' : '1px solid var(--border)',
-                borderRadius: 6,
-                padding: 6,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                overflow: 'hidden'
-              }}
-            >
-              {/* Day Number Header */}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                fontSize: 12,
-                fontWeight: isToday(cell.day) ? 800 : 500,
-                color: isToday(cell.day) ? 'var(--blue)' : 'var(--ink)'
-              }}>
-                <span>{cell.day}</span>
-                {hasDeadlines && (
-                  <span title="Deadline Day" style={{ fontSize: 10 }}>🚩</span>
-                )}
-              </div>
-
-              {/* Deadlines Pills */}
-              {cell.deadlines?.map(c => {
-                return (
-                  <div
-                    key={`dl-${c.id}`}
-                    onClick={() => onSelectCampaign && onSelectCampaign(c)}
-                    style={{
-                      background: 'var(--red)',
-                      color: '#fff',
-                      fontSize: 10,
-                      fontWeight: 700,
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis'
-                    }}
-                    title={`Deadline: ${c.name}`}
-                  >
-                    🚩 {c.name}
-                  </div>
-                );
-              })}
-
-              {/* Active Campaigns Flight Bars */}
-              {cell.activeCamps?.filter(c => !cell.deadlines?.some(d => d.id === c.id)).slice(0, 2).map(c => {
-                const meta = platformMeta(c.format);
-                return (
-                  <div
-                    key={`act-${c.id}`}
-                    onClick={() => onSelectCampaign && onSelectCampaign(c)}
-                    style={{
-                      background: meta.bg,
-                      color: meta.text,
-                      border: `1px solid ${meta.border}`,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      padding: '2px 4px',
-                      borderRadius: 4,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis'
-                    }}
-                    title={`${c.name} (Flight Active)`}
-                  >
-                    {meta.icon} {c.name}
-                  </div>
-                );
-              })}
-
-              {cell.activeCamps?.length > 2 && (
-                <div style={{ fontSize: 9, color: 'var(--ink3)', textAlign: 'center' }}>
-                  +{cell.activeCamps.length - 2} more
-                </div>
-              )}
+            <div key={day} className={`cal-cell ${cell.key === today ? 'today' : ''}`}>
+              <span className="cal-num">{day}</span>
+              {cell.deadlines.map(c => <button key={c.id} className="cal-pill due" onClick={() => pick(c)} title={`Deadline: ${c.name}`}>{c.name}</button>)}
+              {cell.active.slice(0, 2).map(c => <button key={c.id} className="cal-pill" onClick={() => pick(c)} title={c.name}>{c.name}</button>)}
+              {cell.active.length > 2 && <span className="cal-more">+{cell.active.length - 2} more</span>}
             </div>
           );
         })}
       </div>
-    </div>
+
+      <div className="mobile-cal">
+        {agenda.length === 0 ? <p className="fs-13 text-muted">No deadlines this month.</p> : agenda.map(a => (
+          <div key={a.day} className="list-item" style={{ alignItems: 'flex-start' }}>
+            <span className="cal-date"><span>{new Date(year, month, a.day).toLocaleDateString('en-US', { weekday: 'short' })}</span><strong>{a.day}</strong></span>
+            <div className="flex-1">{a.deadlines.map(c => <button key={c.id} className="text-btn fs-14" style={{ display: 'block', textAlign: 'left', fontWeight: 600 }} onClick={() => pick(c)}>{c.name}</button>)}<span className="fs-12 text-muted">Due {fmtDate(a.key)}</span></div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

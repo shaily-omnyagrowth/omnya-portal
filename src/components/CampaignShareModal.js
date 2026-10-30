@@ -1,15 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { gooeyToast as toast } from 'goey-toast';
 import { supabase } from '../supabaseClient';
+import Alert from '../ui/Alert';
+import confirm from '../ui/confirm';
+import Dialog from '../ui/Dialog';
 
-// The one thing people come here to do is get a link they can send. So the
-// button in the status card is that action: with the link off it enables the
-// link and copies it; with the link on it copies. "Disable" and "Reset Token"
-// stay below for the rarer cases.
-//
-// Copying happens after an awaited fetch. Chrome allows a clipboard write
-// there; Safari does not (it wants the write inside the click itself), and a
-// browser may refuse for other reasons. A refused write never claims success:
-// the link is selected in the box and the user is told to press Ctrl+C.
+// The main action gets a sendable link: enable and copy when off, copy when on. Safari refuses a
+// clipboard write after an await, so a refused copy selects the link and asks for Cmd or Ctrl+C.
 export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -25,50 +22,26 @@ export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
   const isMac = /Mac|iP(hone|ad)/.test(navigator.userAgent);
 
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
+  useEffect(() => { if (copyHint && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [copyHint]);
 
-  // Runs after the render that put the URL in the box, so what gets selected
-  // is the link and not the "currently disabled" placeholder.
-  useEffect(() => {
-    if (copyHint && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [copyHint]);
-
-  // Resolves to the new share state, or null when the request failed (the
-  // error banner is already showing).
   const callManageShare = async (action, extra = {}) => {
-    setLoading(true);
-    setError('');
-    setCopyHint('');
+    setLoading(true); setError(''); setCopyHint('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('You must be signed in.');
-
       const res = await fetch('/api/campaigns/manage-share', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
-          campaignId: campaign.id,
-          action,
-          ...extra
-        })
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ campaignId: campaign.id, action, ...extra }),
       });
-
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json.ok || !json.data) {
-        throw new Error(json.error?.message || 'Failed to update share settings.');
-      }
-
+      if (!res.ok || !json.ok || !json.data) throw new Error(json.error?.message || "Couldn't update the share settings.");
       setShareToken(json.data.share_token);
       setShareEnabled(json.data.share_enabled);
-      if (onUpdated) onUpdated(json.data);
+      onUpdated?.(json.data);
       return json.data;
     } catch (err) {
-      setError(err.message || 'Action failed.');
+      setError(err.message || 'That didn’t work.');
       return null;
     } finally {
       setLoading(false);
@@ -78,192 +51,67 @@ export default function CampaignShareModal({ campaign, onClose, onUpdated }) {
   const copyLink = async (url) => {
     setCopyHint('');
     try {
-      if (!navigator.clipboard || !navigator.clipboard.writeText) {
-        throw new Error('Clipboard API unavailable');
-      }
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
       await navigator.clipboard.writeText(url);
       setCopied(true);
       clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopied(false), 2500);
+      toast.success('Link copied', { description: 'Anyone with it can view this report.' });
       return true;
     } catch {
       setCopied(false);
-      setCopyHint(`The browser blocked copying. The link is selected below; press ${isMac ? 'Cmd' : 'Ctrl'}+C.`);
+      setCopyHint(`Your browser blocked copying. The link is selected; press ${isMac ? 'Cmd' : 'Ctrl'}+C.`);
       return false;
     }
   };
 
   const enableAndCopy = async () => {
     const data = await callManageShare('toggle', { enabled: true });
-    if (data && data.share_enabled && data.share_token) {
-      await copyLink(urlFor(data.share_token));
-    }
+    if (data?.share_enabled && data.share_token) await copyLink(urlFor(data.share_token));
   };
 
-  const setLinkEnabled = async (enabled) => {
+  const toggle = async () => {
     setCopied(false);
-    await callManageShare('toggle', { enabled });
+    const data = await callManageShare('toggle', { enabled: !shareEnabled });
+    if (data) toast(data.share_enabled ? 'Link turned on' : 'Link turned off', { description: data.share_enabled ? undefined : 'The old link stops working right away.' });
+  };
+
+  const regenerate = async () => {
+    const ok = await confirm({ title: 'Make a new link?', body: 'The current link stops working immediately. Anyone who has it will need the new one.', confirmLabel: 'Make new link', tone: 'danger' });
+    if (!ok) return;
+    setCopied(false);
+    if (await callManageShare('regenerate')) toast.success('New link created');
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 540 }} onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex-between mb-16">
-          <div>
-            <div className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>🔗</span>
-              <span>Share Campaign Analytics</span>
-            </div>
-            <div className="modal-sub">
-              Create a secure, client-ready report link for <strong>{campaign.name}</strong>
-            </div>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+    <Dialog title="Share campaign results" description={`A read-only report for ${campaign.name}. Budgets, margins and creator pay are never shown.`} onClose={onClose}
+      actions={<button className="btn btn-secondary" onClick={onClose}>Done</button>}>
+      {error && <Alert tone="error" style={{ marginBottom: 16 }}>{error}</Alert>}
+      <div className="flex-between mb-8">
+        <span className="form-label">Report link</span>
+        <span className={`badge ${shareEnabled ? 'badge-green' : 'badge-gray'}`}><span className="dot" />{shareEnabled ? 'On' : 'Off'}</span>
+      </div>
+      <div className="flex gap-8">
+        <input ref={inputRef} className="form-input" readOnly aria-label="Report link"
+          value={shareEnabled ? shareUrl : 'Turn the link on to get a URL'}
+          onFocus={e => shareEnabled && e.target.select()} style={{ flex: 1, color: shareEnabled ? 'var(--ink)' : 'var(--ink3)' }} />
+        {shareEnabled
+          ? <button className="btn btn-primary" disabled={loading} onClick={() => copyLink(shareUrl)}>{copied ? 'Copied' : 'Copy'}</button>
+          : <button className="btn btn-primary" disabled={loading} onClick={enableAndCopy}>{loading ? 'Turning on…' : 'Turn on and copy'}</button>}
+      </div>
+      {copyHint && <p className="form-hint mt-8" style={{ color: 'var(--amber)' }}>{copyHint}</p>}
+
+      <div className="list-stack mt-16">
+        <div className="list-item">
+          <div><div className="fw-600 fs-13">Link access</div><div className="fs-12 text-muted">Anyone with the link can view the report.</div></div>
+          <button className={`btn btn-sm ${shareEnabled ? 'btn-red' : 'btn-secondary'}`} disabled={loading} onClick={toggle}>{shareEnabled ? 'Turn off' : 'Turn on'}</button>
         </div>
-
-        {error && (
-          <div style={{
-            background: 'rgba(220, 53, 69, 0.1)',
-            color: 'var(--red)',
-            padding: '10px 14px',
-            borderRadius: 6,
-            fontSize: 13,
-            marginBottom: 16
-          }}>
-            {error}
-          </div>
-        )}
-
-        {/* Share Link Status Card */}
-        <div style={{
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          borderRadius: 8,
-          padding: 16,
-          marginBottom: 20
-        }}>
-          <div className="flex-between mb-12">
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
-              Public Link Status:
-            </span>
-            <span className={`badge ${shareEnabled ? 'badge-green' : 'badge-gray'}`}>
-              {shareEnabled ? 'Active & Shared' : 'Disabled / Private'}
-            </span>
-          </div>
-
-          {/* URL box with the one action that matters for its state */}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              ref={inputRef}
-              type="text"
-              readOnly
-              value={shareEnabled ? shareUrl : 'Link is off. Enable it to get a URL.'}
-              onFocus={e => { if (shareEnabled) e.target.select(); }}
-              onClick={e => { if (shareEnabled) e.target.select(); }}
-              aria-label="Share link"
-              style={{
-                flex: 1,
-                fontSize: 12,
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: '1px solid var(--border)',
-                background: shareEnabled ? '#fff' : 'var(--bg2)',
-                color: shareEnabled ? 'var(--ink)' : 'var(--ink3)',
-                cursor: shareEnabled ? 'text' : 'default'
-              }}
-            />
-            {shareEnabled ? (
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={loading}
-                onClick={() => copyLink(shareUrl)}
-                style={{ padding: '0 14px', whiteSpace: 'nowrap' }}
-              >
-                {copied ? '✓ Copied!' : '📋 Copy'}
-              </button>
-            ) : (
-              <button
-                className="btn btn-green btn-sm"
-                disabled={loading}
-                onClick={enableAndCopy}
-                style={{ padding: '0 14px', whiteSpace: 'nowrap' }}
-              >
-                {loading ? 'Enabling…' : '🔗 Enable & Copy Link'}
-              </button>
-            )}
-          </div>
-          {copyHint && (
-            <div style={{ fontSize: 11, color: 'var(--orange)', marginTop: 8 }}>{copyHint}</div>
-          )}
-        </div>
-
-        {/* Controls: Enable/Disable & Regenerate */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 20 }}>
-          <div className="flex-between" style={{ padding: '10px 0', borderBottom: '1px solid var(--border2)' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Link Access</div>
-              <div style={{ fontSize: 11, color: 'var(--ink3)' }}>
-                Allow anyone with this unique token to view campaign reporting.
-              </div>
-            </div>
-            <button
-              className={`btn btn-sm ${shareEnabled ? 'btn-red' : 'btn-green'}`}
-              disabled={loading}
-              onClick={() => setLinkEnabled(!shareEnabled)}
-            >
-              {shareEnabled ? 'Disable Link' : 'Enable Link'}
-            </button>
-          </div>
-
-          <div className="flex-between" style={{ padding: '10px 0' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>Revoke & Regenerate Token</div>
-              <div style={{ fontSize: 11, color: 'var(--ink3)' }}>
-                Invalidate previous link and create a new secure address.
-              </div>
-            </div>
-            <button
-              className="btn btn-ghost btn-sm"
-              disabled={loading}
-              onClick={() => {
-                if (window.confirm('Are you sure you want to regenerate this link? The old link will stop working immediately.')) {
-                  setCopied(false);
-                  callManageShare('regenerate');
-                }
-              }}
-              style={{ color: 'var(--orange)' }}
-            >
-              🔄 Reset Token
-            </button>
-          </div>
-        </div>
-
-        {/* Privacy Notice */}
-        <div style={{
-          background: 'var(--bg2)',
-          border: '1px solid var(--border)',
-          borderRadius: 6,
-          padding: '12px 14px',
-          fontSize: 11,
-          color: 'var(--ink2)',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'flex-start'
-        }}>
-          <span style={{ fontSize: 14 }}>🛡️</span>
-          <div>
-            <strong>Agency Privacy Protected:</strong> Shared reports strictly expose deliverables, verified views, and top posts. Internal agency budgets, margins, creator payout rates, and other client data are 100% hidden.
-          </div>
-        </div>
-
-        {/* Modal Actions */}
-        <div className="modal-actions" style={{ marginTop: 20 }}>
-          <button className="btn btn-secondary" onClick={onClose}>
-            Done
-          </button>
+        <div className="list-item">
+          <div><div className="fw-600 fs-13">New link</div><div className="fs-12 text-muted">Replace the link if it was shared with the wrong person.</div></div>
+          <button className="btn btn-ghost btn-sm" disabled={loading} onClick={regenerate}>Make new link</button>
         </div>
       </div>
-    </div>
+      <p className="fs-12 text-muted mt-12">Reports show deliverables, verified views and top posts only.</p>
+    </Dialog>
   );
 }

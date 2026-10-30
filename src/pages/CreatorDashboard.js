@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert02Icon, ArrowRight01Icon, Briefcase01Icon, CheckmarkCircle02Icon, Link01Icon, Upload04Icon } from '@hugeicons/core-free-icons';
+import { Alert02Icon, ArrowRight01Icon, Briefcase01Icon, CheckmarkCircle02Icon, Link01Icon } from '@hugeicons/core-free-icons';
 import { NavLink } from '../app/Sidebar';
 import { supabase } from '../supabaseClient';
 import { BarChart } from '../ui/charts';
@@ -96,7 +96,7 @@ export default function CreatorDashboard({ user, db, onNavigate }) {
         description={attention.length ? `${attention.length} ${attention.length === 1 ? 'video needs' : 'videos need'} your attention.` : inReview.length ? `${inReview.length} in review. We'll let you know as soon as there's a decision.` : "You're all caught up. Find a new job or submit your next video."}
         actions={<>
           <button className="btn btn-secondary" onClick={() => onNavigate('jobs')}>Find jobs</button>
-          <button className="btn btn-primary" onClick={() => onNavigate('submit')}><Icon icon={Upload04Icon} size={16} />Submit content</button>
+          <button className="btn btn-primary" onClick={() => onNavigate('submit')}>Submit content</button>
         </>}
       />
 

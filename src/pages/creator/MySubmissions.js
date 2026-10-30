@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowUpRight01Icon, Film01Icon, Upload04Icon } from "@hugeicons/core-free-icons";
+import { ArrowUpRight01Icon, Film01Icon } from "@hugeicons/core-free-icons";
 import EmptyState from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
@@ -29,7 +29,7 @@ export default function MySubmissions({ user, db, onNavigate }) {
       <PageHeader
         title="Submissions"
         description="Everything you've sent and where it is in review. Requested changes include the reviewer's notes."
-        actions={onNavigate && <button className="btn btn-primary" onClick={() => onNavigate("submit")}><Icon icon={Upload04Icon} size={16} />Submit content</button>}
+        actions={onNavigate && <button className="btn btn-primary" onClick={() => onNavigate("submit")}>Submit content</button>}
       />
       <Tabs label="Filter submissions" value={tab} onChange={setTab} tabs={[
         { id: "all", label: "All", count: subs.length },

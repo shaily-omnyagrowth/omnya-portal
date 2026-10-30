@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckmarkCircle02Icon, Clock01Icon, Wallet01Icon } from "@hugeicons/core-free-icons";
+import { CheckmarkCircle02Icon, Clock01Icon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
 import Alert from "../../ui/Alert";
 import Icon from "../../ui/Icon";
@@ -95,7 +95,7 @@ export default function PayoutMethodCard({ creator, onSaved, openSignal }) {
       </div>
       {!open ? (
         <button className="btn btn-secondary btn-sm" onClick={() => setOpen(true)}>
-          <Icon icon={Wallet01Icon} size={14} />{has ? "Change payout method" : "Set up payouts"}
+          {has ? "Change payout method" : "Set up payouts"}
         </button>
       ) : (
         <form onSubmit={save} noValidate className="fade-in">

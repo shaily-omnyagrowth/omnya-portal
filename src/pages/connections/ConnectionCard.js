@@ -1,4 +1,4 @@
-import { Alert02Icon, CheckmarkCircle02Icon, Refresh01Icon } from "@hugeicons/core-free-icons";
+import { Alert02Icon, CheckmarkCircle02Icon } from "@hugeicons/core-free-icons";
 import Icon from "../../ui/Icon";
 import { fmtRelativeTime } from "../../utils";
 import { deriveConnectionState, PLATFORM_META } from "./state";
@@ -26,7 +26,7 @@ export default function ConnectionCard({ platform, connection, busy, onConnect, 
         <div className="conn-actions">
           {state.action === "manage" && meta.sync && (
             <button className="btn btn-secondary btn-sm" onClick={onSync} disabled={!!busy}>
-              <Icon icon={Refresh01Icon} size={14} className={busy === "sync" ? "spin" : undefined} />{busy === "sync" ? "Syncing…" : "Sync now"}
+              {busy === "sync" ? "Syncing…" : "Sync now"}
             </button>
           )}
           {state.action === "manage" && <button className="btn btn-ghost btn-sm" onClick={onDisconnect} disabled={!!busy}>{busy === "disconnect" ? "Disconnecting…" : "Disconnect"}</button>}

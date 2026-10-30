@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Briefcase01Icon, Calendar03Icon, CheckmarkCircle02Icon, Clock01Icon } from "@hugeicons/core-free-icons";
+import { Briefcase01Icon, Calendar03Icon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
 import { describeWriteError, uploadDemoVideo } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
@@ -131,8 +131,8 @@ export default function JobBoard({ user, db, onRefresh }) {
                 </div>
                 <div style={{ marginTop: "auto", paddingTop: 14, borderTop: "1px solid var(--border)" }} className="flex-between">
                   <span className="fs-12 text-muted">{soon ? daysLeftLabel(job.deadline) : ""}</span>
-                  {assigned ? <span className="badge badge-green"><Icon icon={CheckmarkCircle02Icon} size={12} />You're on this campaign</span>
-                    : pending ? <span className="badge badge-orange"><Icon icon={Clock01Icon} size={12} />Applied{app.commitment ? ` for ${app.commitment}` : ""}</span>
+                  {assigned ? <span className="badge badge-green">You're on this campaign</span>
+                    : pending ? <span className="badge badge-orange">Applied{app.commitment ? ` for ${app.commitment}` : ""}</span>
                     : declined ? <span className="badge badge-gray">Not selected this time</span>
                     : <button className="btn btn-primary btn-sm" onClick={() => setApplying(job)}>Apply</button>}
                 </div>

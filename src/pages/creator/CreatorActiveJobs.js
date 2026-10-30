@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft01Icon, ArrowUpRight01Icon, Folder01Icon, Upload04Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowUpRight01Icon, Folder01Icon } from "@hugeicons/core-free-icons";
 import EmptyState from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
@@ -27,7 +27,7 @@ export default function CreatorActiveJobs({ user, db, onNavigate }) {
         <PageHeader
           title={job.name}
           description={[client?.name, `${fmtMoney(job.pay_per_video)} per video`, job.deadline ? `due ${fmtDate(job.deadline)}` : "no deadline"].filter(Boolean).join(" · ")}
-          actions={<button className="btn btn-primary" onClick={() => onNavigate("submit")}><Icon icon={Upload04Icon} size={16} />Submit for this project</button>}
+          actions={<button className="btn btn-primary" onClick={() => onNavigate("submit")}>Submit for this project</button>}
         />
         <div className="dash-grid">
           <section className="card">
