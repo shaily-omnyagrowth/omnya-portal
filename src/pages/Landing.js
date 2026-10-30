@@ -10,7 +10,7 @@ import LANDING_HTML from "./landing/markup";
 const FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Outfit:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap";
 const CONTACT_EMAIL = "admin@omnyagrowth.com";
-const TITLE = "Omnya Growth — creator marketing that builds audiences instead of renting them";
+const TITLE = "Omnya Growth | Creator marketing that builds audiences instead of renting them";
 
 const FORM_SUBJECTS = {
   roster: "Roster application",

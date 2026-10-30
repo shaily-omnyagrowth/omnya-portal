@@ -34,10 +34,10 @@
   var HINTS = {
     auth_denied: 'The sign-in was cancelled, or access was not granted. Try again and choose Allow / Continue on every screen.',
     missing_params: 'The provider sent you back without an authorization code. Please start the connection again from the portal.',
-    invalid_state: 'This sign-in link expired or was already used. Links are valid for 10 minutes — start again from the portal.',
+    invalid_state: 'This sign-in link expired or was already used. Links are valid for 10 minutes, so start again from the portal.',
     misconfigured: 'This platform is not fully set up on our side yet. Please let your account manager know.',
-    token_failed: 'The provider refused to complete the sign-in. This is almost always a configuration issue on our side — please let your account manager know.',
-    token_exchange_failed: 'The provider refused to complete the sign-in. This is almost always a configuration issue on our side — please let your account manager know.',
+    token_failed: 'The provider refused to complete the sign-in. This is almost always a configuration issue on our side. Please let your account manager know.',
+    token_exchange_failed: 'The provider refused to complete the sign-in. This is almost always a configuration issue on our side. Please let your account manager know.',
     encryption_failed: 'We could not store the connection securely, so nothing was saved. Please let your account manager know.',
     storage_failed: 'The sign-in worked but we could not save it. Please try again in a moment.',
     server_error: 'Something went wrong on our side. Please try again in a moment.'
@@ -63,20 +63,20 @@
   $('returnLink').setAttribute('href', portalUrl);
 
   if (ok) {
-    $('icon').textContent = '✅';
+    $('icon').dataset.state = 'ok';
     $('title').textContent = label + ' connected';
     $('message').textContent = 'Your ' + label + ' account is linked. Taking you back to the portal…';
-    document.title = 'Connected — Omnya Portal';
+    document.title = 'Connected | Omnya';
   } else {
     var key = platform && error.indexOf(platform + '_') === 0 ? error.slice(platform.length + 1) : error.replace(/^meta_/, '');
-    $('icon').textContent = '⚠️';
+    $('icon').dataset.state = 'error';
     $('title').textContent = 'We couldn’t connect ' + label;
     $('message').textContent = 'Nothing was changed on your account. You can go back to the portal or try again.';
     $('hint').textContent = HINTS[key] || 'Please try again. If it keeps happening, let your account manager know.';
     $('hint').hidden = false;
     if (error) { $('code').textContent = 'Reference: ' + error; $('code').hidden = false; }
     $('retryBtn').hidden = false;
-    document.title = 'Connection problem — Omnya Portal';
+    document.title = 'Connection problem | Omnya';
   }
 
   // ---- report ---------------------------------------------------------------

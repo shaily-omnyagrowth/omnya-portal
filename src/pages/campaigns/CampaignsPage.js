@@ -68,7 +68,7 @@ export default function CampaignsPage({ user, db, onRefresh, isOwner }) {
           {shown.length === 0 ? (
             <div className="card"><EmptyState icon={Search01Icon} title="No campaigns match" action={<button className="btn btn-secondary btn-sm" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Show all campaigns</button>}>Try another search or status.</EmptyState></div>
           ) : viewMode === "cards" ? (
-            <div className="grid-auto" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))" }}>
+            <div className="camp-grid">
               {shown.map(c => {
                 const client = db.clients.find(cl => cl.id === c.client_id);
                 return (

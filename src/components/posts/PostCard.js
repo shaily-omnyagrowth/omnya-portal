@@ -8,7 +8,7 @@ export default function PostCard({ post, onSelect }) {
   const body = (
     <>
       <div className="post-media">
-        <VideoThumb sub={post} fluid ratio={1.15} radius={0} platform={post.platformKey} />
+        <VideoThumb sub={post} fluid ratio={0.9} radius={0} platform={post.platformKey} />
         <span className="post-platform"><Icon icon={p.icon} size={12} />{p.name}</span>
       </div>
       <div className="post-body">

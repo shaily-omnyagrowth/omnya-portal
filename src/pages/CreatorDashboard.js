@@ -114,8 +114,8 @@ export default function CreatorDashboard({ user, db, onNavigate }) {
       <div className="stats-grid">
         <div className="stat-card"><div className="stat-label">In review</div><div className="stat-value">{inReview.length}</div><div className="stat-sub">{subs.length} sent in total</div></div>
         <div className="stat-card"><div className="stat-label">Approved videos</div><div className="stat-value">{approved.length}</div><div className="stat-sub">{subs.filter(s => new Date(s.created_at) > Date.now() - 7 * 86400000).length} sent this week</div></div>
-        <div className="stat-card"><div className="stat-label">Approval rate</div><div className="stat-value">{decided.length ? `${Math.round((approved.length / decided.length) * 100)}%` : '–'}</div><div className="stat-sub">{decided.length ? `of ${decided.length} reviewed` : 'No decisions yet'}</div></div>
-        <div className="stat-card stat-highlight"><div className="stat-label">Ready to withdraw</div><div className="stat-value">{earnings ? fmtMoney(available) : '–'}</div><div className="stat-sub">{fmtMoney(pending)} pending approval</div></div>
+        <div className="stat-card"><div className="stat-label">Approval rate</div><div className="stat-value">{decided.length ? `${Math.round((approved.length / decided.length) * 100)}%` : '--'}</div><div className="stat-sub">{decided.length ? `of ${decided.length} reviewed` : 'No decisions yet'}</div></div>
+        <div className="stat-card stat-highlight"><div className="stat-label">Ready to withdraw</div><div className="stat-value">{earnings ? fmtMoney(available) : '--'}</div><div className="stat-sub">{fmtMoney(pending)} pending approval</div></div>
       </div>
 
       <div className="dash-grid">
@@ -130,7 +130,7 @@ export default function CreatorDashboard({ user, db, onNavigate }) {
         <section className="card">
           <div className="card-head"><h2 className="card-title">Needs your attention</h2></div>
           {attention.length === 0 ? (
-            <EmptyState compact icon={CheckmarkCircle02Icon} title="Nothing to fix">Requested changes will show up here.</EmptyState>
+            <EmptyState compact icon={CheckmarkCircle02Icon} title="Nothing to resolve">If a reviewer asks for changes, you will see them here.</EmptyState>
           ) : (
             <div className="list-stack">
               {attention.slice(0, 4).map(s => (

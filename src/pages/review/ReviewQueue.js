@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowUpRight01Icon, Clock01Icon, TaskDone01Icon } from "@hugeicons/core-free-icons";
+import { Clock01Icon, TaskDone01Icon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
 import { sendEmail } from "../../lib/api";
 import { describeWriteError } from "../../lib/db";
@@ -146,7 +146,7 @@ export default function ReviewQueue({ db, onRefresh, user }) {
           </div>
         </div>
         <div className="review-actions">
-          {link && <a href={link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">Watch<Icon icon={ArrowUpRight01Icon} size={14} /></a>}
+          {link && <a href={link} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">Watch video</a>}
           {tab !== "revisions" ? (
             <>
               <span style={{ flex: 1 }} />

@@ -60,8 +60,8 @@ export default function TeamPerformance({ db, onRefresh, onNavigate }) {
             const avg = rated.length ? rated.reduce((t, c) => t + c.satisfaction_score, 0) / rated.length : null;
             const tiles = [
               ["Live campaigns", s.live], ["Active creators", `${s.active} of ${s.creators.length}`], ["Approved videos", s.approved],
-              ["Review turnaround", s.turnaround == null ? "–" : `${s.turnaround.toFixed(1)} days`, s.turnaround != null && s.turnaround > 5 ? "var(--red)" : null],
-              ["Creator retention", s.retention == null ? "–" : `${s.retention}%`], ["Margin", s.margin == null ? "–" : `${s.margin}%`, s.margin != null && s.margin < 20 ? "var(--red)" : null],
+              ["Review turnaround", s.turnaround == null ? "--" : `${s.turnaround.toFixed(1)} days`, s.turnaround != null && s.turnaround > 5 ? "var(--red)" : null],
+              ["Creator retention", s.retention == null ? "--" : `${s.retention}%`], ["Margin", s.margin == null ? "--" : `${s.margin}%`, s.margin != null && s.margin < 20 ? "var(--red)" : null],
             ];
             return (
               <section key={am.id} className="card">
@@ -72,7 +72,7 @@ export default function TeamPerformance({ db, onRefresh, onNavigate }) {
                   </span>
                   {avg != null && <span className="fs-13 text-muted">Satisfaction <strong className="text-ink">{avg.toFixed(1)}</strong> / 5</span>}
                 </div>
-                <div className="mini-stats" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
+                <div className="mini-stats stat-strip">
                   {tiles.map(([l, v, c]) => <div key={l} className="metric-mini"><div className="metric-mini-label">{l}</div><div className="metric-mini-val" style={{ fontSize: 18, color: c || undefined }}>{v}</div></div>)}
                 </div>
                 {s.clients.length > 0 && (

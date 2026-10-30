@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Search01Icon } from '@hugeicons/core-free-icons';
+import { Award01Icon, Search01Icon } from '@hugeicons/core-free-icons';
+import EmptyState from '../ui/EmptyState';
 import { BarChart } from '../ui/charts';
 import Icon from '../ui/Icon';
 import { engagementRate, fmtCompactNum, fmtPct, getInitials, isBreakoutVideo, viewsOf } from '../utils';
@@ -25,7 +26,7 @@ export default function CreatorLeaderboard({ creators = [], submissions = [], an
     .sort((a, b) => (typeof a[key] === 'string' ? a[key].localeCompare(b[key]) : a[key] - b[key]) * (asc ? 1 : -1));
   const top = [...rows].sort((a, b) => b.totalViews - a.totalViews).slice(0, 8);
 
-  if (!rows.length) return <div className="card"><p className="fs-13 text-muted">Creators appear here once they have an approved video.</p></div>;
+  if (!rows.length) return <div className="card"><EmptyState icon={Award01Icon} title="No creators to rank yet">Creators show up here, ranked by views, once one of their videos is approved.</EmptyState></div>;
 
   return (
     <div className="flex-col gap-24">
@@ -53,9 +54,10 @@ export default function CreatorLeaderboard({ creators = [], submissions = [], an
                   <td className="num fw-600" style={{ color: 'var(--ink)' }}>{fmtCompactNum(c.totalViews)}</td>
                   <td className="num">{fmtCompactNum(c.avgViews)}</td>
                   <td className="num">{fmtPct(c.er)}</td>
-                  <td className="num">{c.breakouts || '–'}</td>
+                  <td className="num">{c.breakouts || '--'}</td>
                 </tr>
               ))}
+              {shown.length === 0 && <tr><td colSpan={COLS.length + 1}><EmptyState compact icon={Search01Icon} title={`No creators match "${q}"`} action={<button className="btn btn-secondary btn-sm" onClick={() => setQ('')}>Clear search</button>}>Try a name, email or handle.</EmptyState></td></tr>}
             </tbody>
           </table>
         </div>
