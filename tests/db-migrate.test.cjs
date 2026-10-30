@@ -44,10 +44,12 @@ const goodEnv = () => envFile([
   `MIGRATE_BACKUP_DIR=${path.join(TMP, 'backups')}`,
 ]);
 
-// Production: SETUP.sql, with the first migration pasted in by hand (drift) unless `drift` is false.
+// Production: SETUP.sql plus every earlier file, all pasted by hand (drift); LAST_TWO[0] too unless `drift` is false.
 async function productionLike({ drift = true } = {}) {
   const db = await freshDb({ migrations: false });
-  if (drift) await db.exec(fs.readFileSync(path.join(MIG, LAST_TWO[0]), 'utf8'));
+  const files = probes.listMigrationFiles();
+  const pasted = files.slice(0, files.indexOf(LAST_TWO[drift ? 1 : 0]));
+  for (const f of pasted) await db.exec(fs.readFileSync(path.join(MIG, f), 'utf8'));
   return db;
 }
 
@@ -230,7 +232,7 @@ const historyOf = async (db) => {
 
   // ------------------------------------------------------------ partial failure
   console.log('\nPush stops at a failing file and says where (AC-6)');
-  await db.exec('ALTER TABLE public.payments RENAME TO payments_gone;');
+  await db.exec('ALTER TABLE public.creator_social_accounts RENAME TO csa_gone;');
   const pf = makeSys(db);
   const cp = await runner.main([`--env-file=${goodEnv()}`], pf);
   const pfOut = pf.logs.join('\n');
@@ -238,17 +240,17 @@ const historyOf = async (db) => {
   R(cp === 1, 'exits non zero', `exit ${cp}`);
   R(!hist2.includes(probes.versionOf(LAST_TWO[1])), 'the failing file is not recorded');
   R(new RegExp(`FAILED at ${LAST_TWO[1]}`).test(pfOut), 'names the failed file');
-  R(/Postgres said: .*payments/.test(pfOut), 'prints the Postgres error');
+  R(/Postgres said: .+/.test(pfOut), 'prints the Postgres error');
   R(/No rollback file exists for it\.|Rollback, if you decide you need it/.test(pfOut), 'says whether a rollback exists, and does not run it');
-  await db.exec('ALTER TABLE public.payments_gone RENAME TO payments;');
+  await db.exec('ALTER TABLE public.csa_gone RENAME TO creator_social_accounts;');
 
   // ------------------------------------------------------------ happy push
   console.log('\nPush applies the rest and proves it (AC-5, AC-6)');
   const hp = makeSys(db);
   const ch = await runner.main([`--env-file=${goodEnv()}`], hp);
   const after = await historyOf(db);
-  const pol = (await db.query("SELECT count(*)::int AS n FROM pg_policies WHERE policyname = 'payments_am_insert_own_campaign'")).rows[0].n;
-  R(pol === 1 && after.includes(probes.versionOf(LAST_TWO[1])), `${LAST_TWO[1]} applied and recorded`);
+  const lastProbe = (await db.query(probes.probeSelectSql(), [JSON.stringify(probes.probePayload())])).rows.find((r) => r.file === LAST_TWO[1]);
+  R(lastProbe && lastProbe.present && after.includes(probes.versionOf(LAST_TWO[1])), `${LAST_TWO[1]} applied and recorded`);
   R(/Push will apply/.test(hp.logs.join('\n')) &&
     hp.logs.findIndex((l) => /Push will apply/.test(l)) < hp.logs.findIndex((l) => /State after/.test(l)),
     'the plan is printed before the apply');

@@ -8,14 +8,13 @@ const {
   getBonusTier,
 } = require('../_lib/paymentCalculations');
 const { resolvePlatform } = require('../_utils/analytics');
-const { sendMigrationMissing } = require('../_utils/tiktokLink');
 
 // How long after posted_at a submission becomes bonus-eligible (matches
 // BONUS_ELIGIBILITY_DAYS = 10 in paymentCalculations.js).
 const BONUS_ELIGIBILITY_DAYS = 10;
 const BONUS_ELIGIBILITY_MS = BONUS_ELIGIBILITY_DAYS * 24 * 60 * 60 * 1000;
 
-// Spec 0002, AC-10. With TIKTOK_VERIFIED_BONUS_ONLY=true a TikTok bonus is
+// With TIKTOK_VERIFIED_BONUS_ONLY=true a TikTok bonus is
 // paid only on views the portal fetched itself (view_count_verified_at set),
 // never on view_count_submitted. A TikTok submission with no verified views
 // gets no bonus, any existing non terminal bonus row is left as it is, and it
@@ -63,11 +62,6 @@ module.exports = async (req, res) => {
       .not('creator_id', 'is', null);
 
     if (fetchError) {
-      // Only the hold's own column means 20261023000000 is missing; any other
-      // undefined column is a different problem and stays a 500.
-      if (tiktokVerifiedOnly && /view_count_verified_at|verified_views_source/.test(fetchError.message || '')) {
-        return sendMigrationMissing(res);
-      }
       console.error('[earnings/recalculate] fetch submissions error:', fetchError.message);
       return Errors.internal(res, 'Failed to fetch approved submissions');
     }

@@ -19,12 +19,6 @@
       "skillPath": "skills/resend/SKILL.md",
       "computedHash": "0194220da27c86668d1c18e66e765be5b30b4a946d501c67cecda904595ee9bf"
     },
-    "scrapecreators-api": {
-      "source": "scrapecreators/agent-skills",
-      "sourceType": "github",
-      "skillPath": "skills/scrapecreators-api/SKILL.md",
-      "computedHash": "e629feb3fd5b7975e99278d5fa0c7368b1f17eb258b851a02716862d81d0213d"
-    },
     "stripe-best-practices": {
       "source": "stripe/ai",
       "sourceType": "github",

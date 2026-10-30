@@ -12,5 +12,10 @@
     "kind": "policy",
     "table": "public.payments",
     "policy": "payments_am_insert_own_campaign"
+  },
+  "20261030140000_drop_tiktok_link_tracking.sql": {
+    "label": "TikTok link tracking removed",
+    "kind": "function",
+    "signature": "public.guard_verified_view_columns()"
   }
 }

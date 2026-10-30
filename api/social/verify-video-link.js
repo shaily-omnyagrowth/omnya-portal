@@ -14,7 +14,7 @@ const { requireRole, normalizeRole } = require('../_utils/auth');
 const { Errors, sendOk } = require('../_utils/errors');
 const { applyRateLimit } = require('../_utils/rateLimit');
 const { getSupabaseAdminClient } = require('../_utils/supabaseAdmin');
-const { fetchOwnVideo } = require('../_utils/socialPublic');
+const { fetchOwnVideo } = require('../_utils/socialVideo');
 const { detectPlatformFromUrl } = require('../_utils/analytics');
 
 const PLATFORM_LABELS = { tiktok: 'TikTok', youtube: 'YouTube', instagram: 'Instagram', facebook: 'Facebook' };
