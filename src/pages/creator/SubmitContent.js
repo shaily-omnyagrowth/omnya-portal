@@ -159,7 +159,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <Select id="campaign" className="select" value={form.campaign_id} onChange={e => set({ campaign_id: e.target.value })}>
                 {myJobs.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
               </Select>
-              {platform && <span className="form-hint" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon icon={platformMeta(platform).icon} size={14} />Post this on {platform}</span>}
+              {platform && <span className="form-hint" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon icon={platformMeta(platform).icon} size={14} />{platform}</span>}
             </div>
             <PostedChoice value={form.type} onChange={t => { set({ type: t }); resetVerify(); if (t === "Final") setUploadMode("link"); }} />
           </div>
