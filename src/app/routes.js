@@ -72,7 +72,7 @@ export function routeFor(role, page, ctx) {
       legal: [P.Legal, {}, "detail"],
     },
     owner: {
-      dashboard: [P.OwnerDashboard, { db, onRefresh: loadDB, setPage }, "dashboard"],
+      dashboard: [P.OwnerDashboard, { db, setPage }, "dashboard"],
       "clients-full": [P.ClientsPage, { ...common, isOwner: true }, "table"],
       revenue: [P.RevenueAnalytics, { ...common, isOwner: true }, "table"],
       "creator-performance": [P.CreatorPerformance, { ...common, isOwner: true }, "table"],
