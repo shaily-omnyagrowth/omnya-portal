@@ -29,10 +29,8 @@ const { getSupabaseAdminClient } = require('../../_utils/supabaseAdmin');
 const { applyRateLimit } = require('../../_utils/rateLimit');
 const { requireOwner, parseBody } = require('../../_lib/adminGuard');
 
-// Roles an owner may hand out at creation time. 'pending' is allowed so an
-// owner can pre-create an account and decide the role later. 'denied' is not:
-// creating an account in order to refuse it is not a workflow.
-const ASSIGNABLE_ROLES = ['pending', 'creator', 'am', 'account_manager', 'client', 'owner'];
+// Roles an owner may hand out at creation time.
+const ASSIGNABLE_ROLES = ['creator', 'am', 'account_manager', 'client'];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -58,7 +56,7 @@ module.exports = async (req, res) => {
   const body = parseBody(req);
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
-  const role = typeof body.role === 'string' ? body.role.trim() : 'pending';
+  const role = typeof body.role === 'string' ? body.role.trim() : '';
   const sendInvite = body.sendInvite !== false;
 
   if (!email || !EMAIL_RE.test(email)) {

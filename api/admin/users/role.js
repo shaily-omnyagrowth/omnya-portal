@@ -28,7 +28,7 @@ const {
 } = require('../../_lib/adminGuard');
 
 const ASSIGNABLE_ROLES = [
-  'pending', 'creator', 'am', 'account_manager', 'client', 'owner', 'denied',
+  'creator', 'am', 'account_manager', 'client', 'owner', 'denied',
 ];
 
 module.exports = async (req, res) => {

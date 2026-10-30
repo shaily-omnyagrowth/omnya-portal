@@ -13,7 +13,8 @@ import Avatar from '../ui/Avatar';
 import usePagination from '../ui/Pagination';
 
 const ROLE_TONE = { owner: 'ink', am: 'blue', account_manager: 'blue', creator: 'green', client: 'orange', pending: 'gray', denied: 'red' };
-const ASSIGNABLE = ['creator', 'am', 'client', 'owner', 'pending'];
+const INVITABLE = ['creator', 'am', 'client'];
+const ASSIGNABLE = [...INVITABLE, 'owner'];
 const BLANK = { email: '', fullName: '', role: 'creator', sendInvite: true };
 
 export default function UserManagement({ currentUser, onRefresh }) {
@@ -92,7 +93,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
           <div className="form-group"><label className="form-label" htmlFor="u-email">Email</label><input id="u-email" className="form-input" type="email" inputMode="email" value={create.email} onChange={e => setCreate({ ...create, email: e.target.value })} autoFocus /></div>
           <div className="form-row">
             <div className="form-group"><label className="form-label" htmlFor="u-name">Full name <span className="text-muted" style={{ fontWeight: 400 }}>(optional)</span></label><input id="u-name" className="form-input" value={create.fullName} onChange={e => setCreate({ ...create, fullName: e.target.value })} /></div>
-            <div className="form-group"><label className="form-label" htmlFor="u-role">Role</label><Select id="u-role" className="select" value={create.role} onChange={e => setCreate({ ...create, role: e.target.value })}>{ASSIGNABLE.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</Select></div>
+            <div className="form-group"><label className="form-label" htmlFor="u-role">Role</label><Select id="u-role" className="select" value={create.role} onChange={e => setCreate({ ...create, role: e.target.value })}>{INVITABLE.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</Select></div>
           </div>
           <label className="check"><input type="checkbox" checked={create.sendInvite} onChange={e => setCreate({ ...create, sendInvite: e.target.checked })} /><span>Email them an invite link</span></label>
           {!create.sendInvite && <p className="form-hint mt-8" style={{ color: 'var(--amber)' }}>Without an invite they can't sign in until you send a password reset.</p>}
