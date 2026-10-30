@@ -96,14 +96,33 @@ async function limit(opts) {
   R(r.blocked === false, 'count 1 of 3 is allowed');
   await limit({ userId: 'u1' });
   R(rpcCalls[1].args.p_key === 'rl:test:u:u1:ip:203.0.113.7', 'a user id goes into the key');
-  const signedIn = async (token) => { const { res } = fakeRes(); await applyRateLimit(req({ headers: { 'x-forwarded-for': '203.0.113.7', authorization: `Bearer ${token}` } }), res, { endpoint: 'test' }); return rpcCalls[rpcCalls.length - 1].args.p_key; };
-  const k1 = await signedIn('token-a'), k2 = await signedIn('token-b'), k1again = await signedIn('token-a');
-  R(/^rl:test:t:[0-9a-f]{32}$/.test(k1) && k1 !== k2 && k1 === k1again && !k1.includes('token-a'),
-    'signed-in callers on one IP get separate limits, keyed by a token hash', `${k1} / ${k2}`);
+  const signedIn = async (token, opts = {}) => {
+    const { res, out } = fakeRes();
+    const before = rpcCalls.length;
+    const blocked = await applyRateLimit(req({ headers: { 'x-forwarded-for': '203.0.113.7', authorization: `Bearer ${token}` } }), res, { endpoint: 'test', ...opts });
+    return { blocked, out, keys: rpcCalls.slice(before).map((c) => c.args.p_key) };
+  };
+  const a1 = await signedIn('token-a'), b1 = await signedIn('token-b'), a2 = await signedIn('token-a');
+  R(/^rl:test:t:[0-9a-f]{32}$/.test(a1.keys[0]) && a1.keys[0] !== b1.keys[0] && a1.keys[0] === a2.keys[0] && !a1.keys[0].includes('token-a'),
+    'signed-in callers on one IP get separate limits, keyed by a token hash', a1.keys.join(' / '));
+  R(a1.keys[1] === 'rl:test:ip:203.0.113.7', 'a signed-in call is also counted against its IP');
+  rpcImpl = (name, args) => Promise.resolve({ data: args.p_key.includes(':ip:') ? 31 : 1, error: null });
+  let ipOver = await signedIn('token-c', { max: 3 });
+  R(ipOver.blocked && ipOver.out.code === 429, 'rotating tokens cannot dodge the limit: the IP ceiling (10x) still applies');
+  rpcImpl = (name, args) => Promise.resolve({ data: args.p_key.includes(':ip:') ? 30 : 1, error: null });
+  ipOver = await signedIn('token-d', { max: 3 });
+  R(ipOver.blocked === false, 'a session under its limit on a shared IP at the ceiling is allowed');
+  rpcImpl = answer(1);
 
   rpcImpl = answer(4);
   r = await limit({ max: 3, windowSecs: 60 });
   R(r.blocked && r.code === 429 && r.headers['retry-after'] === '60', 'count 4 of 3: 429 with Retry-After');
+
+  setEnv({});
+  rpcCalls.length = 0;
+  r = await limit({ failClosed: true });
+  R(r.blocked === false && rpcCalls.length === 0, 'outside Vercel (no VERCEL_ENV) the limiter is off and touches no database');
+  setEnv({ VERCEL_ENV: 'production' });
 
   console.log('\nUnavailable means 503 in production for failClosed (AC-11)');
   const UNAVAILABLE = [

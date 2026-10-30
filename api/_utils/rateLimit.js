@@ -9,15 +9,17 @@
 //
 // When the limiter can't answer (error, missing function, 2 s timeout):
 //   * routes with `failClosed: true` answer 503 in production (spec 0001, AC-11);
-//   * every other route, and every route on preview and local, is let through.
+//   * every other route, and every route on preview, is let through.
 // On a failClosed route, call this BEFORE the auth guard.
 //
-// Signed-in callers are counted per session (bearer token hash), anonymous callers per IP.
+// Signed-in callers are counted per session (bearer token hash) against `max`, and per IP
+// against `max * SHARED_IP_FACTOR`; anonymous callers per IP against `max`.
 
 const crypto = require('crypto');
 const { getSupabaseAdminClient } = require('./supabaseAdmin');
 
 const TIMEOUT_MS = 2000;
+const SHARED_IP_FACTOR = 10;
 
 /**
  * @param {object} req
@@ -32,6 +34,9 @@ const TIMEOUT_MS = 2000;
  */
 async function applyRateLimit(req, res, opts = {}) {
   const { max = 20, windowSecs = 60, endpoint = 'default', userId, failClosed = false } = opts;
+
+  // Off outside Vercel (local dev and tests).
+  if (!process.env.VERCEL_ENV) return false;
 
   const enforce = failClosed === true && process.env.VERCEL_ENV === 'production';
 
@@ -54,28 +59,33 @@ async function applyRateLimit(req, res, opts = {}) {
     'unknown';
 
   const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  const keyParts = ['rl', endpoint];
-  if (userId) keyParts.push(`u:${userId}`);
-  keyParts.push(bearer ? `t:${crypto.createHash('sha256').update(bearer).digest('hex').slice(0, 32)}` : `ip:${ip}`);
-  const key = keyParts.join(':');
+  const base = ['rl', endpoint, ...(userId ? [`u:${userId}`] : [])];
+  // [key, limit] pairs; every one must stay under its limit.
+  const buckets = bearer
+    ? [[[...base, `t:${crypto.createHash('sha256').update(bearer).digest('hex').slice(0, 32)}`].join(':'), max],
+       [[...base, `ip:${ip}`].join(':'), max * SHARED_IP_FACTOR]]
+    : [[[...base, `ip:${ip}`].join(':'), max]];
 
   let timer;
-  let count;
+  let over = false;
   try {
-    const hit = getSupabaseAdminClient().rpc('rate_limit_hit', { p_key: key, p_window_secs: windowSecs });
-    const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve({ timedOut: true }), TIMEOUT_MS); });
-    const { data, error, timedOut } = await Promise.race([hit, timeout]);
-    if (timedOut) return unavailable(`rate_limit_hit did not answer within ${TIMEOUT_MS} ms`);
-    if (error) return unavailable(`rate_limit_hit failed: ${error.message}`);
-    if (typeof data !== 'number') return unavailable('rate_limit_hit returned a non numeric count');
-    count = data;
+    const supabase = getSupabaseAdminClient();
+    const hits = Promise.all(buckets.map(([key]) => supabase.rpc('rate_limit_hit', { p_key: key, p_window_secs: windowSecs })));
+    const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(null), TIMEOUT_MS); });
+    const results = await Promise.race([hits, timeout]);
+    if (!results) return unavailable(`rate_limit_hit did not answer within ${TIMEOUT_MS} ms`);
+    for (const [i, { data, error }] of results.entries()) {
+      if (error) return unavailable(`rate_limit_hit failed: ${error.message}`);
+      if (typeof data !== 'number') return unavailable('rate_limit_hit returned a non numeric count');
+      if (data > buckets[i][1]) over = true;
+    }
   } catch (err) {
     return unavailable(`rate_limit_hit threw: ${err && err.message}`);
   } finally {
     clearTimeout(timer);
   }
 
-  if (count > max) {
+  if (over) {
     res.setHeader('Retry-After', String(windowSecs));
     res.status(429).json({
       error: 'Too many requests. Please try again later.',
