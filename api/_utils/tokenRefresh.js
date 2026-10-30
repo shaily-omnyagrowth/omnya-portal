@@ -64,8 +64,8 @@ function metaCredentials() {
 // refreshExpiresInSeconds? } or throws with a message safe to store.
 
 async function refreshGoogle(account) {
-  const clientId = process.env.YOUTUBE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = process.env.YOUTUBE_CLIENT_ID;
+  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
   if (!clientId || !clientSecret) throw new Error('YouTube OAuth client is not configured');
 
   const refreshToken = decrypt(account.refresh_token_encrypted);
