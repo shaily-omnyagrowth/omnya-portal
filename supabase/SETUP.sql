@@ -123,33 +123,19 @@ CREATE FUNCTION public.apply_verified_views(p_submission_id uuid, p_views bigint
 DECLARE
     v_id UUID;
 BEGIN
-    IF p_source IS NULL OR p_source NOT IN ('oauth','link') THEN
-        RAISE EXCEPTION 'apply_verified_views: source must be oauth or link, got %', p_source
-            USING ERRCODE = '22023';
+    IF p_source IS DISTINCT FROM 'oauth' THEN
+        RAISE EXCEPTION 'apply_verified_views: source must be oauth, got %', p_source USING ERRCODE = '22023';
     END IF;
     IF p_views IS NULL OR p_views < 0 THEN
-        RAISE EXCEPTION 'apply_verified_views: views must be a non negative number'
-            USING ERRCODE = '22023';
+        RAISE EXCEPTION 'apply_verified_views: views must be a non negative number' USING ERRCODE = '22023';
     END IF;
 
     UPDATE public.submissions s
-       SET view_count_verified    = GREATEST(COALESCE(s.view_count_verified, 0),
-                                             LEAST(p_views, 2147483647))::INTEGER,
+       SET view_count_verified    = GREATEST(COALESCE(s.view_count_verified, 0), LEAST(p_views, 2147483647))::INTEGER,
            view_count_verified_at = now(),
            verified_views_source  = p_source
      WHERE s.id = p_submission_id
-       AND EXISTS (SELECT 1 FROM public.creators c
-                   WHERE c.id = s.creator_id AND c.user_id = p_user_id)
-       AND (
-            p_source = 'oauth'
-            OR EXISTS (
-                SELECT 1 FROM public.creator_social_accounts a
-                WHERE a.user_id     = p_user_id
-                  AND a.platform    = 'tiktok'
-                  AND a.link_status = 'verified'
-                  AND a.link_handle = p_handle
-            )
-       )
+       AND EXISTS (SELECT 1 FROM public.creators c WHERE c.id = s.creator_id AND c.user_id = p_user_id)
     RETURNING s.id INTO v_id;
 
     RETURN v_id IS NOT NULL;
@@ -801,81 +787,33 @@ $$;
 
 COMMENT ON FUNCTION public.get_my_payout_role() IS 'Returns the normalized role (account_manager -> am) for the calling user from user_profiles. Used by payout-system RLS policies.';
 
-CREATE FUNCTION public.guard_link_verification_columns() RETURNS trigger
+CREATE FUNCTION public.guard_creator_handles() RETURNS trigger
     LANGUAGE plpgsql
     SET search_path TO 'public'
     AS $$
-DECLARE
-    v_claims TEXT := nullif(current_setting('request.jwt.claims', true), '');
-    v_role   TEXT := coalesce(nullif(current_setting('request.jwt.claim.role', true), ''),
-                              CASE WHEN v_claims IS NULL THEN NULL
-                                   ELSE v_claims::jsonb ->> 'role' END);
-    v_bad    TEXT;
 BEGIN
-    IF current_user::text NOT IN ('authenticated','anon')
-       AND coalesce(v_role, '') NOT IN ('authenticated','anon') THEN
+    IF current_user::text NOT IN ('authenticated', 'anon') THEN
         RETURN NEW;
     END IF;
-
-    IF TG_TABLE_NAME = 'creator_social_accounts' THEN
-        IF TG_OP = 'INSERT' THEN
-            v_bad := CASE
-                WHEN NEW.link_handle          IS NOT NULL THEN 'link_handle'
-                WHEN NEW.link_status          IS NOT NULL THEN 'link_status'
-                WHEN NEW.link_code            IS NOT NULL THEN 'link_code'
-                WHEN NEW.link_code_expires_at IS NOT NULL THEN 'link_code_expires_at'
-                WHEN NEW.link_code_found_at   IS NOT NULL THEN 'link_code_found_at'
-                WHEN NEW.link_verified_at     IS NOT NULL THEN 'link_verified_at'
-                WHEN NEW.link_verified_by     IS NOT NULL THEN 'link_verified_by'
-                WHEN NEW.link_rejected_reason IS NOT NULL THEN 'link_rejected_reason'
-                WHEN NEW.link_health  IS DISTINCT FROM 'ok' THEN 'link_health'
-                WHEN NEW.link_failure_count IS DISTINCT FROM 0 THEN 'link_failure_count'
-                WHEN NEW.link_last_error      IS NOT NULL THEN 'link_last_error'
-                WHEN NEW.link_last_fetched_at IS NOT NULL THEN 'link_last_fetched_at'
-                WHEN NEW.follower_count       IS NOT NULL THEN 'follower_count'
-            END;
-        ELSE
-            v_bad := CASE
-                WHEN NEW.link_handle          IS DISTINCT FROM OLD.link_handle          THEN 'link_handle'
-                WHEN NEW.link_status          IS DISTINCT FROM OLD.link_status          THEN 'link_status'
-                WHEN NEW.link_code            IS DISTINCT FROM OLD.link_code            THEN 'link_code'
-                WHEN NEW.link_code_expires_at IS DISTINCT FROM OLD.link_code_expires_at THEN 'link_code_expires_at'
-                WHEN NEW.link_code_found_at   IS DISTINCT FROM OLD.link_code_found_at   THEN 'link_code_found_at'
-                WHEN NEW.link_verified_at     IS DISTINCT FROM OLD.link_verified_at     THEN 'link_verified_at'
-                WHEN NEW.link_verified_by     IS DISTINCT FROM OLD.link_verified_by     THEN 'link_verified_by'
-                WHEN NEW.link_rejected_reason IS DISTINCT FROM OLD.link_rejected_reason THEN 'link_rejected_reason'
-                WHEN NEW.link_health          IS DISTINCT FROM OLD.link_health          THEN 'link_health'
-                WHEN NEW.link_failure_count   IS DISTINCT FROM OLD.link_failure_count   THEN 'link_failure_count'
-                WHEN NEW.link_last_error      IS DISTINCT FROM OLD.link_last_error      THEN 'link_last_error'
-                WHEN NEW.link_last_fetched_at IS DISTINCT FROM OLD.link_last_fetched_at THEN 'link_last_fetched_at'
-                WHEN NEW.follower_count       IS DISTINCT FROM OLD.follower_count       THEN 'follower_count'
-            END;
-        END IF;
-
-    ELSIF TG_TABLE_NAME = 'submissions' THEN
-        IF TG_OP = 'INSERT' THEN
-            v_bad := CASE
-                WHEN coalesce(NEW.view_count_verified, 0) <> 0 THEN 'view_count_verified'
-                WHEN NEW.view_count_verified_at IS NOT NULL   THEN 'view_count_verified_at'
-                WHEN NEW.verified_views_source  IS NOT NULL   THEN 'verified_views_source'
-            END;
-        ELSE
-            v_bad := CASE
-                WHEN NEW.view_count_verified    IS DISTINCT FROM OLD.view_count_verified    THEN 'view_count_verified'
-                WHEN NEW.view_count_verified_at IS DISTINCT FROM OLD.view_count_verified_at THEN 'view_count_verified_at'
-                WHEN NEW.verified_views_source  IS DISTINCT FROM OLD.verified_views_source  THEN 'verified_views_source'
-            END;
-        END IF;
-
-    ELSIF TG_TABLE_NAME = 'creator_videos' THEN
-        IF NEW.source = 'link' OR (TG_OP = 'UPDATE' AND OLD.source = 'link') THEN
-            v_bad := 'source';
-        END IF;
+    IF TG_OP = 'INSERT' AND (NEW.tiktok_handle IS NOT NULL OR NEW.instagram_handle IS NOT NULL)
+       OR TG_OP = 'UPDATE' AND (NEW.tiktok_handle IS DISTINCT FROM OLD.tiktok_handle
+                                OR NEW.instagram_handle IS DISTINCT FROM OLD.instagram_handle) THEN
+        RAISE EXCEPTION 'Handles come from connected accounts and cannot be edited.' USING ERRCODE = '42501';
     END IF;
+    RETURN NEW;
+END;
+$$;
 
-    IF v_bad IS NOT NULL THEN
-        RAISE EXCEPTION 'Only the server can set %.% (spec 0002, AC-17)', TG_TABLE_NAME, v_bad
-            USING ERRCODE = '42501';
+CREATE FUNCTION public.guard_owner_role() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+    IF NEW.role = 'owner'
+       AND (TG_OP = 'INSERT' OR OLD.role IS DISTINCT FROM 'owner' OR NEW.email IS DISTINCT FROM OLD.email)
+       AND session_user NOT IN ('postgres', 'supabase_admin')
+       AND NOT EXISTS (SELECT 1 FROM public.owner_emails o WHERE o.email = lower(NEW.email)) THEN
+        RAISE EXCEPTION 'Only an approved owner email can have the owner role.' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
 END;
@@ -896,6 +834,42 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
+END;
+$$;
+
+CREATE FUNCTION public.guard_verified_view_columns() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+    v_claims TEXT := nullif(current_setting('request.jwt.claims', true), '');
+    v_role   TEXT := coalesce(nullif(current_setting('request.jwt.claim.role', true), ''),
+                              CASE WHEN v_claims IS NULL THEN NULL ELSE v_claims::jsonb ->> 'role' END);
+    v_bad    TEXT;
+BEGIN
+    IF current_user::text NOT IN ('authenticated','anon')
+       AND coalesce(v_role, '') NOT IN ('authenticated','anon') THEN
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        v_bad := CASE
+            WHEN coalesce(NEW.view_count_verified, 0) <> 0 THEN 'view_count_verified'
+            WHEN NEW.view_count_verified_at IS NOT NULL   THEN 'view_count_verified_at'
+            WHEN NEW.verified_views_source  IS NOT NULL   THEN 'verified_views_source'
+        END;
+    ELSE
+        v_bad := CASE
+            WHEN NEW.view_count_verified    IS DISTINCT FROM OLD.view_count_verified    THEN 'view_count_verified'
+            WHEN NEW.view_count_verified_at IS DISTINCT FROM OLD.view_count_verified_at THEN 'view_count_verified_at'
+            WHEN NEW.verified_views_source  IS DISTINCT FROM OLD.verified_views_source  THEN 'verified_views_source'
+        END;
+    END IF;
+
+    IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION 'Only the server can set submissions.%', v_bad USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
 END;
 $$;
 
@@ -1310,6 +1284,18 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION public.rate_limit_hit(p_key text, p_window_secs integer) RETURNS integer
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+    INSERT INTO public.rate_limits AS r (key, count, window_ends)
+    VALUES (p_key, 1, now() + make_interval(secs => p_window_secs))
+    ON CONFLICT (key) DO UPDATE
+       SET count       = CASE WHEN r.window_ends <= now() THEN 1 ELSE r.count + 1 END,
+           window_ends = CASE WHEN r.window_ends <= now() THEN now() + make_interval(secs => p_window_secs) ELSE r.window_ends END
+    RETURNING count;
+$$;
+
 CREATE FUNCTION public.record_payout_transition() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public', 'pg_temp'
@@ -1707,38 +1693,6 @@ BEGIN
 END;
 $$;
 
-CREATE FUNCTION public.thin_video_metrics(p_keep_days integer) RETURNS bigint
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-DECLARE
-    v_deleted BIGINT;
-BEGIN
-    IF p_keep_days IS NULL OR p_keep_days < 1 THEN
-        RAISE EXCEPTION 'thin_video_metrics: keep_days must be at least 1' USING ERRCODE = '22023';
-    END IF;
-
-    WITH ranked AS (
-        SELECT id,
-               row_number() OVER (
-                   PARTITION BY video_id, (snapshot_at AT TIME ZONE 'UTC')::date
-                   ORDER BY snapshot_at DESC, id DESC
-               ) AS rn
-        FROM   public.video_metrics
-        WHERE  snapshot_at < now() - make_interval(days => p_keep_days)
-    ),
-    gone AS (
-        DELETE FROM public.video_metrics v
-        USING  ranked r
-        WHERE  v.id = r.id AND r.rn > 1
-        RETURNING 1
-    )
-    SELECT count(*) INTO v_deleted FROM gone;
-
-    RETURN v_deleted;
-END;
-$$;
-
 CREATE FUNCTION public.trg_audit_creator_archive() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public', 'auth'
@@ -2073,8 +2027,7 @@ CREATE TABLE public.submissions (
     view_count_verified_at timestamp with time zone,
     verified_views_source text,
     thumbnail_url text,
-    CONSTRAINT submissions_status_check CHECK ((status = ANY (ARRAY['Draft'::text, 'Submitted'::text, 'Under Review'::text, 'Revision Requested'::text, 'Rejected'::text, 'Approved'::text, 'Published/Tracked'::text, 'Archived'::text]))),
-    CONSTRAINT submissions_verified_views_source_check CHECK (((verified_views_source IS NULL) OR (verified_views_source = ANY (ARRAY['oauth'::text, 'link'::text]))))
+    CONSTRAINT submissions_status_check CHECK ((status = ANY (ARRAY['Draft'::text, 'Submitted'::text, 'Under Review'::text, 'Revision Requested'::text, 'Rejected'::text, 'Approved'::text, 'Published/Tracked'::text, 'Archived'::text])))
 );
 
 COMMENT ON COLUMN public.submissions.archived_at IS 'When the submission was archived. NULL means live.';
@@ -2094,53 +2047,6 @@ CREATE VIEW public.client_safe_submissions WITH (security_invoker='true') AS
      JOIN public.clients cl ON ((ca.client_id = cl.id)))
      JOIN public.creators cr ON ((s.creator_id = cr.id)))
   WHERE ((cl.user_id = auth.uid()) AND (s.status = 'Approved'::text));
-
-CREATE TABLE public.creator_tokens (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id uuid,
-    platform text NOT NULL,
-    access_token text,
-    refresh_token text,
-    scopes text[],
-    expires_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    creator_id uuid,
-    account_id text,
-    account_name text,
-    status text DEFAULT 'connected'::text,
-    last_synced_at timestamp with time zone,
-    last_error text,
-    platform_user_id text,
-    platform_username text,
-    token_type text,
-    scope text,
-    refresh_expires_at timestamp with time zone,
-    metadata jsonb DEFAULT '{}'::jsonb
-);
-
-COMMENT ON TABLE public.creator_tokens IS 'LEGACY, NOT WRITTEN TO. Superseded by public.creator_social_accounts, which stores the same connections with AES-256-GCM encrypted tokens (F-3 / F-13). Retained for history only. Rows are migrated by scripts/backfill-tokens.js; its --scrub phase NULLs the plaintext once a row is verified to round-trip. No browser-facing role has any privilege on this table. Do not add one.';
-
-COMMENT ON COLUMN public.creator_tokens.access_token IS 'PLAINTEXT LEGACY VALUE. Never expose. Encrypted equivalent lives in creator_social_accounts.access_token_encrypted.';
-
-COMMENT ON COLUMN public.creator_tokens.refresh_token IS 'PLAINTEXT LEGACY VALUE. Never expose. Encrypted equivalent lives in creator_social_accounts.refresh_token_encrypted.';
-
-CREATE VIEW public.creator_connection_status WITH (security_invoker='true') AS
- SELECT id,
-    user_id,
-    platform,
-    platform_user_id,
-    platform_username,
-    status,
-    expires_at,
-    refresh_expires_at,
-    last_synced_at,
-    last_error,
-    created_at,
-    updated_at
-   FROM public.creator_tokens;
-
-COMMENT ON VIEW public.creator_connection_status IS 'Public-safe projection of creator_tokens (omits access/refresh tokens). security_invoker=true means RLS on creator_tokens is enforced when the view is queried by a non-service role.';
 
 CREATE TABLE public.creator_earnings (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -2186,33 +2092,13 @@ CREATE TABLE public.creator_social_accounts (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    link_handle text,
-    link_status text,
-    link_code text,
-    link_code_expires_at timestamp with time zone,
-    link_code_found_at timestamp with time zone,
-    link_verified_at timestamp with time zone,
-    link_verified_by uuid,
-    link_rejected_reason text,
-    link_health text DEFAULT 'ok'::text NOT NULL,
-    link_failure_count integer DEFAULT 0 NOT NULL,
-    link_last_error text,
-    link_last_fetched_at timestamp with time zone,
-    follower_count bigint,
     CONSTRAINT creator_social_accounts_connection_status_check CHECK ((connection_status = ANY (ARRAY['not_connected'::text, 'connected'::text, 'disconnected'::text, 'reauth_required'::text]))),
-    CONSTRAINT creator_social_accounts_link_handle_check CHECK (((link_handle IS NULL) OR (link_handle ~ '^[a-z0-9._]{2,24}$'::text))),
-    CONSTRAINT creator_social_accounts_link_handle_status_check CHECK (((link_handle IS NOT NULL) OR (link_status IS NULL))),
-    CONSTRAINT creator_social_accounts_link_health_check CHECK ((link_health = ANY (ARRAY['ok'::text, 'needs_attention'::text]))),
-    CONSTRAINT creator_social_accounts_link_rejected_reason_check CHECK (((link_rejected_reason IS NULL) OR (char_length(link_rejected_reason) <= 500))),
-    CONSTRAINT creator_social_accounts_link_status_check CHECK (((link_status IS NULL) OR (link_status = ANY (ARRAY['pending_code'::text, 'code_found'::text, 'verified'::text, 'rejected'::text])))),
     CONSTRAINT creator_social_accounts_platform_check CHECK ((platform = ANY (ARRAY['tiktok'::text, 'instagram'::text, 'facebook'::text, 'youtube'::text])))
 );
 
 COMMENT ON TABLE public.creator_social_accounts IS 'One connected social account per (user_id, platform). Tokens are stored as AES-256-GCM ciphertext produced by api/_utils/encryption.js. Read from the browser through creator_social_accounts_safe, never from this table.';
 
 COMMENT ON COLUMN public.creator_social_accounts.access_token_encrypted IS 'base64([IV 12B | GCM tag 16B | ciphertext]). Never exposed to anon or to authenticated -- see the column grants in SECTION 7.';
-
-COMMENT ON COLUMN public.creator_social_accounts.link_status IS 'TikTok profile link state (spec 0002): pending_code -> code_found -> verified, or rejected. NULL when the creator has no link. Written only by api/tiktok-link/* and the link cron with the service role.';
 
 CREATE VIEW public.creator_social_accounts_safe WITH (security_invoker='true') AS
  SELECT id,
@@ -2232,23 +2118,8 @@ CREATE VIEW public.creator_social_accounts_safe WITH (security_invoker='true') A
     last_error,
     metadata,
     created_at,
-    updated_at,
-    link_handle,
-    link_status,
-    link_code,
-    link_code_expires_at,
-    link_code_found_at,
-    link_verified_at,
-    link_verified_by,
-    link_rejected_reason,
-    link_health,
-    link_failure_count,
-    link_last_error,
-    link_last_fetched_at,
-    follower_count
-   FROM public.creator_social_accounts csa;
-
-COMMENT ON VIEW public.creator_social_accounts_safe IS 'creator_social_accounts without access_token_encrypted / refresh_token_encrypted. This is the only connection-state read the browser is permitted to make; the base table revokes those two columns from authenticated and revokes everything from anon.';
+    updated_at
+   FROM public.creator_social_accounts;
 
 CREATE TABLE public.creator_videos (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -2270,10 +2141,7 @@ CREATE TABLE public.creator_videos (
     sync_status text DEFAULT 'synced'::text NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    source text DEFAULT 'oauth'::text NOT NULL,
-    author_handle text,
-    CONSTRAINT creator_videos_source_check CHECK ((source = ANY (ARRAY['oauth'::text, 'link'::text])))
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 COMMENT ON TABLE public.creator_videos IS 'Latest known state of one published video. The per-pull history lives in video_metrics; this table is overwritten on every sync.';
@@ -2285,7 +2153,8 @@ CREATE TABLE public.messages (
     sender_name text,
     content text,
     is_pinned boolean DEFAULT false,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    reactions jsonb DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE public.oauth_states (
@@ -2301,6 +2170,11 @@ CREATE TABLE public.oauth_states (
 );
 
 COMMENT ON TABLE public.oauth_states IS 'Short-lived OAuth state + PKCE verifier store. Server-only; deny-all RLS.';
+
+CREATE TABLE public.owner_emails (
+    email text NOT NULL,
+    CONSTRAINT owner_emails_email_check CHECK ((email = lower(email)))
+);
 
 CREATE TABLE public.payment_audit_logs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -2418,14 +2292,10 @@ CREATE TABLE public.payout_line_items (
     status text DEFAULT 'pending'::text
 );
 
-CREATE TABLE public.social_profile_snapshots (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    social_account_id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    snapshot_date date NOT NULL,
-    follower_count bigint NOT NULL,
-    video_count integer,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE public.rate_limits (
+    key text NOT NULL,
+    count integer NOT NULL,
+    window_ends timestamp with time zone NOT NULL
 );
 
 CREATE TABLE public.user_profiles (
@@ -2528,15 +2398,6 @@ ALTER TABLE ONLY public.creator_social_accounts
 ALTER TABLE ONLY public.creator_social_accounts
     ADD CONSTRAINT creator_social_accounts_user_id_platform_key UNIQUE (user_id, platform);
 
-ALTER TABLE ONLY public.creator_tokens
-    ADD CONSTRAINT creator_tokens_creator_id_platform_key UNIQUE (creator_id, platform);
-
-ALTER TABLE ONLY public.creator_tokens
-    ADD CONSTRAINT creator_tokens_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.creator_tokens
-    ADD CONSTRAINT creator_tokens_user_id_platform_key UNIQUE (user_id, platform);
-
 ALTER TABLE ONLY public.creator_videos
     ADD CONSTRAINT creator_videos_pkey PRIMARY KEY (id);
 
@@ -2554,6 +2415,9 @@ ALTER TABLE ONLY public.messages
 
 ALTER TABLE ONLY public.oauth_states
     ADD CONSTRAINT oauth_states_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY public.owner_emails
+    ADD CONSTRAINT owner_emails_pkey PRIMARY KEY (email);
 
 ALTER TABLE ONLY public.payment_audit_logs
     ADD CONSTRAINT payment_audit_logs_pkey PRIMARY KEY (id);
@@ -2579,14 +2443,14 @@ ALTER TABLE ONLY public.payout_ledger
 ALTER TABLE ONLY public.payout_line_items
     ADD CONSTRAINT payout_line_items_pkey PRIMARY KEY (id);
 
-ALTER TABLE ONLY public.social_profile_snapshots
-    ADD CONSTRAINT social_profile_snapshots_account_day_key UNIQUE (social_account_id, snapshot_date);
-
-ALTER TABLE ONLY public.social_profile_snapshots
-    ADD CONSTRAINT social_profile_snapshots_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.rate_limits
+    ADD CONSTRAINT rate_limits_pkey PRIMARY KEY (key);
 
 ALTER TABLE ONLY public.submissions
     ADD CONSTRAINT submissions_pkey PRIMARY KEY (id);
+
+ALTER TABLE public.submissions
+    ADD CONSTRAINT submissions_verified_views_source_check CHECK (((verified_views_source IS NULL) OR (verified_views_source = 'oauth'::text))) NOT VALID;
 
 ALTER TABLE ONLY public.user_profiles
     ADD CONSTRAINT user_profiles_email_key UNIQUE (email);
@@ -2612,8 +2476,6 @@ ALTER TABLE ONLY public.withdrawal_requests
 CREATE UNIQUE INDEX creator_earnings_base_pay_per_submission ON public.creator_earnings USING btree (submission_id) WHERE ((earning_type = 'base_video_pay'::text) AND (submission_id IS NOT NULL));
 
 CREATE UNIQUE INDEX creator_earnings_bonus_per_submission ON public.creator_earnings USING btree (submission_id) WHERE ((earning_type = 'performance_bonus'::text) AND (submission_id IS NOT NULL));
-
-CREATE UNIQUE INDEX creator_social_accounts_verified_handle_key ON public.creator_social_accounts USING btree (lower(link_handle)) WHERE (link_status = 'verified'::text);
 
 CREATE INDEX idx_admin_audit_actor ON public.admin_audit_logs USING btree (actor_user_id, occurred_at DESC);
 
@@ -2645,17 +2507,11 @@ CREATE INDEX idx_creator_earnings_submission_id ON public.creator_earnings USING
 
 CREATE INDEX idx_creator_social_accounts_creator_id ON public.creator_social_accounts USING btree (creator_id);
 
-CREATE INDEX idx_creator_social_accounts_link_queue ON public.creator_social_accounts USING btree (link_status, link_last_fetched_at) WHERE (platform = 'tiktok'::text);
-
 CREATE INDEX idx_creator_social_accounts_status ON public.creator_social_accounts USING btree (connection_status);
 
 CREATE INDEX idx_creator_social_accounts_token_expiry ON public.creator_social_accounts USING btree (token_expires_at) WHERE (token_expires_at IS NOT NULL);
 
 CREATE INDEX idx_creator_social_accounts_user_id ON public.creator_social_accounts USING btree (user_id);
-
-CREATE INDEX idx_creator_tokens_creator_id ON public.creator_tokens USING btree (creator_id);
-
-CREATE INDEX idx_creator_tokens_user_id ON public.creator_tokens USING btree (user_id);
 
 CREATE INDEX idx_creator_videos_creator_id ON public.creator_videos USING btree (creator_id);
 
@@ -2710,8 +2566,6 @@ CREATE INDEX idx_payout_ledger_entity ON public.payout_ledger USING btree (entit
 CREATE INDEX idx_payout_ledger_occurred ON public.payout_ledger USING btree (occurred_at DESC);
 
 CREATE INDEX idx_payout_ledger_reverses ON public.payout_ledger USING btree (reverses_entry_id) WHERE (reverses_entry_id IS NOT NULL);
-
-CREATE INDEX idx_social_profile_snapshots_user_id ON public.social_profile_snapshots USING btree (user_id);
 
 CREATE INDEX idx_submissions_campaign_id ON public.submissions USING btree (campaign_id);
 
@@ -2785,13 +2639,13 @@ CREATE TRIGGER trg_creators_guard_overrides BEFORE INSERT OR UPDATE ON public.cr
 
 CREATE TRIGGER trg_creators_no_delete BEFORE DELETE ON public.creators FOR EACH ROW EXECUTE FUNCTION public.refuse_hard_delete();
 
-CREATE TRIGGER trg_guard_link_verification BEFORE INSERT OR UPDATE ON public.creator_social_accounts FOR EACH ROW EXECUTE FUNCTION public.guard_link_verification_columns();
+CREATE TRIGGER trg_guard_creator_handles BEFORE INSERT OR UPDATE ON public.creators FOR EACH ROW EXECUTE FUNCTION public.guard_creator_handles();
 
-CREATE TRIGGER trg_guard_link_verification BEFORE INSERT OR UPDATE ON public.creator_videos FOR EACH ROW EXECUTE FUNCTION public.guard_link_verification_columns();
-
-CREATE TRIGGER trg_guard_link_verification BEFORE INSERT OR UPDATE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.guard_link_verification_columns();
+CREATE TRIGGER trg_guard_owner_role BEFORE INSERT OR UPDATE OF role, email ON public.user_profiles FOR EACH ROW EXECUTE FUNCTION public.guard_owner_role();
 
 CREATE TRIGGER trg_guard_profile_self_update BEFORE UPDATE ON public.user_profiles FOR EACH ROW EXECUTE FUNCTION public.guard_profile_self_update();
+
+CREATE TRIGGER trg_guard_verified_views BEFORE INSERT OR UPDATE ON public.submissions FOR EACH ROW EXECUTE FUNCTION public.guard_verified_view_columns();
 
 CREATE TRIGGER trg_ledger_batch AFTER UPDATE OF status ON public.payout_batches FOR EACH ROW EXECUTE FUNCTION public.record_payout_transition('batch');
 
@@ -2859,16 +2713,7 @@ ALTER TABLE ONLY public.creator_social_accounts
     ADD CONSTRAINT creator_social_accounts_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE SET NULL;
 
 ALTER TABLE ONLY public.creator_social_accounts
-    ADD CONSTRAINT creator_social_accounts_link_verified_by_fkey FOREIGN KEY (link_verified_by) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.creator_social_accounts
     ADD CONSTRAINT creator_social_accounts_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.creator_tokens
-    ADD CONSTRAINT creator_tokens_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.creator_tokens
-    ADD CONSTRAINT creator_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.creator_videos
     ADD CONSTRAINT creator_videos_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.creators(id) ON DELETE SET NULL;
@@ -2935,9 +2780,6 @@ ALTER TABLE ONLY public.payout_line_items
 
 ALTER TABLE ONLY public.payout_line_items
     ADD CONSTRAINT payout_line_items_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id);
-
-ALTER TABLE ONLY public.social_profile_snapshots
-    ADD CONSTRAINT social_profile_snapshots_social_account_id_fkey FOREIGN KEY (social_account_id) REFERENCES public.creator_social_accounts(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.submissions
     ADD CONSTRAINT submissions_campaign_id_fkey FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
@@ -3123,8 +2965,6 @@ CREATE POLICY creator_social_accounts_select_self ON public.creator_social_accou
 
 CREATE POLICY creator_social_accounts_update_self ON public.creator_social_accounts FOR UPDATE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text))) WITH CHECK (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
 
-ALTER TABLE public.creator_tokens ENABLE ROW LEVEL SECURITY;
-
 ALTER TABLE public.creator_videos ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY creator_videos_delete_self ON public.creator_videos FOR DELETE TO authenticated USING (((user_id = auth.uid()) OR (public.current_user_role() = 'owner'::text)));
@@ -3182,6 +3022,8 @@ CREATE POLICY messages_update_self_or_owner ON public.messages FOR UPDATE TO aut
 
 ALTER TABLE public.oauth_states ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE public.owner_emails ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.payment_audit_logs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY payment_audit_logs_owner_select ON public.payment_audit_logs FOR SELECT TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
@@ -3200,7 +3042,7 @@ CREATE POLICY payment_managers_self_select ON public.payment_managers FOR SELECT
 
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY payments_am_approval_insert ON public.payments FOR INSERT TO authenticated WITH CHECK (((public.current_user_role() = 'am'::text) AND (status = 'Pending'::text) AND public.am_owns_campaign(campaign_id) AND (EXISTS ( SELECT 1
+CREATE POLICY payments_am_insert_own_campaign ON public.payments FOR INSERT TO authenticated WITH CHECK (((public.current_user_role() = 'am'::text) AND (status = 'pending'::text) AND public.am_owns_campaign(campaign_id) AND (EXISTS ( SELECT 1
    FROM public.campaigns ca
   WHERE ((ca.id = payments.campaign_id) AND (COALESCE(payments.amount_owed, (0)::numeric) <= (COALESCE(ca.pay_per_video, (0)::numeric) * (GREATEST(COALESCE(payments.videos_approved, 1), 1))::numeric)))))));
 
@@ -3212,8 +3054,6 @@ CREATE POLICY payments_am_select ON public.payments FOR SELECT TO authenticated 
 CREATE POLICY payments_creator_select ON public.payments FOR SELECT TO authenticated USING ((EXISTS ( SELECT 1
    FROM public.creators cr
   WHERE ((cr.id = payments.creator_id) AND (cr.user_id = auth.uid())))));
-
-CREATE POLICY payments_modify_owner_or_am ON public.payments TO authenticated USING ((public.current_user_role() = ANY (ARRAY['owner'::text, 'am'::text]))) WITH CHECK ((public.current_user_role() = ANY (ARRAY['owner'::text, 'am'::text])));
 
 CREATE POLICY payments_owner_delete ON public.payments FOR DELETE TO authenticated USING ((public.get_my_payout_role() = 'owner'::text));
 
@@ -3256,16 +3096,7 @@ ALTER TABLE public.payout_line_items ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY payout_line_items_owner_only ON public.payout_line_items TO authenticated USING ((public.current_user_role() = 'owner'::text)) WITH CHECK ((public.current_user_role() = 'owner'::text));
 
-ALTER TABLE public.social_profile_snapshots ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY social_profile_snapshots_select_am ON public.social_profile_snapshots FOR SELECT TO authenticated USING (((public.current_user_role() = 'am'::text) AND (EXISTS ( SELECT 1
-   FROM (public.creators c
-     JOIN public.account_managers am ON ((am.id = c.am_id)))
-  WHERE ((am.user_id = auth.uid()) AND (c.user_id = social_profile_snapshots.user_id))))));
-
-CREATE POLICY social_profile_snapshots_select_owner_pm ON public.social_profile_snapshots FOR SELECT TO authenticated USING (((public.current_user_role() = 'owner'::text) OR public.is_payment_manager('can_view_payouts'::text)));
-
-CREATE POLICY social_profile_snapshots_select_self ON public.social_profile_snapshots FOR SELECT TO authenticated USING ((user_id = auth.uid()));
+ALTER TABLE public.rate_limits ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.submissions ENABLE ROW LEVEL SECURITY;
 
@@ -3477,13 +3308,21 @@ GRANT ALL ON FUNCTION public.get_my_payout_role() TO anon;
 GRANT ALL ON FUNCTION public.get_my_payout_role() TO authenticated;
 GRANT ALL ON FUNCTION public.get_my_payout_role() TO service_role;
 
-GRANT ALL ON FUNCTION public.guard_link_verification_columns() TO anon;
-GRANT ALL ON FUNCTION public.guard_link_verification_columns() TO authenticated;
-GRANT ALL ON FUNCTION public.guard_link_verification_columns() TO service_role;
+GRANT ALL ON FUNCTION public.guard_creator_handles() TO anon;
+GRANT ALL ON FUNCTION public.guard_creator_handles() TO authenticated;
+GRANT ALL ON FUNCTION public.guard_creator_handles() TO service_role;
+
+GRANT ALL ON FUNCTION public.guard_owner_role() TO anon;
+GRANT ALL ON FUNCTION public.guard_owner_role() TO authenticated;
+GRANT ALL ON FUNCTION public.guard_owner_role() TO service_role;
 
 GRANT ALL ON FUNCTION public.guard_profile_self_update() TO anon;
 GRANT ALL ON FUNCTION public.guard_profile_self_update() TO authenticated;
 GRANT ALL ON FUNCTION public.guard_profile_self_update() TO service_role;
+
+GRANT ALL ON FUNCTION public.guard_verified_view_columns() TO anon;
+GRANT ALL ON FUNCTION public.guard_verified_view_columns() TO authenticated;
+GRANT ALL ON FUNCTION public.guard_verified_view_columns() TO service_role;
 
 REVOKE ALL ON FUNCTION public.handle_new_client_user() FROM PUBLIC;
 GRANT ALL ON FUNCTION public.handle_new_client_user() TO anon;
@@ -3545,6 +3384,9 @@ GRANT ALL ON FUNCTION public.purge_expired_oauth_states() TO anon;
 GRANT ALL ON FUNCTION public.purge_expired_oauth_states() TO authenticated;
 GRANT ALL ON FUNCTION public.purge_expired_oauth_states() TO service_role;
 
+REVOKE ALL ON FUNCTION public.rate_limit_hit(p_key text, p_window_secs integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.rate_limit_hit(p_key text, p_window_secs integer) TO service_role;
+
 GRANT ALL ON FUNCTION public.record_payout_transition() TO anon;
 GRANT ALL ON FUNCTION public.record_payout_transition() TO authenticated;
 GRANT ALL ON FUNCTION public.record_payout_transition() TO service_role;
@@ -3578,9 +3420,6 @@ REVOKE ALL ON FUNCTION public.set_updated_at() FROM PUBLIC;
 GRANT ALL ON FUNCTION public.set_updated_at() TO anon;
 GRANT ALL ON FUNCTION public.set_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.set_updated_at() TO service_role;
-
-REVOKE ALL ON FUNCTION public.thin_video_metrics(p_keep_days integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.thin_video_metrics(p_keep_days integer) TO service_role;
 
 GRANT ALL ON FUNCTION public.trg_audit_creator_archive() TO anon;
 GRANT ALL ON FUNCTION public.trg_audit_creator_archive() TO authenticated;
@@ -3641,12 +3480,6 @@ GRANT ALL ON TABLE public.client_safe_submissions TO anon;
 GRANT ALL ON TABLE public.client_safe_submissions TO authenticated;
 GRANT ALL ON TABLE public.client_safe_submissions TO service_role;
 
-GRANT ALL ON TABLE public.creator_tokens TO service_role;
-
-GRANT ALL ON TABLE public.creator_connection_status TO anon;
-GRANT ALL ON TABLE public.creator_connection_status TO authenticated;
-GRANT ALL ON TABLE public.creator_connection_status TO service_role;
-
 GRANT ALL ON TABLE public.creator_earnings TO anon;
 GRANT ALL ON TABLE public.creator_earnings TO authenticated;
 GRANT ALL ON TABLE public.creator_earnings TO service_role;
@@ -3690,33 +3523,6 @@ GRANT SELECT(created_at) ON TABLE public.creator_social_accounts TO authenticate
 
 GRANT SELECT(updated_at) ON TABLE public.creator_social_accounts TO authenticated;
 
-GRANT SELECT(link_handle) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_status) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_code) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_code_expires_at) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_code_found_at) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_verified_at) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_verified_by) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_rejected_reason) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_health) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_failure_count) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_last_error) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(link_last_fetched_at) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT SELECT(follower_count) ON TABLE public.creator_social_accounts TO authenticated;
-
-GRANT ALL ON TABLE public.creator_social_accounts_safe TO anon;
 GRANT ALL ON TABLE public.creator_social_accounts_safe TO authenticated;
 GRANT ALL ON TABLE public.creator_social_accounts_safe TO service_role;
 
@@ -3754,8 +3560,7 @@ GRANT ALL ON TABLE public.payout_line_items TO anon;
 GRANT ALL ON TABLE public.payout_line_items TO authenticated;
 GRANT ALL ON TABLE public.payout_line_items TO service_role;
 
-GRANT ALL ON TABLE public.social_profile_snapshots TO service_role;
-GRANT SELECT ON TABLE public.social_profile_snapshots TO authenticated;
+GRANT ALL ON TABLE public.rate_limits TO service_role;
 
 GRANT ALL ON TABLE public.user_profiles TO anon;
 GRANT ALL ON TABLE public.user_profiles TO authenticated;
@@ -3767,6 +3572,8 @@ GRANT ALL ON TABLE public.video_metrics TO service_role;
 GRANT ALL ON TABLE public.withdrawal_requests TO anon;
 GRANT ALL ON TABLE public.withdrawal_requests TO authenticated;
 GRANT ALL ON TABLE public.withdrawal_requests TO service_role;
+
+INSERT INTO public.owner_emails (email) VALUES ('shaily@omnyagrowth.com') ON CONFLICT DO NOTHING;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

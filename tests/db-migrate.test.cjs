@@ -17,6 +17,18 @@ const path = require('path');
 
 const { freshDb } = require('../supabase/migrations/__tests__/db.cjs');
 
+// Two fixture migrations in a temp folder stand in for real ones.
+const FIXTURES = fs.mkdtempSync(path.join(os.tmpdir(), 'db-migrate-fixtures-'));
+const fixture = (name) => `BEGIN;\nCREATE TABLE IF NOT EXISTS public.${name} (id int);\nALTER TABLE public.${name} ENABLE ROW LEVEL SECURITY;\nCOMMIT;\n`;
+fs.writeFileSync(path.join(FIXTURES, '20990101000000_fixture_a.sql'), fixture('fixture_a'));
+fs.writeFileSync(path.join(FIXTURES, '20990101000100_fixture_b.sql'),
+  fixture('fixture_b').replace('COMMIT;', 'ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS fixture_b int;\nCOMMIT;'));
+fs.writeFileSync(path.join(FIXTURES, 'probes.json'), JSON.stringify({
+  '20990101000000_fixture_a.sql': { label: 'Fixture A', kind: 'table', table: 'public.fixture_a' },
+  '20990101000100_fixture_b.sql': { label: 'Fixture B', kind: 'table', table: 'public.fixture_b' },
+}));
+process.env.DB_MIGRATE_DIR = FIXTURES;
+
 const runner = require('../scripts/db-migrate.cjs');
 const probes = require('../api/_lib/migrationProbes');
 
@@ -232,7 +244,7 @@ const historyOf = async (db) => {
 
   // ------------------------------------------------------------ partial failure
   console.log('\nPush stops at a failing file and says where (AC-6)');
-  await db.exec('ALTER TABLE public.creators RENAME TO creators_held;');
+  await db.exec('ALTER TABLE public.messages RENAME TO messages_held;');
   const pf = makeSys(db);
   const cp = await runner.main([`--env-file=${goodEnv()}`], pf);
   const pfOut = pf.logs.join('\n');
@@ -242,7 +254,7 @@ const historyOf = async (db) => {
   R(new RegExp(`FAILED at ${LAST_TWO[1]}`).test(pfOut), 'names the failed file');
   R(/Postgres said: .+/.test(pfOut), 'prints the Postgres error');
   R(/No rollback file exists for it\.|Rollback, if you decide you need it/.test(pfOut), 'says whether a rollback exists, and does not run it');
-  await db.exec('ALTER TABLE public.creators_held RENAME TO creators;');
+  await db.exec('ALTER TABLE public.messages_held RENAME TO messages;');
 
   // ------------------------------------------------------------ happy push
   console.log('\nPush applies the rest and proves it (AC-5, AC-6)');

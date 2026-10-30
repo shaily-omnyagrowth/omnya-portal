@@ -19,9 +19,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const manifest = require('../../supabase/migrations/probes.json');
-
-const MIGRATIONS_DIR = path.join(__dirname, '..', '..', 'supabase', 'migrations');
+// DB_MIGRATE_DIR points the runner's tests at fixture migrations.
+const MIGRATIONS_DIR = process.env.DB_MIGRATE_DIR || path.join(__dirname, '..', '..', 'supabase', 'migrations');
+const manifest = JSON.parse(fs.readFileSync(path.join(MIGRATIONS_DIR, 'probes.json'), 'utf8'));
 const SETUP_FILE = path.join(__dirname, '..', '..', 'supabase', 'SETUP.sql');
 
 // Only forward migrations live in supabase/migrations/ (spec 0001 invariant).
