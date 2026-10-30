@@ -4,6 +4,7 @@ import EmptyState from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
 import PageHeader from "../../ui/PageHeader";
 import { daysLeftLabel, fmtDate, fmtMoney, platformMeta, statusBadge } from "../../utils";
+import { spotsLabel, useCampaignSpots } from "../../lib/campaignSpots";
 import CampaignForum from "../campaigns/CampaignForum";
 
 const DONE = new Set(["Approved", "Published/Tracked"]);
@@ -13,6 +14,7 @@ export default function CreatorActiveJobs({ user, db, onNavigate }) {
   const jobs = db.campaigns.filter(c => (c.assigned_creators || []).includes(creator?.id) && !["Completed", "Archived", "Cancelled"].includes(c.status));
   const [selectedId, setSelectedId] = useState(null);
   const job = jobs.find(j => j.id === selectedId);
+  const spots = useCampaignSpots(jobs.map(j => j.id));
 
   if (job) {
     const client = db.clients.find(c => c.id === job.client_id);
@@ -41,6 +43,7 @@ export default function CreatorActiveJobs({ user, db, onNavigate }) {
               <dt>Status</dt><dd>{statusBadge(job.status)}</dd>
               <dt>Platform</dt><dd><Icon icon={p.icon} size={14} style={{ display: "inline", verticalAlign: "-2px", marginRight: 6 }} />{p.name}</dd>
               <dt>Deadline</dt><dd>{daysLeftLabel(job.deadline)}</dd>
+              {spots[job.id] != null && <><dt>Open spots</dt><dd>{spots[job.id] > 0 ? spotsLabel(spots[job.id]) : "Campaign full"}</dd></>}
               <dt>Sent</dt><dd>{subs.length} {subs.length === 1 ? "submission" : "submissions"}</dd>
               <dt>Approved</dt><dd>{delivered}</dd>
             </dl>

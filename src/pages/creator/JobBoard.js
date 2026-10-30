@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Briefcase01Icon, Calendar03Icon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
+import { spotsLabel, useCampaignSpots } from "../../lib/campaignSpots";
 import { describeWriteError, uploadDemoVideo } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
@@ -81,6 +82,7 @@ export default function JobBoard({ user, db, onRefresh }) {
   const openJobs = useMemo(() => db.campaigns
     .filter(c => c.status === "Open" && c.application_type === "Open Application")
     .sort((a, b) => new Date(a.deadline || "2999-01-01") - new Date(b.deadline || "2999-01-01")), [db.campaigns]);
+  const spots = useCampaignSpots(openJobs.map(j => j.id));
   const platforms = [...new Set(openJobs.map(j => platformKey(j.format)).filter(Boolean))];
   const visible = platform === "all" ? openJobs : openJobs.filter(j => platformKey(j.format) === platform);
 
@@ -127,13 +129,15 @@ export default function JobBoard({ user, db, onRefresh }) {
                 <div className="flex gap-8 flex-wrap fs-12">
                   <span className="badge badge-outline"><Icon icon={p.icon} size={12} />{p.name}</span>
                   <span className={`badge ${soon ? "badge-orange" : "badge-outline"}`}><Icon icon={Calendar03Icon} size={12} />{job.deadline ? `Due ${fmtDate(job.deadline)}` : "No deadline"}</span>
-                  {job.videos_needed ? <span className="badge badge-outline">{job.videos_needed} videos</span> : null}
+                  {spots[job.id] > 0 ? <span className="badge badge-outline">{spotsLabel(spots[job.id])}</span>
+                    : spots[job.id] !== 0 && job.videos_needed ? <span className="badge badge-outline">{job.videos_needed} videos</span> : null}
                 </div>
                 <div style={{ marginTop: "auto", paddingTop: 14, borderTop: "1px solid var(--border)" }} className="flex-between">
                   <span className="fs-12 text-muted">{soon ? daysLeftLabel(job.deadline) : ""}</span>
                   {assigned ? <span className="badge badge-green">You're on this campaign</span>
                     : pending ? <span className="badge badge-orange">Applied{app.commitment ? ` for ${app.commitment}` : ""}</span>
                     : declined ? <span className="badge badge-gray">Not selected this time</span>
+                    : spots[job.id] === 0 ? <span className="badge badge-gray">Campaign full</span>
                     : <button className="btn btn-primary btn-sm" onClick={() => setApplying(job)}>Apply</button>}
                 </div>
               </article>

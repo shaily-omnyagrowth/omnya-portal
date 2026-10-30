@@ -13,6 +13,7 @@ import { DropZone, HowItWorks, PostedChoice } from "./submit/parts";
 import { authedPost, linkPlatform, useConnectedPlatforms, useVerifyLink } from "./submit/useVerifyLink";
 import Select from "../../ui/Select";
 import { campaignPlatform, platformMeta } from "../../utils";
+import { spotsLabel, useCampaignSpots } from "../../lib/campaignSpots";
 
 const BLANK = { campaign_id: "", type: "Concept", concept_link: "", posted_link: "", comment: "" };
 
@@ -39,6 +40,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
   }, [creator?.id, myJobs.length]);
 
   const set = (patch) => setForm(f => ({ ...f, ...patch }));
+  const spots = useCampaignSpots(myJobs.map(j => j.id));
 
   if (isOverride && !creator) {
     return (
@@ -75,6 +77,9 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
   }
 
   const platform = campaignPlatform(db.campaigns.find(c => c.id === form.campaign_id));
+  const spotsLeft = spots[form.campaign_id];
+  const holdsSpot = db.submissions.some(s => s.campaign_id === form.campaign_id && s.creator_id === creator.id && s.submission_type === "Final" && s.status === "Revision Requested");
+  const full = spotsLeft === 0 && !holdsSpot;
 
   const uploadToStorage = async (fileObj, campaignId) => {
     const campaign = db.campaigns.find(c => c.id === campaignId);
@@ -159,7 +164,8 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <Select id="campaign" className="select" value={form.campaign_id} onChange={e => set({ campaign_id: e.target.value })}>
                 {myJobs.map(j => <option key={j.id} value={j.id}>{j.name}</option>)}
               </Select>
-              {platform && <span className="form-hint" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon icon={platformMeta(platform).icon} size={14} />{platform}</span>}
+              {platform && <span className="form-hint" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Icon icon={platformMeta(platform).icon} size={14} />{platform}{spotsLeft > 0 && ` · ${spotsLabel(spotsLeft)}`}</span>}
+              {full && <Alert tone="warning" style={{ marginTop: 12 }}>This campaign is full. All its videos are approved or in review, so hold off on making a new one.</Alert>}
             </div>
             <PostedChoice value={form.type} onChange={t => { set({ type: t }); resetVerify(); if (t === "Final") setUploadMode("link"); }} />
           </div>
@@ -197,7 +203,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
               <textarea id="comment" className="textarea" rows={3} value={form.comment} onChange={e => set({ comment: e.target.value })} placeholder="Anything they should know before reviewing" />
             </div>
             {err && <Alert tone="error" style={{ marginBottom: 16 }}>{err}</Alert>}
-            <button type="submit" className="btn btn-primary btn-lg" disabled={submitting}>
+            <button type="submit" className="btn btn-primary btn-lg" disabled={submitting || full}>
               {submitting ? (uploadProgress > 0 ? "Uploading…" : "Sending…") : "Send for review"}
             </button>
           </div>
