@@ -38,7 +38,7 @@ export function DropZone({ file, onFile, progress, busy }) {
 export function HowItWorks({ type }) {
   const steps = [
     ["Send a concept", "A rough cut or draft for your account manager to approve before you post."],
-    ["Get feedback", "Approval or notes usually land within 1 to 3 days. You'll see them in Submissions."],
+    ["Get feedback", "Approval or notes usually arrive within 1 to 3 days. You'll see them in Submissions."],
     ["Post and send the link", "Once it's live, submit the final link. We confirm it's yours and start tracking views."],
   ];
   const active = type === "Final" ? 2 : 0;

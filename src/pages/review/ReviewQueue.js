@@ -106,9 +106,9 @@ export default function ReviewQueue({ db, onRefresh, user }) {
     }
 
     const name = creator?.name || "The creator";
-    if (value === "Approved") toast.success("Approved", { description: followUp || `${name} has been told.` });
-    else if (value === "Revision Requested") toast.success("Changes requested", { description: `${name} gets your notes by email.` });
-    else if (value === "Rejected") toast("Submission declined", { description: `${name} can see why.` });
+    if (value === "Approved") toast.success("Approved", { description: followUp || `${name} has been notified.` });
+    else if (value === "Revision Requested") toast.success("Changes requested", { description: `${name} will receive your notes by email.` });
+    else if (value === "Rejected") toast("Submission declined", { description: `${name} can view the reason.` });
     else toast("Marked as in review");
     if (followUp) setActionError(followUp);
     setModal(null); setSaving(null);

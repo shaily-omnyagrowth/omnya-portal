@@ -136,7 +136,7 @@ export default function SubmitContent({ user, db, onRefresh, setPage, isOverride
     resetVerify();
     onRefresh?.();
     toast.success(`${form.type === "Final" ? "Final video" : "Concept"} sent for review`, {
-      description: isOverride ? `Filed for ${creator.name}.` : "Your account manager has been notified. Feedback usually lands within 1 to 3 days.",
+      description: isOverride ? `Filed for ${creator.name}.` : "Your account manager has been notified. Feedback usually arrives within 1 to 3 days.",
     });
     if (isOverride) setOverrideCreatorId("");
     else setPage("submissions");

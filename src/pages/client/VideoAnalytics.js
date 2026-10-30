@@ -38,7 +38,7 @@ export default function VideoAnalytics({ campaignId = null, isClient = true }) {
     let q = supabase.from(isClient ? "client_safe_analytics" : "video_analytics").select("*").order("pulled_at", { ascending: false });
     if (campaignId) q = q.eq("campaign_id", campaignId);
     const { data, error: e } = await q;
-    if (e) { setError(e.code === "42703" ? "A database update is still pending, so video metrics can't load yet. Your account manager has been told." : e.message); setMetrics([]); return; }
+    if (e) { setError(e.code === "42703" ? "A database update is still pending, so video metrics can't load yet. Please contact your account manager." : e.message); setMetrics([]); return; }
     setMetrics(data || []);
   }, [campaignId, isClient]);
 

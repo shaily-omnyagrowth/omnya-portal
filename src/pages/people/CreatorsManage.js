@@ -95,7 +95,7 @@ export default function CreatorsManage({ db, onRefresh, user }) {
     try {
       const data = await callApi("/api/admin/users/create", { body: { email: newAM.email.trim(), fullName: newAM.fullName.trim(), role: "am", sendInvite: true } });
       setNewAM(null);
-      toast.success("Account manager invited", { description: data.message || `${newAM.email.trim()} gets an email to set a password.` });
+      toast.success("Account manager invited", { description: data.message || `${newAM.email.trim()} will receive an email to set a password.` });
       onRefresh();
     } catch (e2) {
       setErr(e2.message);
