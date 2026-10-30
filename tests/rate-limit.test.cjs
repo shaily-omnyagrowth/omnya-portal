@@ -35,10 +35,10 @@ const FAIL_CLOSED = [
   'admin/users/role.js', 'payment-managers/grant.js', 'payment-managers/revoke.js', 'payments/void.js',
   'payouts/create-batch.js', 'payouts/export.js', 'payouts/generate.js', 'payouts/mark-paid.js',
   'payouts/reconcile.js', 'payouts/stripe-transfer.js', 'withdrawals/request.js', 'withdrawals/approve.js',
-  'withdrawals/reject.js', 'creators/payment-method.js', 'stripe/connect-url.js', 'admin/config-test.js',
+  'withdrawals/reject.js', 'creators/payment-method.js', 'stripe/connect-url.js',
 ];
 const STAY_OPEN = [
-  'admin/audit.js', 'admin/config-status.js', 'admin/users/index.js', 'analytics/manual-sync.js',
+  'admin/users/index.js', 'analytics/manual-sync.js',
   'creator/view-count.js', 'earnings/recalculate.js', 'earnings/summary.js', 'withdrawals/index.js',
   'integrations/tiktok/sync.js',
 ];
@@ -163,7 +163,7 @@ async function limit(opts) {
   }
   R(badClosed.length === 0, `${FAIL_CLOSED.length} sensitive routes fail closed, limiter before auth`, badClosed.join('; '));
   const badOpen = STAY_OPEN.filter((f) => /failClosed:\s*true/.test(fs.readFileSync(path.join(API, f), 'utf8')));
-  R(badOpen.length === 0, `${STAY_OPEN.length} routes stay open (config-status must load to show the limiter red)`, badOpen.join(', '));
+  R(badOpen.length === 0, `${STAY_OPEN.length} routes stay open`, badOpen.join(', '));
 
   global.fetch = realFetch;
   console.log('\n  ' + pass + ' passed, ' + fail + ' failed\n');

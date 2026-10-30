@@ -1,10 +1,5 @@
 {
   "cleanUrls": true,
-  "functions": {
-    "api/admin/config-status.js": {
-      "includeFiles": "supabase/migrations/probes.json"
-    }
-  },
   "crons": [
     {
       "path": "/api/analytics/sync",

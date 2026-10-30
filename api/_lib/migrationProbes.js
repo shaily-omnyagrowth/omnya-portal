@@ -1,10 +1,7 @@
 // api/_lib/migrationProbes.js
 //
 // The one evaluator for "is this migration on the database?" (spec 0001).
-// Both readers use it, so they can never disagree:
-//
-//   scripts/db-migrate.cjs        runs the probe query itself over `pg`
-//   api/admin/config-status.js    sends the payload to admin_migration_status()
+// scripts/db-migrate.cjs runs the probe query over `pg`.
 //
 // A row's state comes from two witnesses (spec 0001, state model):
 //
@@ -22,9 +19,6 @@
 const fs = require('fs');
 const path = require('path');
 
-// A static require, so Vercel's file tracer bundles the manifest with every
-// function that imports this module. vercel.json also lists it under
-// includeFiles for config-status as a safety net.
 const manifest = require('../../supabase/migrations/probes.json');
 
 const MIGRATIONS_DIR = path.join(__dirname, '..', '..', 'supabase', 'migrations');

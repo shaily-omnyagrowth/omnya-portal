@@ -104,7 +104,7 @@ export default function UserManagement({ currentUser, onRefresh }) {
           actions={<><button className="btn btn-secondary" onClick={() => setRoleTarget(null)}>Cancel</button><button className="btn btn-primary" disabled={a.working || !newRole || newRole === roleTarget.role} onClick={async () => { if (await a.changeRole(roleTarget, newRole)) setRoleTarget(null); }}>{a.working ? 'Saving…' : 'Change role'}</button></>}>
           <div className="form-group"><label className="form-label" htmlFor="u-newrole">New role</label><Select id="u-newrole" className="select" value={newRole} onChange={e => setNewRole(e.target.value)}>{ASSIGNABLE.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</Select></div>
           {newRole === 'owner' && <Alert tone="warning">Owners can do everything, including changing other owners.</Alert>}
-          <p className="fs-12 text-muted mt-8">The change is recorded in the audit history with your name.</p>
+          <p className="fs-12 text-muted mt-8">The change is logged with your name.</p>
         </Dialog>
       )}
 

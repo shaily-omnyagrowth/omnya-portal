@@ -1,6 +1,6 @@
 import {
   Analytics01Icon, Award01Icon, Briefcase01Icon, Building03Icon, ChartBarLineIcon, ChartLineData01Icon,
-  ClipboardIcon, DashboardSquare02Icon, Film01Icon, Folder01Icon, JusticeScale01Icon, Link01Icon,
+  DashboardSquare02Icon, Film01Icon, Folder01Icon, JusticeScale01Icon, Link01Icon,
   Megaphone01Icon, PlayListIcon, Settings02Icon, TaskDone01Icon, Upload04Icon, UserAdd01Icon,
   UserGroupIcon, UserSettings01Icon, Video01Icon, Wallet01Icon,
 } from "@hugeicons/core-free-icons";
@@ -32,8 +32,6 @@ export const pages = {
   "user-management": { title: "Users", icon: UserSettings01Icon, desc: "Every account, its role and status. Deactivating signs a user out everywhere." },
   "creators-manage": { title: "Creators", icon: UserGroupIcon, desc: "All creators and account managers, their assignments and rates." },
   team: { title: "Team performance", icon: Analytics01Icon, desc: "Account manager workload, client satisfaction and creator output." },
-  audit: { title: "Audit history", icon: ClipboardIcon, desc: "Every privileged action, who took it and when." },
-  "system-config": { title: "System config", icon: Settings02Icon, desc: "Integration keys and migration status for this deployment." },
   "content-gallery": { title: "Delivered content", icon: PlayListIcon, desc: "Every video delivered for your campaigns." },
 };
 
@@ -58,7 +56,6 @@ export const navGroups = {
     { label: "Work", items: [item("review-queue"), item("campaigns"), item("content-library"), item("submit", { label: "Submit for a creator" })] },
     { label: "People", items: [item("pending-users"), item("user-management"), item("clients-full"), item("creators-manage"), item("team"), item("creator-performance")] },
     { label: "Money", items: [item("revenue"), item("payout-manager", { label: "Payouts" })] },
-    { label: "System", items: [item("audit"), item("system-config")] },
   ],
   client: [
     { items: [item("dashboard"), item("campaigns"), item("content-gallery"), item("analytics", { label: "Video insights" })] },

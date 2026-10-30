@@ -10,7 +10,7 @@ The whole browser app: one Create React App bundle serving owners, account manag
 |---|---|
 | `App.js` | Session gate, public routes (share report, legal), toaster and tooltip layer, then the shell and the routed page |
 | `app/` | `useSession` (auth and profile), `useWorkspace` (`loadDB`, background refresh), `nav.js` (page titles, grouped nav per role), `routes.js` (page per role and its skeleton), `Shell.js` and `Sidebar.js` |
-| `pages/<area>/` | Screens by area: `campaigns`, `clients`, `client` (the brand portal), `creator`, `money`, `people`, `review`, `owner`, `content`; plus `Settings`, `AuditHistory`, `SystemConfig`, `Legal`, `SharedCampaignReport`, `Landing` |
+| `pages/<area>/` | Screens by area: `campaigns`, `clients`, `client` (the brand portal), `creator`, `money`, `people`, `review`, `owner`, `content`; plus `Settings`, `Legal`, `SharedCampaignReport`, `Landing` |
 | `components/` | Shared feature pieces: `UGCDashboardView`, `PostsGalleryView`, `CampaignProgressCard`, `payouts/*` behind `PayoutManager.js`, `earnings/*` behind `CreatorEarnings.js` |
 | `ui/` | Primitives: `Avatar` (seeded gradient, no photos or initials), `Pagination` (`usePagination` for tables), `Dialog`, `Alert`, `EmptyState` (+ `NoMatchRow`), `PageHeader`, `Tabs`, `Segmented`, `Select`, `TooltipLayer`, `Skeleton`, `charts` (`AreaChart`, `BarChart`, `Sparkline`, `ShareBars`), `Icon` |
 | `styles/` | `tokens.css` (colours, type, radii, motion), `base`, `components`, `shell`, `utilities` |

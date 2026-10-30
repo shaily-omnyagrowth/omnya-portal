@@ -2,9 +2,9 @@
 //
 // Proves the rate limiter really rejects in production (spec 0001, AC-13).
 //
-// Sends up to 31 unauthenticated GET /api/admin/config-status calls to
-// APP_BASE_URL, one after another. That route allows 30 per 60 s per IP, and
-// its limiter runs before auth, so a working limiter answers 401 thirty times
+// Sends up to 61 unauthenticated GET /api/admin/users calls to
+// APP_BASE_URL, one after another. That route allows 60 per 60 s per IP, and
+// its limiter runs before auth, so a working limiter answers 401 sixty times
 // and then 429 with Retry-After. If no 429 arrives, the limiter is failing
 // open in production (Upstash unset or broken), and this suite reports FAILED,
 // never BLOCKED: that is a real production defect, not a missing migration.
@@ -12,7 +12,7 @@
 // It reaches production, so it needs APP_BASE_URL (https, not localhost) in
 // the environment or .env. Without one it prints SKIP and exits 0.
 //
-// SIDE EFFECT: the IP running this is locked out of config-status for up to
+// SIDE EFFECT: the IP running this is locked out of the users list for up to
 // 60 s afterwards. Nothing else is affected (each route has its own key).
 //
 //   node tests/rate-limit-live.test.cjs
@@ -21,7 +21,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const MAX_CALLS = 31;
+const MAX_CALLS = 61;
 
 function envValue(name) {
   if (process.env[name]) return process.env[name].trim();
@@ -43,9 +43,9 @@ function envValue(name) {
     process.exit(0);
   }
 
-  const target = `${base.replace(/\/+$/, '')}/api/admin/config-status`;
+  const target = `${base.replace(/\/+$/, '')}/api/admin/users`;
   console.log(`\nLive rate limit check against ${target}`);
-  console.log('  WARNING: this IP will be locked out of config-status for up to 60 s afterwards.\n');
+  console.log('  WARNING: this IP will be locked out of the users list for up to 60 s afterwards.\n');
 
   const statuses = [];
   let got429 = null;

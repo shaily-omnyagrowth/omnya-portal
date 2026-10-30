@@ -57,4 +57,4 @@ cp .env.migrate.example .env.migrate   # then fill it in; it is gitignored
 
 ## Where to see the state
 
-System Config (owner only) shows one row per file as applied, broken, pending, drift or manual, from the same probes the runner uses, and a single ready banner for configuration plus migrations.
+`npm run db:migrate -- --status` shows one row per file as applied, broken, pending, drift or manual.

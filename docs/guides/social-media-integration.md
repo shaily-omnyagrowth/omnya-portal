@@ -302,8 +302,7 @@ Fix:
 4. Redeploy.
 
 The portal now refuses to start this flow when `INSTAGRAM_APP_ID` is missing or
-equals the Facebook app id, and says which it is — on the Connect button and on
-*System Config → Social sign-in redirect URIs*. Previously it sent the creator
+equals the Facebook app id, and says which it is on the Connect button. Previously it sent the creator
 to Instagram's black error page, which names nothing.
 
 While the app is in Development mode, the Instagram account must also be added
@@ -379,8 +378,8 @@ Fix, in order:
    the app, check the status. If it is not **Live**, flip the toggle next to
    the app name to **Sandbox** (create one if needed).
 2. In the sandbox: add the **Login Kit** product with the **Web** platform and
-   register the exact redirect URI the portal sends — shown on the owner's
-   *System Config* page (default `https://www.portalomnyagrowth.com/api/auth/tiktok/callback`).
+   register the exact redirect URI the portal sends
+   (default `https://www.portalomnyagrowth.com/api/auth/tiktok/callback`).
    Add scopes `user.info.basic` and `video.list`. Under *Target users*, add
    the TikTok account(s) that will test — each must accept TikTok's prompt.
 3. Copy the **sandbox** client key and secret into Vercel as

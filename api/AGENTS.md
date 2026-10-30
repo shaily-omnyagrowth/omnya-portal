@@ -27,7 +27,7 @@ Every privileged operation: user lifecycle, payouts and Stripe Connect, social O
 
 ## Gotchas
 
-- `ENCRYPTION_KEY` (64 hex chars) is required for any token write. `GET /api/admin/config-status` reports which env vars are unset or malformed.
+- `ENCRYPTION_KEY` (64 hex chars) is required for any token write.
 - Rate limiting fails open when `UPSTASH_*` is unset, so a missing limiter is silent.
 - Cron routes (`cron/*`, `analytics/sync`) authenticate with `CRON_SECRET`; schedules live in `vercel.json`.
 - Instagram uses its own Instagram App ID, not the Facebook one; Meta, Facebook and Instagram buttons otherwise share one Meta app.

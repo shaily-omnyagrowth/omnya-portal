@@ -34,6 +34,6 @@
 // domain, with "Something went wrong", and offers no way back.
 //
 // TIKTOK_REDIRECT_URI still overrides the default if the console was registered
-// with something else. The owner's System Config page shows the value in use.
+// with something else.
 
 module.exports = require('../../integrations/tiktok/callback');

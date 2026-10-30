@@ -8,7 +8,7 @@ import { AreaChart } from "../../ui/charts";
 import Dialog from "../../ui/Dialog";
 import Icon from "../../ui/Icon";
 import Tabs from "../../ui/Tabs";
-import { daysLeftLabel, fmtDate, statusBadge } from "../../utils";
+import { daysLeftLabel, fmtDate, formatLabel, statusBadge } from "../../utils";
 import CampaignForum from "./CampaignForum";
 import CreatorsPanel from "./detail/CreatorsPanel";
 import EditForm from "./detail/EditForm";
@@ -69,7 +69,7 @@ export default function CampaignDetail({ campaign, db, user, onRefresh, onClose,
   const header = (
     <div className="flex gap-8 flex-wrap">
       {statusBadge(campaign.status)}
-      <span className="badge badge-outline">{campaign.format}</span>
+      <span className="badge badge-outline">{formatLabel(campaign.format)}</span>
       <span className="badge badge-outline">{daysLeftLabel(campaign.deadline)}</span>
     </div>
   );
@@ -89,7 +89,7 @@ export default function CampaignDetail({ campaign, db, user, onRefresh, onClose,
         )}
       </div>
 
-      {isArchived && <Alert tone="info" title="Archived" style={{ marginBottom: 16 }}>{campaign.archive_reason || "No reason recorded."}{campaign.archived_at ? ` · ${fmtDate(campaign.archived_at)}` : ""}. Submissions, earnings and audit history are kept.</Alert>}
+      {isArchived && <Alert tone="info" title="Archived" style={{ marginBottom: 16 }}>{campaign.archive_reason || "No reason recorded."}{campaign.archived_at ? ` · ${fmtDate(campaign.archived_at)}` : ""}. Submissions and earnings are kept.</Alert>}
       {archiving && (
         <div className="fieldset mb-16">
           <div className="fw-600 mb-4">Archive this campaign?</div>
