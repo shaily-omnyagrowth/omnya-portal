@@ -3,7 +3,7 @@ import { ArrowLeft01Icon, Video01Icon } from "@hugeicons/core-free-icons";
 import PostCard from "../../components/posts/PostCard";
 import EmptyState from "../../ui/EmptyState";
 import Icon from "../../ui/Icon";
-import { EMPTY, calcPacing, daysLeftLabel, fmtCompactNum, fmtDate, fmtNum, platformKey, platformMeta, statusBadge, viewsOf } from "../../utils";
+import { EMPTY, calcPacing, daysLeftLabel, fmtCompactNum, fmtDate, fmtNum, formatLabel, platformKey, platformMeta, statusBadge, viewsOf } from "../../utils";
 import VideoAnalytics from "./VideoAnalytics";
 
 const LIVE = new Set(["Approved", "Published/Tracked"]);
@@ -43,7 +43,7 @@ export default function CampaignDetail({ campaign, clientProfile, submissions, a
       </div>
       <header className="page-header" style={{ marginBottom: 0 }}>
         <div className="min-w-0">
-          <div className="flex-center gap-8 mb-4">{statusBadge(campaign.status)}<span className="fs-13 text-muted flex-center gap-4"><Icon icon={p.icon} size={14} />{campaign.format || p.name}</span></div>
+          <div className="flex-center gap-8 mb-4">{statusBadge(campaign.status)}<span className="fs-13 text-muted flex-center gap-4"><Icon icon={p.icon} size={14} />{formatLabel(campaign.format) || p.name}</span></div>
           <h1 className="break-anywhere">{campaign.name}</h1>
           <p>Started {fmtDate(campaign.start_date || campaign.created_at)} · {needed} {needed === 1 ? "video" : "videos"} planned</p>
         </div>

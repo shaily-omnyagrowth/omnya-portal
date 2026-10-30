@@ -20,7 +20,7 @@ export default function CampaignsPage({ user, db, onRefresh, isOwner }) {
   const [showCreate, setShowCreate] = useState(false);
   const [viewId, setViewId] = useState(null);
   const [shareCampaign, setShareCampaign] = useState(null);
-  const [viewMode, setViewMode] = useState("cards");
+  const [viewMode, setViewMode] = useState("table");
   const [statusFilter, setStatusFilter] = useState("active");
   const [search, setSearch] = useState("");
 
@@ -59,9 +59,9 @@ export default function CampaignsPage({ user, db, onRefresh, isOwner }) {
               <input className="form-input" type="search" placeholder="Search campaign or client" value={search} onChange={e => setSearch(e.target.value)} />
             </label>
             <div className="segmented toolbar-view" role="group" aria-label="Layout">
-              <button type="button" aria-pressed={viewMode === "cards"} onClick={() => setViewMode("cards")} aria-label="Cards"><Icon icon={GridViewIcon} size={16} /></button>
               <button type="button" aria-pressed={viewMode === "table"} onClick={() => setViewMode("table")} aria-label="Table"><Icon icon={TableIcon} size={16} /></button>
               <button type="button" aria-pressed={viewMode === "calendar"} onClick={() => setViewMode("calendar")} aria-label="Calendar"><Icon icon={Calendar03Icon} size={16} /></button>
+              <button type="button" aria-pressed={viewMode === "cards"} onClick={() => setViewMode("cards")} aria-label="Cards"><Icon icon={GridViewIcon} size={16} /></button>
             </div>
           </div>
 

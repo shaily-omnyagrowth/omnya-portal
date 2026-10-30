@@ -1,6 +1,6 @@
 import { Share01Icon } from '@hugeicons/core-free-icons';
 import Icon from '../ui/Icon';
-import { calcPacing, daysLeftLabel, fmtNum, platformMeta, statusBadge } from '../utils';
+import { calcPacing, daysLeftLabel, fmtNum, formatLabel, platformMeta, statusBadge } from '../utils';
 
 // showCpmBadge marks the internal view: the client portal never sees the account manager.
 export default function CampaignProgressCard({ campaign, client, accountManager, approvedCount = 0, assignedCreatorsCount = 0, onClick, onShareClick, showCpmBadge = false }) {
@@ -31,7 +31,7 @@ export default function CampaignProgressCard({ campaign, client, accountManager,
         </div>
       </Body>
       <div className="camp-foot">
-        <span className="flex-center gap-4 min-w-0" title={campaign.format || p.name}><Icon icon={p.icon} size={13} style={{ flexShrink: 0 }} /><span className="truncate">{p.key && p.key === String(campaign.format || '').toLowerCase() ? p.name : campaign.format || p.name}</span></span>
+        <span className="flex-center gap-4 min-w-0" title={campaign.format || p.name}><Icon icon={p.icon} size={13} style={{ flexShrink: 0 }} /><span className="truncate">{formatLabel(campaign.format) || p.name}</span></span>
         <span style={{ whiteSpace: 'nowrap' }}>{assignedCreatorsCount} {assignedCreatorsCount === 1 ? 'creator' : 'creators'}</span>
         {showCpmBadge && accountManager?.name && <span className="truncate">{accountManager.name}</span>}
         {onShareClick && (

@@ -94,6 +94,13 @@ export const platformMeta = (platform = "") => {
   return { ...m, key: k, bg: "var(--bg2)", text: "var(--ink)", border: "var(--border)" };
 };
 
+// Platform names in their brand casing; other formats as typed.
+export const formatLabel = (format) => {
+  if (!format) return "";
+  const m = platformMeta(format);
+  return m.key && m.key === String(format).toLowerCase() ? m.name : String(format);
+};
+
 export const calcPacing = ({ startDate, deadline, videosNeeded = 10, approvedCount = 0 }) => {
   const now = new Date();
   const start = startDate ? new Date(startDate) : new Date();

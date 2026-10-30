@@ -4,7 +4,7 @@ import PostCard from '../components/posts/PostCard';
 import EmptyState from '../ui/EmptyState';
 import Icon from '../ui/Icon';
 import { SkeletonStats, SkeletonCards } from '../ui/Skeleton';
-import { fmtCompactNum, fmtDate, fmtNum, platformKey, platformMeta, statusBadge } from '../utils';
+import { fmtCompactNum, fmtDate, fmtNum, formatLabel, platformKey, platformMeta, statusBadge } from '../utils';
 import Avatar from '../ui/Avatar';
 
 const PACE = { completed: ['Delivered', 'text-green'], ahead: ['Ahead of pace', 'text-green'], behind: ['Behind pace', 'text-amber'], on_track: ['On track', 'text-muted'] };
@@ -63,7 +63,7 @@ export default function SharedCampaignReport() {
       <main className="report-main">
         <header className="page-header">
           <div className="min-w-0">
-            <div className="flex-center gap-8 mb-4">{statusBadge(campaign.status)}<span className="fs-13 text-muted flex-center gap-4"><Icon icon={p.icon} size={14} />{campaign.format || p.name}</span></div>
+            <div className="flex-center gap-8 mb-4">{statusBadge(campaign.status)}<span className="fs-13 text-muted flex-center gap-4"><Icon icon={p.icon} size={14} />{formatLabel(campaign.format) || p.name}</span></div>
             <h1 className="break-anywhere">{campaign.name}</h1>
             {campaign.description && <p>{campaign.description}</p>}
           </div>
