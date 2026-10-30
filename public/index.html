@@ -2,78 +2,61 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="tiktok-developers-site-verification" content="oqK4VOs7KRWPD6HowmYcFknpWtvZthbs">
     <meta property="tiktok-developers-site-verification" content="oqK4VOs7KRWPD6HowmYcFknpWtvZthbs">
-    <meta name="robots" content="index, follow">
-    <link rel="icon" href="/omnya_logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#0A0A0A" />
-    <meta name="description" content="Omnya Growth - The Premium Creator Portal" />
-    <link rel="apple-touch-icon" href="/omnya_logo.png" />
+
+    <title>Omnya Growth | UGC creators and campaigns that perform</title>
+    <meta name="description" content="Omnya Growth connects brands with vetted UGC creators. Run campaigns, review content, track verified video performance and pay creators in one portal." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://www.portalomnyagrowth.com/" />
+    <meta name="theme-color" content="#f6f5f3" />
+    <meta name="color-scheme" content="light" />
+
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!--
-      Fonts are loaded here, not from CSS.
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Omnya Growth" />
+    <meta property="og:title" content="Omnya Growth | UGC creators and campaigns that perform" />
+    <meta property="og:description" content="Vetted UGC creators, managed campaigns and verified video performance, all in one portal." />
+    <meta property="og:url" content="https://www.portalomnyagrowth.com/" />
+    <meta property="og:image" content="https://www.portalomnyagrowth.com/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The Omnya logo on a white background" />
+    <meta property="og:locale" content="en_US" />
 
-      They used to arrive via `@import url(...)` at the top of the style block
-      in src/App.js. An @import is discovered only after the stylesheet
-      containing it has been downloaded and parsed, and that stylesheet is
-      injected by the JS bundle — so the chain was:
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Omnya Growth | UGC creators and campaigns that perform" />
+    <meta name="twitter:description" content="Vetted UGC creators, managed campaigns and verified video performance, all in one portal." />
+    <meta name="twitter:image" content="https://www.portalomnyagrowth.com/og.png" />
 
-          index.html -> main.js -> parse CSS -> fonts.googleapis.com -> woff2
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Omnya Growth",
+        "url": "https://www.portalomnyagrowth.com/",
+        "logo": "https://www.portalomnyagrowth.com/icon-512.png",
+        "email": "hello@omnyagrowth.com"
+      }
+    </script>
 
-      Four serial round trips before a glyph existed. On a slow connection the
-      font landed long after first paint, the page reflowed as it swapped in,
-      and measured CLS went from 0 on wifi to 0.63 on 3G. Same defect produced
-      the LCP of 19s.
-
-      As <link> tags the browser starts both fetches while it is still parsing
-      the HTML, in parallel with the bundle. preconnect opens the TLS
-      connection to the font CDN ahead of the stylesheet naming it, which
-      removes one more round trip.
-    -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap"
-    />
-
-    <!--
-      The critical shell, inline so it applies before any JavaScript runs.
-
-      Measured cause of a 0.6264 CLS — a single layout shift, captured with a
-      PerformanceObserver reading entry.sources:
-
-          BODY   y,height   20,14   ->   0,900
-
-      Two things in one. `y: 20 -> 0` is the browser's default body margin
-      being removed once the app's reset lands; that reset lives in the style
-      block inside src/App.js, so it cannot apply until the bundle has parsed.
-      `height: 14 -> 900` is <div id="root"> standing empty — the noscript line
-      is the only thing on the page — until React mounts and fills it.
-
-      So the whole viewport jumped once, late, on every single load. It was
-      briefly mistaken for a webfont swap; switching the fonts to
-      font-display:optional left CLS at 0.6264 and disproved that.
-
-      Reserving the space here costs three rules and removes the shift
-      entirely. The background matches --bg in src/App.js so there is no
-      colour flash before the app paints; keep the two in step.
-    -->
+    <!-- Reserves the viewport before the bundle loads; the colour matches --bg. -->
     <style>
       html, body { margin: 0; padding: 0; }
-      body { background: #F7F5F4; }
+      body { background: #f6f5f3; }
       #root { min-height: 100vh; }
     </style>
-
-    <title>Omnya — Creator Portal</title>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>Omnya Growth needs JavaScript to run. Please enable it and reload the page.</noscript>
     <div id="root"></div>
 
-    <!-- TikTok Verification Signatures (Visible for Bots) -->
+    <!-- TikTok verification signature, kept in the HTML for crawlers -->
     <div style="font-size: 10px; color: #f0f0f0; margin-top: 20px; opacity: 0.1;">
       <p>tiktok-developers-site-verification=oqK4VOs7KRWPD6HowmYcFknpWtvZthbs</p>
     </div>

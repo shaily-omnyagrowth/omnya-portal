@@ -1,3 +1,7 @@
-# https://www.robotstxt.org/robotstxt.html
 User-agent: *
-Disallow:
+Allow: /
+Disallow: /api/
+Disallow: /share/
+Disallow: /oauth-complete
+
+Sitemap: https://www.portalomnyagrowth.com/sitemap.xml
