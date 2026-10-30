@@ -28,7 +28,15 @@ const TIKTOK_SYNC = {
 export const PLATFORM_META = {
   tiktok: { label: "TikTok", icon: TiktokIcon, subtitle: "Profile, videos and views", sync: TIKTOK_SYNC, scopeHints: [{ scope: "video.list", label: "Video access" }] },
   instagram: { label: "Instagram", icon: InstagramIcon, subtitle: "Reels and insights", sync: ANALYTICS_SYNC },
-  facebook: { label: "Facebook", icon: Facebook01Icon, subtitle: "Pages and feed", sync: ANALYTICS_SYNC },
+  facebook: { label: "Facebook", icon: Facebook01Icon, subtitle: "Pages and feed", sync: ANALYTICS_SYNC, guide: {
+    steps: [
+      "Press Connect and log in to Facebook.",
+      "If Facebook asks to continue with your previous settings, choose Edit settings.",
+      "Choose Opt in to current Pages only.",
+      "Tick the Page you post on, then finish the steps.",
+    ],
+    note: "You need access to the Page. Videos on a personal profile can't be tracked.",
+  } },
   youtube: { label: "YouTube", icon: YoutubeIcon, subtitle: "Channel and Shorts", sync: ANALYTICS_SYNC },
 };
 
