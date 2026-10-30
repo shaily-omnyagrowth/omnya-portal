@@ -6,6 +6,8 @@
   --surface: #ffffff;
   --surface2: #fbfaf9;
   --surface-hover: #f8f7f5;
+  --shell: #e8e6e2;
+  --shell-2: #dddad5;
 
   /* ink */
   --ink: #0b0b0c;
@@ -77,6 +79,7 @@
 
   /* layout */
   --sidebar-w: 248px;
+  --sidebar-rail: 68px;
   --topbar-h: 60px;
   --content-max: 1240px;
   --gutter: 32px;

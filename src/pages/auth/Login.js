@@ -43,7 +43,8 @@ function PasswordInput({ value, onChange, autoComplete, invalid, id }) {
 function Aside() {
   return (
     <aside className="auth-aside" aria-hidden="true">
-      <img src="/landing/ring.webp" alt="" className="auth-aside-ring" width="760" height="1010" loading="lazy" decoding="async" />
+      <span className="auth-aside-glow" />
+      <img src="/landing/ring.webp" alt="" className="auth-aside-ring" width="760" height="1010" decoding="async" />
       <div>
         <p className="auth-aside-quote">Creator content that is briefed, reviewed, measured and paid for in one place.</p>
         <div className="auth-aside-meta" style={{ marginTop: 28 }}>

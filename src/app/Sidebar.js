@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { JusticeScale01Icon, Logout03Icon, Tick02Icon, UnfoldMoreIcon, ViewIcon } from "@hugeicons/core-free-icons";
+import { JusticeScale01Icon, Logout03Icon, SidebarLeft01Icon, Tick02Icon, UnfoldMoreIcon, ViewIcon } from "@hugeicons/core-free-icons";
 import { getInitials } from "../utils";
 import Icon from "../ui/Icon";
 import { navsFor, roleLabel } from "./nav";
@@ -24,7 +24,7 @@ export function NavLink({ id, active, onNavigate, className = "", children, ...r
   );
 }
 
-function AccountMenu({ user, isOwner, overrideRole, onViewAs, onNavigate, onLogout }) {
+function AccountMenu({ user, role, isOwner, overrideRole, onViewAs, onNavigate, onLogout }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -54,6 +54,7 @@ function AccountMenu({ user, isOwner, overrideRole, onViewAs, onNavigate, onLogo
             ))}
             <div className="menu-sep" />
           </>}
+          <div className="menu-label truncate">{user.email}</div>
           <button role="menuitem" className="menu-item" onClick={pick(() => onNavigate("legal"))}>
             <Icon icon={JusticeScale01Icon} size={16} /> Legal center
           </button>
@@ -66,7 +67,7 @@ function AccountMenu({ user, isOwner, overrideRole, onViewAs, onNavigate, onLogo
         <span className="user-avatar">{getInitials(name)}</span>
         <span className="user-info">
           <span className="user-name" style={{ display: "block" }}>{name}</span>
-          <span className="user-email" style={{ display: "block" }}>{user.email}</span>
+          <span className="user-email sidebar-role" style={{ display: "block" }}>{roleLabel[role]}</span>
         </span>
         <Icon icon={UnfoldMoreIcon} size={16} style={{ color: "var(--ink4)" }} />
       </button>
@@ -74,7 +75,7 @@ function AccountMenu({ user, isOwner, overrideRole, onViewAs, onNavigate, onLogo
   );
 }
 
-export default function Sidebar({ user, role, baseRole, caps, page, onNavigate, counts, overrideRole, onViewAs, onLogout }) {
+export default function Sidebar({ user, role, baseRole, caps, page, onNavigate, counts, overrideRole, onViewAs, onLogout, collapsed, onToggleCollapsed }) {
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="sidebar-header">
@@ -82,14 +83,16 @@ export default function Sidebar({ user, role, baseRole, caps, page, onNavigate, 
           <img src="/brand/mark.png" alt="" width="22" height="29" />
           <span className="sidebar-logo-text">Omnya</span>
         </NavLink>
-        <span className="sidebar-role">{roleLabel[role]}</span>
+        <button className="btn btn-ghost btn-icon btn-sm sidebar-collapse desktop-only" onClick={onToggleCollapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+          <Icon icon={SidebarLeft01Icon} size={18} />
+        </button>
       </div>
       <nav className="sidebar-nav">
         {navsFor(role, caps).map((group, gi) => (
           <div className="nav-section" key={group.label || gi}>
             {group.label && <div className="nav-section-label">{group.label}</div>}
             {group.items.map(item => (
-              <NavLink key={item.id} id={item.id} active={page === item.id} onNavigate={onNavigate} className={`nav-item ${page === item.id ? "active" : ""}`}>
+              <NavLink key={item.id} id={item.id} active={page === item.id} onNavigate={onNavigate} className={`nav-item ${page === item.id ? "active" : ""}`} title={collapsed ? item.label : undefined}>
                 <Icon icon={item.icon} size={18} />
                 <span className="label">{item.label}</span>
                 {counts[item.id] > 0 && <span className="nav-badge" aria-label={`${counts[item.id]} waiting`}>{counts[item.id] > 99 ? "99+" : counts[item.id]}</span>}
@@ -98,7 +101,7 @@ export default function Sidebar({ user, role, baseRole, caps, page, onNavigate, 
           </div>
         ))}
       </nav>
-      <AccountMenu user={user} isOwner={baseRole === "owner"} overrideRole={overrideRole} onViewAs={onViewAs} onNavigate={onNavigate} onLogout={onLogout} />
+      <AccountMenu user={user} role={role} isOwner={baseRole === "owner"} overrideRole={overrideRole} onViewAs={onViewAs} onNavigate={onNavigate} onLogout={onLogout} />
     </aside>
   );
 }

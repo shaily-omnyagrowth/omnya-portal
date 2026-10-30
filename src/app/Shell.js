@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
 import { ArrowRight01Icon, Cancel01Icon, Menu01Icon, ViewIcon } from "@hugeicons/core-free-icons";
 import Icon from "../ui/Icon";
 import { navsFor, roleLabel, titleFor } from "./nav";
@@ -8,6 +7,8 @@ import Sidebar from "./Sidebar";
 export default function Shell({ user, role, baseRole, caps, page, onNavigate, counts, overrideRole, onViewAs, onLogout, refreshing, children }) {
   const [drawer, setDrawer] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("sidebar_collapsed") === "1"; } catch (_) { return false; } });
+  const toggleCollapsed = () => setCollapsed(c => { try { localStorage.setItem("sidebar_collapsed", c ? "0" : "1"); } catch (_) {} return !c; });
   const mainRef = useRef(null);
   const firstPage = useRef(true);
 
@@ -42,12 +43,13 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
   }, [drawer]);
 
   return (
-    <div className={`app ${drawer ? "sidebar-open" : ""}`}>
+    <div className={`app ${drawer ? "sidebar-open" : ""} ${collapsed ? "collapsed" : ""}`}>
       {refreshing && <div className="top-progress" role="progressbar" aria-label="Updating" />}
       <div className="sidebar-overlay" onClick={() => setDrawer(false)} aria-hidden="true" />
       <Sidebar
         user={user} role={role} baseRole={baseRole} caps={caps} page={page} counts={counts}
         onNavigate={onNavigate} overrideRole={overrideRole} onViewAs={onViewAs} onLogout={onLogout}
+        collapsed={collapsed} onToggleCollapsed={toggleCollapsed}
       />
       <div className="main" inert={drawer || undefined}>
         <header className={`topbar ${scrolled ? "scrolled" : ""}`}>
@@ -71,14 +73,7 @@ export default function Shell({ user, role, baseRole, caps, page, onNavigate, co
           </div>
         </header>
         <main ref={mainRef} tabIndex={-1} style={{ outline: "none" }}>
-          <motion.div
-            key={`${role}:${page}`}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-          >
-            {children}
-          </motion.div>
+          <React.Fragment key={`${role}:${page}`}>{children}</React.Fragment>
         </main>
       </div>
     </div>

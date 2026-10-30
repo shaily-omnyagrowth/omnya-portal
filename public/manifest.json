@@ -1,16 +1,39 @@
 {
+  "id": "/",
   "short_name": "Omnya",
   "name": "Omnya Growth",
   "description": "Campaigns, content review, video performance and creator payouts.",
   "icons": [
-    { "src": "/favicon.ico", "sizes": "48x48 32x32 16x16", "type": "image/x-icon" },
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48 32x32 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ],
   "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "theme_color": "#f6f5f3",
-  "background_color": "#f6f5f3"
+  "background_color": "#f6f5f3",
+  "orientation": "any",
+  "categories": [
+    "business",
+    "productivity"
+  ]
 }

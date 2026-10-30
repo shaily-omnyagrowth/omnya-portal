@@ -15,3 +15,9 @@ root.render(
     <App />
   </React.StrictMode>
 );
+
+if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
+  window.addEventListener('load', () => {
+    setTimeout(() => navigator.serviceWorker.register('/sw.js').catch(() => {}), 3000);
+  });
+}
