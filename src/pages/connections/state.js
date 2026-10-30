@@ -32,8 +32,9 @@ export const PLATFORM_META = {
     steps: [
       "Press Connect and log in to Facebook.",
       "If Facebook asks to continue with your previous settings, choose Edit settings.",
-      "Choose Opt in to current Pages only.",
-      "Tick the Page you post on, then finish the steps.",
+      "If Facebook asks for Businesses, choose Opt in to current Businesses only and tick yours.",
+      "When Facebook asks for Pages, choose Opt in to current Pages only and tick the Page you post on.",
+      "Finish the remaining steps.",
     ],
     note: "You need access to the Page. Videos on a personal profile can't be tracked.",
   } },

@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import { Upload04Icon, Video01Icon } from "@hugeicons/core-free-icons";
 import Icon from "../../../ui/Icon";
-import { fmtCompactNum } from "../../../utils";
 
 export function DropZone({ file, onFile, progress, busy }) {
   const [over, setOver] = useState(false);
@@ -32,23 +31,6 @@ export function DropZone({ file, onFile, progress, busy }) {
           <div className="progress-bar"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>
         </div>
       )}
-    </div>
-  );
-}
-
-export function VerifiedVideo({ video }) {
-  return (
-    <div className="alert alert-success mt-12" style={{ alignItems: "center" }}>
-      {video.thumbnailUrl
-        ? <img src={video.thumbnailUrl} alt="" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
-        : <span className="empty-icon" style={{ margin: 0, width: 48, height: 48 }}><Icon icon={Video01Icon} size={18} /></span>}
-      <div className="alert-body">
-        <div className="alert-title">It's yours{video.authorHandle ? `, posted by @${video.authorHandle}` : ""}</div>
-        {video.title && <div className="truncate" style={{ color: "var(--ink2)" }}>{video.title}</div>}
-        <div className="fs-12" style={{ color: "var(--ink2)" }}>
-          {fmtCompactNum(video.views || 0)} views · {fmtCompactNum(video.likes || 0)} likes{video.comments > 0 ? ` · ${fmtCompactNum(video.comments)} comments` : ""}
-        </div>
-      </div>
     </div>
   );
 }
