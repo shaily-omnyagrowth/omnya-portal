@@ -62,6 +62,19 @@ async function fetchProfile(token) {
   }
 }
 
+async function fetchPages(token) {
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/${graphVersion()}/me/accounts?fields=id,name&limit=100&access_token=${encodeURIComponent(token)}`
+    );
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) return [];
+    return (data.data || []).map((p) => ({ id: p.id, name: p.name }));
+  } catch {
+    return [];
+  }
+}
+
 module.exports = async (req, res) => {
   const { code, state, error: providerError, error_description } = req.query || {};
 
@@ -137,6 +150,7 @@ module.exports = async (req, res) => {
 
     // Step 3: best-effort profile fetch for the UI.
     const profile = await fetchProfile(accessToken);
+    const pages = await fetchPages(accessToken);
 
     // Step 4: persist, encrypted.
     const supabase = getSupabaseAdminClient();
@@ -154,6 +168,7 @@ module.exports = async (req, res) => {
         provider: 'meta',
         flow: flowPlatform,
         long_lived: !!longLived,
+        pages,
       },
     });
 

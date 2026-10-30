@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
       redirect_uri: redirectUri,
       response_type: 'code',
       state,
-      scope: 'pages_show_list,pages_read_engagement,pages_read_user_content',
+      scope: 'pages_show_list,pages_read_engagement,pages_read_user_content,business_management',
     });
 
     const authorizationUrl = `https://www.facebook.com/${graphVersion()}/dialog/oauth?${params.toString()}`;

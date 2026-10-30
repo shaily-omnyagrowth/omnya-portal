@@ -63,6 +63,7 @@ function shapeRow(row) {
     displayName: row.display_name || null,
     profileImageUrl: row.profile_image_url || null,
     scopes: row.scopes || [],
+    pages: row.metadata?.pages || [],
     expiresAt: row.token_expires_at || null,
     refreshExpiresAt: row.refresh_token_expires_at || null,
     lastSyncedAt: row.last_synced_at || null,
@@ -134,7 +135,7 @@ module.exports = async (req, res) => {
 
     const { data, error } = await supabase
       .from('creator_social_accounts')
-      .select([...PUBLIC_COLUMNS, 'refresh_token_encrypted'].join(', '))
+      .select([...PUBLIC_COLUMNS, 'metadata', 'refresh_token_encrypted'].join(', '))
       .eq('user_id', targetUserId);
 
     if (error) {

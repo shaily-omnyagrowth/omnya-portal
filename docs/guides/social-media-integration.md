@@ -326,7 +326,7 @@ Fix, either:
 - **For real creators:** switch the app to **Live**, which requires a privacy
   policy URL and completing **App Review** for the permissions requested. The
   portal asks for `pages_show_list`, `pages_read_engagement` and
-  `pages_read_user_content`; in Live mode, only permissions approved through
+  `pages_read_user_content` and `business_management`; in Live mode, only permissions approved through
   App Review are granted.
 
 ---
