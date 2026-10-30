@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Award01Icon } from '@hugeicons/core-free-icons';
 import { gooeyToast as toast } from 'goey-toast';
 import { supabase } from '../../supabaseClient';
+import { callApi } from '../../lib/api';
 import Alert from '../../ui/Alert';
 import EmptyState from '../../ui/EmptyState';
 import { SkeletonTable } from '../../ui/Skeleton';
@@ -25,11 +26,16 @@ export default function BonusReviewSection() {
 
   useEffect(() => { load(); }, [load]);
 
-  const update = async (e, patch, ok, fail) => {
+  const update = async (e, body, ok, fail) => {
     setWorking(true);
-    const { data, error } = await supabase.from('creator_earnings').update(patch).eq('id', e.id).select('id');
-    setWorking(false);
-    if (error || !data?.length) { toast.error(fail, { description: error?.message || "You don't have permission to change this bonus." }); return false; }
+    try {
+      await callApi('/api/earnings/review', { body: { earningId: e.id, ...body } });
+    } catch (err) {
+      toast.error(fail, { description: err.message });
+      return false;
+    } finally {
+      setWorking(false);
+    }
     toast.success(ok, { description: `${fmtMoney(e.amount, { cents: true })} for ${e.creator_name}` });
     load();
     return true;
@@ -57,7 +63,7 @@ export default function BonusReviewSection() {
                 <td><EarningStatusBadge status={e.status} /></td>
                 <td className="num"><span className="flex gap-4" style={{ justifyContent: 'flex-end' }}>
                   <button className="btn btn-red btn-sm" onClick={() => setForfeitTarget(e)} disabled={working}>Forfeit</button>
-                  <button className="btn btn-primary btn-sm" onClick={() => update(e, { status: 'approved' }, 'Bonus approved', "Bonus wasn't approved")} disabled={working}>Approve</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => update(e, { action: 'approve' }, 'Bonus approved', "Bonus wasn't approved")} disabled={working}>Approve</button>
                 </span></td>
               </tr>
             ))}
@@ -66,7 +72,7 @@ export default function BonusReviewSection() {
       </div>
       {pager}
       {forfeitTarget && <ForfeitModal earning={forfeitTarget} working={working}
-        onConfirm={async (reason) => { if (await update(forfeitTarget, { status: 'forfeited', description: reason }, 'Bonus forfeited', "Bonus wasn't forfeited")) setForfeitTarget(null); }}
+        onConfirm={async (reason) => { if (await update(forfeitTarget, { action: 'forfeit', reason }, 'Bonus forfeited', "Bonus wasn't forfeited")) setForfeitTarget(null); }}
         onClose={() => setForfeitTarget(null)} />}
     </>
   );

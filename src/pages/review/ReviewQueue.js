@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Clock01Icon, TaskDone01Icon } from "@hugeicons/core-free-icons";
 import { gooeyToast as toast } from "goey-toast";
-import { sendEmail } from "../../lib/api";
+import { callApi, sendEmail } from "../../lib/api";
 import { describeWriteError } from "../../lib/db";
 import { supabase } from "../../supabaseClient";
 import Alert from "../../ui/Alert";
@@ -93,11 +93,11 @@ export default function ReviewQueue({ db, onRefresh, user }) {
     let followUp = "";
     if (value === "Approved") {
       if (campaign && !db.payments.find(p => p.submission_id === sub.id)) {
-        const { error: payErr } = await supabase.from("payments").insert({
-          creator_id: sub.creator_id, campaign_id: sub.campaign_id, submission_id: sub.id, videos_approved: 1,
-          amount_owed: Number(campaign.pay_per_video || 0), week_ending: new Date().toISOString().split("T")[0], status: "pending", payment_method: "Venmo",
-        });
-        if (payErr) followUp = `Its payment record wasn't created (${describeWriteError(payErr)}). Ask the owner to add it under Payouts.`;
+        try {
+          await callApi("/api/payments/record-approval", { body: { submissionId: sub.id } });
+        } catch (payErr) {
+          followUp = `Its payment record wasn't created (${payErr.message}). Ask the owner to add it under Payouts.`;
+        }
       }
       if (creator?.email) sendEmail("final_approved", { creatorEmail: creator.email, creatorName: creator.name, campaignName: campaign?.name || "your campaign", amount: campaign?.pay_per_video });
     }
