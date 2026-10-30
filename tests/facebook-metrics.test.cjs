@@ -30,9 +30,11 @@ const POST = {
 };
 
 let postStatus = 200;
+let pictureStatus = 200;
 global.fetch = async (url) => {
   const u = decodeURIComponent(String(url));
   const wantsVideo = /fields=[^&]*views/.test(u);
+  if (/\/111\?fields=picture&/.test(u)) return pictureStatus < 400 ? reply(200, { picture: 'https://cdn/thumb.jpg' }) : reply(pictureStatus, FIELD_ERROR);
   if (u.includes('/111?')) return wantsVideo ? reply(200, VIDEO) : reply(400, FIELD_ERROR);
   if (u.includes('/page1_222?')) return wantsVideo ? reply(400, FIELD_ERROR) : reply(postStatus, postStatus < 400 ? POST : FIELD_ERROR);
   return reply(404, FIELD_ERROR);
@@ -46,6 +48,12 @@ global.fetch = async (url) => {
   R(m.likes === 3, 'likes count every reaction on the post', String(m.likes));
   R(m.comments === 2 && m.shares === 4, 'comments and shares come from the post');
   R(r.data.id === '111' && r.data.from.id === 'page1', 'the video id and owner are kept');
+
+  R(m.thumbnailUrl === 'https://cdn/thumb.jpg', 'a reel reads its thumbnail', m.thumbnailUrl);
+
+  pictureStatus = 400;
+  r = await readFacebookObject('111', 'token');
+  R(r.resp.ok && shapeFacebook(r.data).views === 27 && shapeFacebook(r.data).thumbnailUrl === null, 'a missing thumbnail keeps the metrics');
 
   r = await readFacebookObject('page1_222', 'token');
   const p = shapeFacebook(r.data);

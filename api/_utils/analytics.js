@@ -401,6 +401,7 @@ function shapeFacebook(data) {
     comments: data?.comments?.summary?.total_count || 0,
     shares: data?.shares?.count || 0,
     saves: 0,
+    thumbnailUrl: data?.picture || null,
     raw: data,
   };
 }
@@ -419,7 +420,9 @@ async function readFacebookObject(objectId, accessToken) {
   if (!video.resp.ok) return readFacebookFields(objectId, FB_POST_FIELDS, accessToken);
   if (!video.data.post_id || !video.data.from?.id) return video;
   const post = await readFacebookFields(`${video.data.from.id}_${video.data.post_id}`, FB_POST_FIELDS, accessToken);
-  return post.resp.ok ? { resp: post.resp, data: { ...video.data, ...post.data, id: video.data.id } } : post;
+  if (!post.resp.ok) return post;
+  const { data: { picture } } = await readFacebookFields(objectId, 'picture', accessToken);
+  return { resp: post.resp, data: { ...video.data, ...post.data, id: video.data.id, picture } };
 }
 
 async function fetchFacebookMetrics(token, submission, ctx) {
@@ -665,6 +668,10 @@ async function syncSubmissions(supabase, submissions) {
               analytics_synced_at: new Date().toISOString(),
             })
             .eq('id', sub.id);
+
+          if (result.thumbnailUrl) {
+            await supabase.from('submissions').update({ thumbnail_url: result.thumbnailUrl }).eq('id', sub.id);
+          }
 
           if (platform === 'tiktok') {
             await supabase.rpc('apply_verified_views', {

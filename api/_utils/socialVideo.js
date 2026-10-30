@@ -124,12 +124,12 @@ async function lookupFacebook(token, videoId, account, resolvedUrl) {
       const { resp: r, data: d } = await readFacebookObject(objectId, page.access_token);
       if (!r.ok) continue;
       if (!d.from || d.from.id !== page.id) break;
-      const { views, likes, comments, shares } = shapeFacebook(d);
+      const { views, likes, comments, shares, thumbnailUrl } = shapeFacebook(d);
       return {
         id: objectId,
         url: resolvedUrl,
         title: null,
-        thumbnailUrl: null,
+        thumbnailUrl,
         durationSeconds: null,
         postedAt: d.created_time || null,
         views,
