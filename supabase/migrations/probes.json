@@ -127,5 +127,9 @@
     "label": "Client creator visibility reads status",
     "kind": "function_body", "signature": "public.client_may_see_creator(uuid)",
     "marker": "s.status     = 'Approved'"
+  },
+  "20261030100000_guard_profile_self_update.sql": {
+    "label": "Users can't change their own role",
+    "kind": "trigger", "table": "public.user_profiles", "trigger": "trg_guard_profile_self_update"
   }
 }
