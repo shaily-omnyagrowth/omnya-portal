@@ -1927,9 +1927,7 @@ CREATE TABLE public.video_analytics (
     views bigint DEFAULT 0,
     likes bigint DEFAULT 0,
     comments bigint DEFAULT 0,
-    shares bigint DEFAULT 0,
     reach bigint DEFAULT 0,
-    saves bigint DEFAULT 0,
     watch_time numeric,
     pulled_at timestamp with time zone DEFAULT now(),
     user_id uuid,
@@ -1954,7 +1952,6 @@ CREATE VIEW public.client_safe_analytics WITH (security_invoker='true') AS
     va.views,
     va.likes,
     va.comments,
-    va.shares,
     va.reach,
     va.engagement_rate,
     va.pulled_at
@@ -1997,8 +1994,6 @@ CREATE TABLE public.submissions (
     views_1m bigint,
     likes bigint,
     comments bigint,
-    shares bigint,
-    saves bigint,
     payment_status text DEFAULT 'Unpaid'::text,
     ai_insights jsonb,
     created_at timestamp with time zone DEFAULT now(),
@@ -2136,7 +2131,6 @@ CREATE TABLE public.creator_videos (
     view_count bigint DEFAULT 0 NOT NULL,
     like_count bigint DEFAULT 0 NOT NULL,
     comment_count bigint DEFAULT 0 NOT NULL,
-    share_count bigint DEFAULT 0 NOT NULL,
     duration_seconds integer,
     sync_status text DEFAULT 'synced'::text NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -2326,7 +2320,6 @@ CREATE TABLE public.video_metrics (
     view_count bigint DEFAULT 0 NOT NULL,
     like_count bigint DEFAULT 0 NOT NULL,
     comment_count bigint DEFAULT 0 NOT NULL,
-    share_count bigint DEFAULT 0 NOT NULL,
     engagement_rate numeric,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );

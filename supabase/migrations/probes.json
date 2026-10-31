@@ -8,5 +8,9 @@
     "kind": "trigger",
     "table": "submissions",
     "trigger": "trg_archive_replaced_revision"
+  },
+  "20261031090000_drop_shares_and_saves.sql": {
+    "kind": "manual",
+    "why": "It only drops columns, so it leaves no new object to probe."
   }
 }
