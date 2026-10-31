@@ -16,7 +16,7 @@ const rate = (m) => {
   if (Number(m.engagement_rate) > 0) return `${Number(m.engagement_rate).toFixed(2)}%`;
   const v = Number(m.views) || 0;
   if (!v) return EMPTY;
-  const e = ["likes", "comments", "shares", "saves"].reduce((t, k) => t + (Number(m[k]) || 0), 0);
+  const e = ["likes", "comments"].reduce((t, k) => t + (Number(m[k]) || 0), 0);
   return `${((e / v) * 100).toFixed(2)}%`;
 };
 
@@ -45,7 +45,7 @@ export default function VideoAnalytics({ campaignId = null, isClient = true }) {
   useEffect(() => { load(); }, [load]);
 
   const shown = useMemo(() => (metrics || []).filter(m => platform === "all" || (m.platform || "").toLowerCase() === platform), [metrics, platform]);
-  const totals = useMemo(() => shown.reduce((t, m) => ({ views: t.views + (Number(m.views) || 0), likes: t.likes + (Number(m.likes) || 0), comments: t.comments + (Number(m.comments) || 0), shares: t.shares + (Number(m.shares) || 0) + (Number(m.saves) || 0) }), { views: 0, likes: 0, comments: 0, shares: 0 }), [shown]);
+  const totals = useMemo(() => shown.reduce((t, m) => ({ views: t.views + (Number(m.views) || 0), likes: t.likes + (Number(m.likes) || 0), comments: t.comments + (Number(m.comments) || 0) }), { views: 0, likes: 0, comments: 0 }), [shown]);
   const { rows: page, pager } = usePagination(shown, { label: "videos" });
 
   const refresh = async () => {
@@ -86,7 +86,6 @@ export default function VideoAnalytics({ campaignId = null, isClient = true }) {
         <div className="stat-card stat-highlight"><div className="stat-label">Views</div><div className="stat-value">{fmtCompactNum(totals.views)}</div><div className="stat-sub">{shown.length} {shown.length === 1 ? "video" : "videos"}</div></div>
         <div className="stat-card"><div className="stat-label">Likes</div><div className="stat-value">{fmtCompactNum(totals.likes)}</div></div>
         <div className="stat-card"><div className="stat-label">Comments</div><div className="stat-value">{fmtCompactNum(totals.comments)}</div></div>
-        <div className="stat-card"><div className="stat-label">Shares and saves</div><div className="stat-value">{fmtCompactNum(totals.shares)}</div></div>
       </div>}
       {shown.length === 0 ? (
         !error && <div className="card"><EmptyState icon={ChartBarLineIcon} title={metrics.length ? "No videos on this platform" : "No metrics yet"}

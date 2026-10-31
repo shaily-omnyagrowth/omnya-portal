@@ -130,7 +130,7 @@ const submission = over => Object.assign({
 const okJson = body => ({ ok: true, status: 200, json: async () => body });
 const tiktokVideo = { data: { videos: [{
   id: '7300000000000000000',
-  view_count: 12000, like_count: 800, comment_count: 40, share_count: 25,
+  view_count: 12000, like_count: 800, comment_count: 40,
 }] } };
 
 // ---------------------------------------------------------------------------
@@ -323,8 +323,6 @@ async function run() {
         return okJson({ data: [
           { name: 'views', values: [{ value: 4321 }] },
           { name: 'reach', values: [{ value: 999 }] },
-          { name: 'saved', values: [{ value: 7 }] },
-          { name: 'shares', values: [{ value: 3 }] },
         ] });
       }
       return { ok: false, status: 400, json: async () => ({ error: { code: 100, message: 'unexpected ' + u } }) };
@@ -344,9 +342,13 @@ async function run() {
       `updated=${summary.updated} errors=${JSON.stringify(summary.errors)}`);
     R(seenUrls.some(u => u.includes('after=page2')),
       'a post older than the first page of media is still found');
-    R(igRow && igRow.row.views === 4321 && igRow.row.reach === 999 && igRow.row.saves === 7 && igRow.row.shares === 3,
-      "views, reach, saves and shares come from the 'views'-era insights metrics",
-      igRow ? `views=${igRow.row.views} reach=${igRow.row.reach} saves=${igRow.row.saves} shares=${igRow.row.shares}` : '');
+    R(igRow && igRow.row.views === 4321 && igRow.row.reach === 999,
+      "views and reach come from the 'views'-era insights metrics",
+      igRow ? `views=${igRow.row.views} reach=${igRow.row.reach}` : '');
+    R(analytics.calculateEngagementRate({ views: 200, likes: 6, comments: 4, shares: 50, saves: 50 }) === 5,
+      'engagement rate only counts likes and comments');
+    R(igRow && !('shares' in igRow.row) && !('saves' in igRow.row) && seenUrls.every(u => !/metric=[^&]*(saved|shares)/.test(u)),
+      'shares and saves are neither requested nor stored');
     R(seenUrls.every(u => !u.includes('impressions')),
       "the retired 'impressions' metric is never requested");
 

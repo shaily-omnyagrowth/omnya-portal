@@ -67,7 +67,6 @@ export default function UGCDashboardView({ campaigns = [], submissions = [], ana
         <div className="stat-card stat-highlight"><div className="stat-label">Views</div><div className="stat-value">{fmtCompactNum(totals.views)}</div><div className="stat-sub">{fmtNum(totals.views)} in total</div></div>
         <div className="stat-card"><div className="stat-label">Videos delivered</div><div className="stat-value">{fmtNum(totals.videos)}</div><div className="stat-sub">{fmtCompactNum(totals.avg)} views each on average</div></div>
         <div className="stat-card"><div className="stat-label">Engagement rate</div><div className="stat-value">{fmtPct(totals.er)}</div><div className="stat-sub">{fmtCompactNum(totals.likes)} likes · {fmtCompactNum(totals.comments)} comments</div></div>
-        <div className="stat-card"><div className="stat-label">Shares and saves</div><div className="stat-value">{fmtCompactNum(totals.shares + totals.saves)}</div><div className="stat-sub">{fmtCompactNum(totals.shares)} shares · {fmtCompactNum(totals.saves)} saves</div></div>
       </div>
 
       {posts.length === 0 ? (

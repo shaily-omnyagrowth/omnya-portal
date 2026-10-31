@@ -33,9 +33,9 @@ function isRateLimited(userId) {
 }
 
 // ─── Engagement rate ─────────────────────────────────────────────────────────
-function calcEngagement({ views, likes, comments, shares }) {
+function calcEngagement({ views, likes, comments }) {
   if (!views || views === 0) return 0;
-  return parseFloat((((likes + comments + shares) / views) * 100).toFixed(2));
+  return parseFloat((((likes + comments) / views) * 100).toFixed(2));
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -142,7 +142,6 @@ module.exports = async (req, res) => {
             view_count:        v.view_count    ?? 0,
             like_count:        v.like_count    ?? 0,
             comment_count:     v.comment_count ?? 0,
-            share_count:       v.share_count   ?? 0,
             duration_seconds:  v.duration      ?? null,
             sync_status:       'synced',
             updated_at:        new Date().toISOString(),
@@ -165,7 +164,6 @@ module.exports = async (req, res) => {
               views:    v.view_count    ?? 0,
               likes:    v.like_count    ?? 0,
               comments: v.comment_count ?? 0,
-              shares:   v.share_count   ?? 0,
             });
 
             await supabase.from('video_metrics').insert({
@@ -174,7 +172,6 @@ module.exports = async (req, res) => {
               view_count:      v.view_count    ?? 0,
               like_count:      v.like_count    ?? 0,
               comment_count:   v.comment_count ?? 0,
-              share_count:     v.share_count   ?? 0,
               engagement_rate: engagement,
             });
 

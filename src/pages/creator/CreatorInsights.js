@@ -49,7 +49,7 @@ export default function CreatorInsights({ user, db, onNavigate, onRefresh }) {
   }
 
   const totalViews = videos.reduce((a, v) => a + v._views, 0);
-  const totals = videos.reduce((a, v) => ({ likes: a.likes + Number(v.likes || 0), comments: a.comments + Number(v.comments || 0), shares: a.shares + Number(v.shares || 0) }), { likes: 0, comments: 0, shares: 0 });
+  const totals = videos.reduce((a, v) => ({ likes: a.likes + Number(v.likes || 0), comments: a.comments + Number(v.comments || 0) }), { likes: 0, comments: 0 });
   const best = videos.reduce((m, v) => (v._views > (m?._views || 0) ? v : m), null);
 
   const pick = (id) => {
@@ -63,7 +63,7 @@ export default function CreatorInsights({ user, db, onNavigate, onRefresh }) {
       <div className="stats-grid">
         <div className="stat-card"><div className="stat-label">Total views</div><div className="stat-value">{fmtCompactNum(totalViews)}</div><div className="stat-sub">across {videos.length} live {videos.length === 1 ? "video" : "videos"}</div></div>
         <div className="stat-card"><div className="stat-label">Average per video</div><div className="stat-value">{fmtCompactNum(totalViews / videos.length)}</div></div>
-        <div className="stat-card"><div className="stat-label">Engagement rate</div><div className="stat-value">{fmtPct(engagementRate({ views: totalViews, ...totals }))}</div><div className="stat-sub">likes, comments and shares per view</div></div>
+        <div className="stat-card"><div className="stat-label">Engagement rate</div><div className="stat-value">{fmtPct(engagementRate({ views: totalViews, ...totals }))}</div><div className="stat-sub">likes and comments per view</div></div>
         <div className="stat-card"><div className="stat-label">Best video</div><div className="stat-value">{fmtCompactNum(best?._views)}</div><div className="stat-sub truncate">{campaignName(best?.campaign_id) || "Campaign"}</div></div>
       </div>
 

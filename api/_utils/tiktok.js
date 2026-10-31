@@ -64,7 +64,7 @@ async function fetchVideos(accessToken, { cursor = 0, maxCount = 20 } = {}) {
   const fields = [
     'id', 'title', 'video_description', 'duration',
     'create_time', 'share_url', 'cover_image_url',
-    'view_count', 'like_count', 'comment_count', 'share_count',
+    'view_count', 'like_count', 'comment_count',
   ].join(',');
 
   const resp = await fetch(`${API_BASE}/video/list/?fields=${fields}`, {

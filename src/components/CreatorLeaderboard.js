@@ -17,8 +17,8 @@ export default function CreatorLeaderboard({ creators = [], submissions = [], an
 
   const rows = useMemo(() => creators.map(c => {
     const subs = submissions.filter(s => s.creator_id === c.id && LIVE.has(s.status));
-    const m = subs.map(s => { const a = byId[s.id]; return { views: viewsOf(s, a), likes: Number(a?.likes ?? s.likes ?? 0), comments: Number(a?.comments ?? s.comments ?? 0), shares: Number(a?.shares ?? s.shares ?? 0) }; });
-    const t = m.reduce((x, y) => ({ views: x.views + y.views, likes: x.likes + y.likes, comments: x.comments + y.comments, shares: x.shares + y.shares }), { views: 0, likes: 0, comments: 0, shares: 0 });
+    const m = subs.map(s => { const a = byId[s.id]; return { views: viewsOf(s, a), likes: Number(a?.likes ?? s.likes ?? 0), comments: Number(a?.comments ?? s.comments ?? 0) }; });
+    const t = m.reduce((x, y) => ({ views: x.views + y.views, likes: x.likes + y.likes, comments: x.comments + y.comments }), { views: 0, likes: 0, comments: 0 });
     const avg = subs.length ? Math.round(t.views / subs.length) : 0;
     return { ...c, videoCount: subs.length, totalViews: t.views, avgViews: avg, er: engagementRate(t), breakouts: m.filter(x => isBreakoutVideo(x.views, avg)).length };
   }).filter(c => c.videoCount > 0), [creators, submissions, byId]);

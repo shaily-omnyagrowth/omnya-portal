@@ -11,13 +11,11 @@ export function normalizePosts({ submissions, analytics, creators, campaigns }) 
     const views = viewsOf(s, a);
     const likes = Number(a?.likes ?? s.likes ?? 0);
     const comments = Number(a?.comments ?? s.comments ?? 0);
-    const shares = Number(a?.shares ?? s.shares ?? 0);
-    const saves = Number(a?.saves ?? s.saves ?? 0);
     const creator = (creators || []).find(c => c.id === s.creator_id);
     const campaign = (campaigns || []).find(c => c.id === s.campaign_id);
     return {
-      ...s, analytics: a, views, likes, comments, shares, saves,
-      engRate: engagementRate({ views, likes, comments, shares }),
+      ...s, analytics: a, views, likes, comments,
+      engRate: engagementRate({ views, likes, comments }),
       creatorName: creator?.name || s.creator_name || "Creator",
       campaignName: campaign?.name || "Campaign",
       platformKey: platformKey(a?.platform || s.platform || campaign?.format) || "other",

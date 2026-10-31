@@ -1,6 +1,6 @@
 // tests/facebook-metrics.test.cjs
 //
-// Facebook views come from the video, reactions and shares from its post.
+// Facebook views come from the video, reactions from its post.
 //
 //   node tests/facebook-metrics.test.cjs
 
@@ -26,7 +26,7 @@ const VIDEO = {
 };
 const POST = {
   id: 'page1_222', from: { id: 'page1' }, created_time: '2026-10-30T14:52:46+0000',
-  reactions: { summary: { total_count: 3 } }, comments: { summary: { total_count: 2 } }, shares: { count: 4 },
+  reactions: { summary: { total_count: 3 } }, comments: { summary: { total_count: 2 } },
 };
 
 let postStatus = 200;
@@ -46,7 +46,7 @@ global.fetch = async (url) => {
   const m = shapeFacebook(r.data);
   R(r.resp.ok && m.views === 27, 'a reel reads views from the video', String(m.views));
   R(m.likes === 3, 'likes count every reaction on the post', String(m.likes));
-  R(m.comments === 2 && m.shares === 4, 'comments and shares come from the post');
+  R(m.comments === 2, 'comments come from the post');
   R(r.data.id === '111' && r.data.from.id === 'page1', 'the video id and owner are kept');
 
   R(m.thumbnailUrl === 'https://cdn/thumb.jpg', 'a reel reads its thumbnail', m.thumbnailUrl);

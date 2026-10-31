@@ -34,7 +34,6 @@ export default function useDashboardData({ campaigns, submissions, analytics, cr
     return {
       ...s,
       views: viewsOf(s, a), likes: Number(a?.likes ?? s.likes ?? 0), comments: Number(a?.comments ?? s.comments ?? 0),
-      shares: Number(a?.shares ?? s.shares ?? 0), saves: Number(a?.saves ?? s.saves ?? 0),
       platformKey: platformKey(a?.platform || s.platform || campaign?.format) || 'other',
       date: new Date(s.posted_at || s.approved_date || s.created_at),
       creatorName: s.creator_name || (creators || []).find(c => c.id === s.creator_id)?.name || 'Creator',
@@ -51,7 +50,7 @@ export default function useDashboardData({ campaigns, submissions, analytics, cr
     inRange(p.date, filters.range, filters.from, filters.to)), [posts, filters]);
 
   const totals = useMemo(() => {
-    const t = shown.reduce((a, p) => ({ views: a.views + p.views, likes: a.likes + p.likes, comments: a.comments + p.comments, shares: a.shares + p.shares, saves: a.saves + p.saves }), { views: 0, likes: 0, comments: 0, shares: 0, saves: 0 });
+    const t = shown.reduce((a, p) => ({ views: a.views + p.views, likes: a.likes + p.likes, comments: a.comments + p.comments }), { views: 0, likes: 0, comments: 0 });
     return { ...t, videos: shown.length, er: engagementRate(t), avg: shown.length ? t.views / shown.length : 0 };
   }, [shown]);
 

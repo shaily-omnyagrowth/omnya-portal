@@ -34,9 +34,7 @@ export default function VideoMetricsPanel({ sub, analytics, campaignName }) {
   const views = viewsOf(sub, analytics);
   const likes = Number(analytics?.likes ?? sub.likes ?? 0);
   const comments = Number(analytics?.comments ?? sub.comments ?? 0);
-  const shares = Number(analytics?.shares ?? sub.shares ?? 0);
-  const saves = Number(analytics?.saves ?? sub.saves ?? 0);
-  const er = engagementRate({ views, likes, comments, shares });
+  const er = engagementRate({ views, likes, comments });
   const link = sub.posted_link || sub.posted_url;
   const p = platformMeta(sub.platform);
 
@@ -50,8 +48,7 @@ export default function VideoMetricsPanel({ sub, analytics, campaignName }) {
   const fromSnapshots = snapshots && snapshots.length > 1;
 
   const tiles = [
-    ["Views", fmtNum(views)], ["Likes", fmtNum(likes)], ["Comments", fmtNum(comments)],
-    ["Shares", fmtNum(shares)], ["Saves", fmtNum(saves)], ["Engagement", fmtPct(er)],
+    ["Views", fmtNum(views)], ["Likes", fmtNum(likes)], ["Comments", fmtNum(comments)], ["Engagement", fmtPct(er)],
   ];
 
   return (

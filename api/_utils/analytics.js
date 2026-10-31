@@ -169,10 +169,10 @@ async function resolveShortLink(url) {
 // Engagement rate
 // -----------------------------------------------------------------------------
 
-function calculateEngagementRate({ views, likes, comments, shares, saves }) {
+function calculateEngagementRate({ views, likes, comments }) {
   const v = Number(views) || 0;
   if (v <= 0) return 0;
-  const engagements = (Number(likes) || 0) + (Number(comments) || 0) + (Number(shares) || 0) + (Number(saves) || 0);
+  const engagements = (Number(likes) || 0) + (Number(comments) || 0);
   return Math.round((engagements / v) * 10000) / 100; // percent with 2 decimals
 }
 
@@ -227,7 +227,7 @@ function notFound(error) {
 
 async function fetchTikTokMetrics(token, submission) {
   const resp = await fetch(
-    'https://open.tiktokapis.com/v2/video/query/?fields=id,title,cover_image_url,create_time,share_url,duration,view_count,like_count,comment_count,share_count',
+    'https://open.tiktokapis.com/v2/video/query/?fields=id,title,cover_image_url,create_time,share_url,duration,view_count,like_count,comment_count',
     {
       method: 'POST',
       headers: {
@@ -249,8 +249,6 @@ async function fetchTikTokMetrics(token, submission) {
     views: video.view_count || 0,
     likes: video.like_count || 0,
     comments: video.comment_count || 0,
-    shares: video.share_count || 0,
-    saves: 0,
     raw: video,
   };
 }
@@ -269,8 +267,6 @@ async function fetchYouTubeMetrics(token, submission) {
     views: Number(s.viewCount || 0),
     likes: Number(s.likeCount || 0),
     comments: Number(s.commentCount || 0),
-    shares: 0,
-    saves: 0,
     raw: s,
   };
 }
@@ -305,10 +301,9 @@ async function findMediaByShortcode(ctx, firstPageUrl, shortcode) {
 
 // 'impressions' and 'plays' were retired on 2025-04-21 in favour of 'views'.
 // Asking for a retired metric fails the whole request, which is why every
-// Instagram post was syncing with 0 views and 0 reach. 'saved' and 'shares'
-// are not valid on every media type, and one invalid metric fails the request
-// too, so narrow the set rather than lose all of it.
-const IG_METRIC_SETS = ['views,reach,saved,shares', 'views,reach', 'reach'];
+// Instagram post was syncing with 0 views and 0 reach. One invalid metric fails
+// the request too, so narrow the set rather than lose all of it.
+const IG_METRIC_SETS = ['views,reach', 'reach'];
 
 async function fetchInstagramInsights(insightsUrl, accessToken) {
   for (const metrics of IG_METRIC_SETS) {
@@ -333,8 +328,6 @@ function shapeInstagram(match, insights) {
     views: insights.views || 0,
     likes: match.like_count || 0,
     comments: match.comments_count || 0,
-    shares: insights.shares || 0,
-    saves: insights.saved || 0,
     reach: insights.reach || 0,
     raw: { ...match, insights },
   };
@@ -391,7 +384,7 @@ async function fetchInstagramMetrics(token, submission, ctx) {
 // ── Facebook ─────────────────────────────────────────────────────────────────
 
 const FB_VIDEO_FIELDS = 'id,from,created_time,views,post_id,likes.summary(true),comments.summary(true)';
-const FB_POST_FIELDS = 'id,from,created_time,reactions.summary(true),comments.summary(true),shares';
+const FB_POST_FIELDS = 'id,from,created_time,reactions.summary(true),comments.summary(true)';
 const FB_MAX_PAGES = 25;
 
 function shapeFacebook(data) {
@@ -399,8 +392,6 @@ function shapeFacebook(data) {
     views: data?.views || 0,
     likes: data?.reactions?.summary?.total_count ?? data?.likes?.summary?.total_count ?? 0,
     comments: data?.comments?.summary?.total_count || 0,
-    shares: data?.shares?.count || 0,
-    saves: 0,
     thumbnailUrl: data?.picture || null,
     raw: data,
   };
@@ -414,7 +405,7 @@ async function readFacebookFields(objectId, fields, accessToken) {
   return { resp, data };
 }
 
-// Views live on the video; reactions and shares live on its post.
+// Views live on the video; reactions live on its post.
 async function readFacebookObject(objectId, accessToken) {
   const video = await readFacebookFields(objectId, FB_VIDEO_FIELDS, accessToken);
   if (!video.resp.ok) return readFacebookFields(objectId, FB_POST_FIELDS, accessToken);
@@ -641,8 +632,6 @@ async function syncSubmissions(supabase, submissions) {
         views: result.views || 0,
         likes: result.likes || 0,
         comments: result.comments || 0,
-        shares: result.shares || 0,
-        saves: result.saves || 0,
         reach: result.reach || 0,
         engagement_rate: engagementRate,
         raw_metrics: result.raw || {},
@@ -662,8 +651,6 @@ async function syncSubmissions(supabase, submissions) {
             .update({
               likes: result.likes || 0,
               comments: result.comments || 0,
-              shares: result.shares || 0,
-              saves: result.saves || 0,
               views_24h: result.views || 0,
               analytics_synced_at: new Date().toISOString(),
             })

@@ -4,8 +4,8 @@ import PostCard from './posts/PostCard';
 
 const shape = (p) => ({
   ...p,
-  views: Number(p.views || 0), likes: Number(p.likes || 0), comments: Number(p.comments || 0), shares: Number(p.shares || 0),
-  engRate: p.engRate ?? engagementRate({ views: Number(p.views || 0), likes: p.likes, comments: p.comments, shares: p.shares }),
+  views: Number(p.views || 0), likes: Number(p.likes || 0), comments: Number(p.comments || 0),
+  engRate: p.engRate ?? engagementRate({ views: Number(p.views || 0), likes: p.likes, comments: p.comments }),
   platformKey: p.platformKey || platformKey(p.platform) || 'other',
   postUrl: p.postUrl || p.posted_link || p.posted_url || p.video_url || null,
   date: p.date || new Date(p.posted_at || p.approved_date || p.created_at || Date.now()),

@@ -43,7 +43,6 @@ async function lookupTikTok(token, videoId, account, resolvedUrl) {
     views: num(m.views),
     likes: num(m.likes),
     comments: num(m.comments),
-    shares: num(m.shares),
   };
 }
 
@@ -82,7 +81,6 @@ async function lookupYouTube(token, videoId, account, resolvedUrl) {
     views: num(st.viewCount),
     likes: num(st.likeCount),
     comments: num(st.commentCount),
-    shares: 0,
   };
 }
 
@@ -105,7 +103,6 @@ async function lookupInstagram(token, videoId, account, resolvedUrl) {
     views: num(m.views),
     likes: num(m.likes),
     comments: num(m.comments),
-    shares: num(m.shares),
   };
 }
 
@@ -124,7 +121,7 @@ async function lookupFacebook(token, videoId, account, resolvedUrl) {
       const { resp: r, data: d } = await readFacebookObject(objectId, page.access_token);
       if (!r.ok) continue;
       if (!d.from || d.from.id !== page.id) break;
-      const { views, likes, comments, shares, thumbnailUrl } = shapeFacebook(d);
+      const { views, likes, comments, thumbnailUrl } = shapeFacebook(d);
       return {
         id: objectId,
         url: resolvedUrl,
@@ -135,7 +132,6 @@ async function lookupFacebook(token, videoId, account, resolvedUrl) {
         views,
         likes,
         comments,
-        shares,
       };
     }
   }
@@ -183,8 +179,7 @@ async function fetchOwnVideo(supabase, userId, url) {
       platform,
       ...v,
       authorHandle: normalizeHandle(account.username) || null,
-      saves: 0,
-      raw: { video_id: v.id, source: 'oauth', statistics: { views: v.views, likes: v.likes, comments: v.comments, shares: v.shares } },
+      raw: { video_id: v.id, source: 'oauth', statistics: { views: v.views, likes: v.likes, comments: v.comments } },
     },
   };
 }

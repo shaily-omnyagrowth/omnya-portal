@@ -157,5 +157,5 @@ export const isBreakoutVideo = (views, creatorAvgViews) => {
 export const viewsOf = (sub, analytics) =>
   Number(analytics?.views || sub?.views_1m || sub?.views_2w || sub?.views_1w || sub?.views_72h || sub?.views_24h || sub?.views || 0);
 
-export const engagementRate = ({ views, likes = 0, comments = 0, shares = 0 }) =>
-  views > 0 ? ((Number(likes) + Number(comments) + Number(shares)) / views) * 100 : 0;
+export const engagementRate = ({ views, likes = 0, comments = 0 }) =>
+  views > 0 ? ((Number(likes) + Number(comments)) / views) * 100 : 0;

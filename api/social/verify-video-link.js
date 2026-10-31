@@ -160,8 +160,6 @@ module.exports = async (req, res) => {
       posted_url: fetchResult.resolvedUrl,
       likes: video.likes || 0,
       comments: video.comments || 0,
-      shares: video.shares || 0,
-      saves: video.saves || 0,
       views_24h: video.views || 0,
       analytics_synced_at: nowIso,
     };
@@ -200,7 +198,6 @@ module.exports = async (req, res) => {
         view_count: video.views,
         like_count: video.likes,
         comment_count: video.comments,
-        share_count: video.shares,
         raw_metrics: video.raw,
         pulled_at: nowIso,
       }, { onConflict: 'submission_id' });

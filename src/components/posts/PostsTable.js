@@ -13,7 +13,7 @@ export default function PostsTable({ posts, onSelect }) {
         <thead>
           <tr>
             <th>Video</th><th>Platform</th><th className="num">Views</th><th className="num">Likes</th>
-            <th className="num">Comments</th><th className="num">Shares</th><th className="num">Engagement</th><th>Posted</th><th><span className="sr-only">Link</span></th>
+            <th className="num">Comments</th><th className="num">Engagement</th><th>Posted</th><th><span className="sr-only">Link</span></th>
           </tr>
         </thead>
         <tbody>
@@ -34,7 +34,6 @@ export default function PostsTable({ posts, onSelect }) {
                 <td className="num fw-600" style={{ color: "var(--ink)" }}>{fmtCompactNum(post.views)}</td>
                 <td className="num">{fmtCompactNum(post.likes)}</td>
                 <td className="num">{fmtCompactNum(post.comments)}</td>
-                <td className="num">{fmtCompactNum(post.shares)}</td>
                 <td className="num">{fmtPct(post.engRate)}</td>
                 <td style={{ whiteSpace: "nowrap" }}>{fmtDate(post.date)}</td>
                 <td className="num">

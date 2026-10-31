@@ -18,17 +18,17 @@ export default function CampaignDetail({ campaign, clientProfile, submissions, a
 
   const posts = subs.map(s => {
     const a = latest[s.id];
-    const likes = Number(a?.likes ?? s.likes ?? 0), comments = Number(a?.comments ?? s.comments ?? 0), shares = Number(a?.shares ?? s.shares ?? 0);
+    const likes = Number(a?.likes ?? s.likes ?? 0), comments = Number(a?.comments ?? s.comments ?? 0);
     const views = viewsOf(s, a);
     return {
-      ...s, views, likes, comments, shares, engRate: views ? ((likes + comments + shares) / views) * 100 : null,
+      ...s, views, likes, comments, engRate: views ? ((likes + comments) / views) * 100 : null,
       platformKey: platformKey(s.platform), date: s.created_at, postUrl: s.posted_link || s.posted_url || null,
       creatorName: s.creator_name || creators.find(c => c.id === s.creator_id)?.name || "Creator", campaignName: campaign.name,
     };
   }).sort((a, b) => b.views - a.views);
 
   const views = posts.reduce((t, p) => t + p.views, 0);
-  const engaged = posts.reduce((t, p) => t + p.likes + p.comments + p.shares, 0);
+  const engaged = posts.reduce((t, p) => t + p.likes + p.comments, 0);
   const needed = campaign.videos_needed || 10;
   const pacing = calcPacing({ startDate: campaign.start_date || campaign.created_at, deadline: campaign.deadline, videosNeeded: needed, approvedCount: subs.length });
   // CPM uses the client's own budget (their clients row); with no budget or no views there is no CPM.
@@ -61,7 +61,7 @@ export default function CampaignDetail({ campaign, clientProfile, submissions, a
 
       <div className="stats-grid" style={{ marginBottom: 0 }}>
         <div className="stat-card stat-highlight"><div className="stat-label">Views</div><div className="stat-value">{fmtCompactNum(views)}</div><div className="stat-sub">{fmtNum(views)} verified</div></div>
-        <div className="stat-card"><div className="stat-label">Engagements</div><div className="stat-value">{fmtCompactNum(engaged)}</div><div className="stat-sub">likes, comments and shares</div></div>
+        <div className="stat-card"><div className="stat-label">Engagements</div><div className="stat-value">{fmtCompactNum(engaged)}</div><div className="stat-sub">likes and comments</div></div>
         <div className="stat-card"><div className="stat-label">Engagement rate</div><div className="stat-value">{views ? `${((engaged / views) * 100).toFixed(1)}%` : EMPTY}</div><div className="stat-sub">engagements per view</div></div>
         {campaign.show_client_cpm && <div className="stat-card"><div className="stat-label" data-tip="Your budget divided by verified views, per thousand">Cost per 1,000 views</div><div className="stat-value">{cpm != null ? `$${cpm.toFixed(2)}` : EMPTY}</div><div className="stat-sub">{views ? `on ${fmtCompactNum(views)} views` : "waiting for first views"}</div></div>}
       </div>

@@ -83,7 +83,6 @@ export default function SharedCampaignReport() {
           <div className="stat-card stat-highlight"><div className="stat-label">Views</div><div className="stat-value">{fmtCompactNum(stats.totalViews)}</div><div className="stat-sub">{fmtNum(stats.totalViews)} verified</div></div>
           <div className="stat-card"><div className="stat-label">Engagement rate</div><div className="stat-value">{stats.engagementRate}%</div><div className="stat-sub">{fmtCompactNum(stats.totalEngagements)} interactions</div></div>
           <div className="stat-card"><div className="stat-label">Likes and comments</div><div className="stat-value">{fmtCompactNum(stats.totalLikes + stats.totalComments)}</div><div className="stat-sub">{fmtCompactNum(stats.totalLikes)} likes · {fmtCompactNum(stats.totalComments)} comments</div></div>
-          <div className="stat-card"><div className="stat-label">Shares and saves</div><div className="stat-value">{fmtCompactNum(stats.totalShares + stats.totalSaves)}</div><div className="stat-sub">{fmtCompactNum(stats.totalShares)} shares · {fmtCompactNum(stats.totalSaves)} saves</div></div>
         </div>
 
         <section className="section">

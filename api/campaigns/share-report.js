@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
   // 3. Fetch Approved Submissions
   const { data: rawSubmissions, error: sErr } = await supabase
     .from('submissions')
-    .select('id, creator_id, platform, posted_link, status, approved_date, created_at, views_24h, views_72h, views_1w, views_2w, views_1m, likes, comments, shares, saves')
+    .select('id, creator_id, platform, posted_link, status, approved_date, created_at, views_24h, views_72h, views_1w, views_2w, views_1m, likes, comments')
     .eq('campaign_id', campaign.id)
     .eq('status', 'Approved');
 
@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
   if (submissionIds.length > 0) {
     const { data: analyticsList } = await supabase
       .from('video_analytics')
-      .select('submission_id, platform, video_id, views, likes, comments, shares, saves, watch_time, pulled_at')
+      .select('submission_id, platform, video_id, views, likes, comments, watch_time, pulled_at')
       .in('submission_id', submissionIds);
 
     (analyticsList || []).forEach(a => {
@@ -89,24 +89,18 @@ module.exports = async (req, res) => {
   let totalViews = 0;
   let totalLikes = 0;
   let totalComments = 0;
-  let totalShares = 0;
-  let totalSaves = 0;
 
   const normalizedPosts = submissions.map(s => {
     const a = analyticsMap[s.id];
     const views = Number(a?.views || s.views_1w || s.views_72h || s.views_24h || 0);
     const likes = Number(a?.likes || s.likes || 0);
     const comments = Number(a?.comments || s.comments || 0);
-    const shares = Number(a?.shares || s.shares || 0);
-    const saves = Number(a?.saves || s.saves || 0);
-    const engagements = likes + comments + shares + saves;
+    const engagements = likes + comments;
     const engagementRate = views > 0 ? ((engagements / views) * 100).toFixed(2) : '0.00';
 
     totalViews += views;
     totalLikes += likes;
     totalComments += comments;
-    totalShares += shares;
-    totalSaves += saves;
 
     const creator = creatorMap[s.creator_id] || { name: 'Creator' };
 
@@ -118,8 +112,6 @@ module.exports = async (req, res) => {
       views,
       likes,
       comments,
-      shares,
-      saves,
       engagements,
       engagementRate,
       creatorName: creator.name,
@@ -133,7 +125,7 @@ module.exports = async (req, res) => {
   // Sort posts by views descending
   normalizedPosts.sort((a, b) => b.views - a.views);
 
-  const totalEngagements = totalLikes + totalComments + totalShares + totalSaves;
+  const totalEngagements = totalLikes + totalComments;
   const overallEngagementRate = totalViews > 0 ? ((totalEngagements / totalViews) * 100).toFixed(2) : '0.00';
 
   // 7. Calculate Timeline & Week X Tracking
@@ -196,8 +188,6 @@ module.exports = async (req, res) => {
       totalViews,
       totalLikes,
       totalComments,
-      totalShares,
-      totalSaves,
       totalEngagements,
       engagementRate: overallEngagementRate,
       avgViewsPerPost: deliveredCount > 0 ? Math.round(totalViews / deliveredCount) : 0
